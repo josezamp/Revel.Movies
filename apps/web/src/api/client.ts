@@ -19,6 +19,9 @@ export interface Display {
   name: string
   status: DisplayStatus
   lastSeenAt: string | null
+  clockOffsetMs: number | null
+  roundTripMs: number | null
+  lastClockSyncAt: string | null
   createdAt: string
 }
 
@@ -69,6 +72,21 @@ export interface Playlist {
   items: PlaylistItem[]
   createdAt: string
   updatedAt: string
+}
+
+export interface CommandAcknowledgement {
+  commandId: string
+  commandType: string
+  status: string
+  detail: string | null
+  clientTimestamp: string | null
+  serverReceivedAt: string
+}
+
+export interface PlayerDiagnostics {
+  serverTime: string
+  display: Display
+  acknowledgements: CommandAcknowledgement[]
 }
 
 export type PlaybackTargetType = 'display' | 'group'
@@ -211,6 +229,12 @@ export async function validateDeviceToken(deviceToken: string): Promise<boolean>
   if (response.status === 401) return false
   if (!response.ok) throw await responseError(response)
   return true
+}
+
+export async function getPlayerDiagnostics(deviceToken: string): Promise<PlayerDiagnostics> {
+  return requestJson('/api/player/diagnostics', {
+    headers: { 'X-Device-Token': deviceToken },
+  })
 }
 
 export async function sendCommand(displayId: string, type: string, payload?: unknown) {

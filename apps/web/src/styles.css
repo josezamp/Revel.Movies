@@ -12,7 +12,8 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 
 .home-shell,
-.admin-shell {
+.admin-shell,
+.diagnostics-shell {
   min-height: 100vh;
   padding: 48px;
   background: radial-gradient(circle at 20% 10%, #262626, #080808 42%);
@@ -90,8 +91,25 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; font-size: 8vw; font-weight: 900; z-index: 10; }
 .identify-overlay small { font-size: 2vw; letter-spacing: .18em; }
 
+.diagnostics-shell { max-width: 1200px; margin: 0 auto; }
+.diagnostics-shell h1 { font-size: clamp(2.2rem, 6vw, 4rem); }
+.diagnostics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 28px; }
+.diagnostic-card { display: grid; gap: 8px; padding: 18px; border: 1px solid #27272a; border-radius: 14px; background: #111113; }
+.diagnostic-card span { color: #71717a; font-size: .78rem; }
+.diagnostic-card strong { font-size: 1.15rem; overflow-wrap: anywhere; }
+.diagnostics-error { padding: 12px 14px; border: 1px solid #7f1d1d; border-radius: 10px; background: #280909; color: #fecaca; }
+.diagnostics-history { margin-top: 34px; }
+.diagnostics-table-wrap { overflow-x: auto; border: 1px solid #27272a; border-radius: 14px; }
+.diagnostics-table { width: 100%; border-collapse: collapse; min-width: 680px; background: #0f0f11; }
+.diagnostics-table th, .diagnostics-table td { padding: 11px 12px; text-align: left; border-bottom: 1px solid #27272a; font-size: .82rem; }
+.diagnostics-table th { color: #a1a1aa; font-weight: 600; }
+.diagnostics-table tr:last-child td { border-bottom: 0; }
+.ack-status { display: inline-flex; padding: 3px 7px; border-radius: 999px; border: 1px solid #3f3f46; text-transform: uppercase; font-size: .68rem; font-weight: 800; letter-spacing: .06em; }
+.ack-ready, .ack-executed { border-color: #166534; color: #86efac; }
+.ack-error { border-color: #7f1d1d; color: #fca5a5; }
+
 @media (max-width: 720px) {
-  .admin-shell { padding: 24px; }
+  .admin-shell, .diagnostics-shell { padding: 24px; }
   .playlist-item { grid-template-columns: auto 1fr; }
   .playlist-item-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }

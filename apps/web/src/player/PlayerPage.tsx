@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { HubConnectionState } from '@microsoft/signalr'
+import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, mediaContentUrl, validateDeviceToken } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
+import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
 
 const tokenKey = 'revel-movies.device-token'
 const reconnectDelayMs = 3000
+const clockSyncIntervalMs = 60_000
 
 type ActiveMedia = {
   id: string
@@ -14,6 +16,7 @@ type ActiveMedia = {
 type PlaylistPlaybackItem = {
   mediaId: string
   mediaType: 'Video' | 'Image'
+  fileSize: number | null
   durationSeconds: number | null
 }
 
@@ -33,6 +36,12 @@ export function PlayerPage() {
   const [playlistIndex, setPlaylistIndex] = useState(0)
   const [playlistPaused, setPlaylistPaused] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const clockOffsetMsRef = useRef(0)
+  const scheduledStartTimerRef = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    void registerMediaCache()
+  }, [])
 
   useEffect(() => {
     if (deviceToken) return
@@ -77,78 +86,177 @@ export function PlayerPage() {
 
     let cancelled = false
     let heartbeatTimer: number | undefined
+    let clockSyncTimer: number | undefined
     let reconnectTimer: number | undefined
+    let connection: HubConnection
 
-    const onCommand = (command: PlayerCommand) => {
+    const acknowledge = (command: PlayerCommand, status: string, detail?: string) => {
+      if (!connection || connection.state !== HubConnectionState.Connected) return
+      void connection.invoke(
+        'Acknowledge',
+        command.commandId,
+        command.type,
+        status,
+        detail ?? null,
+        Date.now(),
+      ).catch(() => undefined)
+    }
+
+    const clearScheduledStart = () => {
+      if (scheduledStartTimerRef.current !== undefined) {
+        window.clearTimeout(scheduledStartTimerRef.current)
+        scheduledStartTimerRef.current = undefined
+      }
+    }
+
+    const scheduleAtServerTime = (startAt: unknown, callback: () => void) => {
+      clearScheduledStart()
+      const startAtMs = typeof startAt === 'string' ? Date.parse(startAt) : Number.NaN
+      if (!Number.isFinite(startAtMs)) {
+        callback()
+        return
+      }
+
+      const localTargetMs = startAtMs - clockOffsetMsRef.current
+      const delayMs = Math.max(0, localTargetMs - Date.now())
+      scheduledStartTimerRef.current = window.setTimeout(() => {
+        scheduledStartTimerRef.current = undefined
+        callback()
+      }, delayMs)
+    }
+
+    async function prepareCandidates(command: PlayerCommand, candidates: CacheCandidate[]) {
+      try {
+        const result = await prepareMediaAssets(candidates)
+        const detail = result.supported
+          ? `cache ${result.prepared}/${result.requested}; skipped ${result.skipped}`
+          : 'cache unavailable; network fallback'
+        acknowledge(command, 'ready', detail)
+      } catch (error) {
+        acknowledge(command, 'error', error instanceof Error ? error.message : 'media preparation failed')
+      }
+    }
+
+    async function handleCommand(command: PlayerCommand) {
       if (cancelled) return
+      acknowledge(command, 'received')
 
       switch (command.type) {
         case 'display.blackout':
+          clearScheduledStart()
           setBlackout(true)
+          acknowledge(command, 'executed')
           break
         case 'display.identify':
           setIdentify(true)
           window.setTimeout(() => setIdentify(false), 5000)
+          acknowledge(command, 'executed')
           break
+        case 'media.prepare': {
+          const candidate = parseMediaCandidate(command.payload)
+          if (!candidate) {
+            acknowledge(command, 'error', 'invalid media.prepare payload')
+            break
+          }
+          await prepareCandidates(command, [candidate])
+          break
+        }
+        case 'playlist.prepare': {
+          const items = parsePlaylistItems(command.payload?.items)
+          if (items.length === 0) {
+            acknowledge(command, 'error', 'invalid playlist.prepare payload')
+            break
+          }
+          await prepareCandidates(command, items.map(item => ({ mediaId: item.mediaId, fileSize: item.fileSize })))
+          break
+        }
         case 'media.play': {
-          const mediaId = command.payload?.mediaId
-          const mediaType = command.payload?.mediaType
-          if (typeof mediaId === 'string' && (mediaType === 'Video' || mediaType === 'Image')) {
+          const candidate = parseMediaCandidate(command.payload)
+          if (!candidate) {
+            acknowledge(command, 'error', 'invalid media.play payload')
+            break
+          }
+
+          void prepareMediaAssets([candidate])
+          acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
+          scheduleAtServerTime(command.payload?.startAt, () => {
             setPlaylist(undefined)
             setPlaylistIndex(0)
             setPlaylistPaused(false)
             setBlackout(false)
-            setMedia({ id: mediaId, type: mediaType })
-          }
+            setMedia({ id: candidate.mediaId, type: candidate.mediaType })
+            acknowledge(command, 'executed')
+          })
           break
         }
         case 'media.pause':
+          clearScheduledStart()
           videoRef.current?.pause()
           setPlaylistPaused(true)
+          acknowledge(command, 'executed')
           break
         case 'media.stop':
+          clearScheduledStart()
           videoRef.current?.pause()
           setPlaylist(undefined)
           setPlaylistIndex(0)
           setPlaylistPaused(false)
           setMedia(undefined)
+          acknowledge(command, 'executed')
           break
         case 'playlist.play': {
           const playlistId = command.payload?.playlistId
           const items = parsePlaylistItems(command.payload?.items)
-          if (typeof playlistId === 'string' && items.length > 0) {
-            const nextPlaylist: ActivePlaylist = {
-              id: playlistId,
-              loop: command.payload?.loop === true,
-              items,
-            }
+          if (typeof playlistId !== 'string' || items.length === 0) {
+            acknowledge(command, 'error', 'invalid playlist.play payload')
+            break
+          }
+
+          void prepareMediaAssets(items.map(item => ({ mediaId: item.mediaId, fileSize: item.fileSize })))
+          const nextPlaylist: ActivePlaylist = {
+            id: playlistId,
+            loop: command.payload?.loop === true,
+            items,
+          }
+
+          acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
+          scheduleAtServerTime(command.payload?.startAt, () => {
             setPlaylist(nextPlaylist)
             setPlaylistIndex(0)
             setPlaylistPaused(false)
             setBlackout(false)
             setMedia({ id: items[0].mediaId, type: items[0].mediaType })
-          }
+            acknowledge(command, 'executed')
+          })
           break
         }
         case 'playlist.pause':
+          clearScheduledStart()
           videoRef.current?.pause()
           setPlaylistPaused(true)
+          acknowledge(command, 'executed')
           break
         case 'playlist.stop':
+          clearScheduledStart()
           videoRef.current?.pause()
           setPlaylist(undefined)
           setPlaylistIndex(0)
           setPlaylistPaused(false)
           setMedia(undefined)
+          acknowledge(command, 'executed')
           break
         case 'player.reload':
         case 'system.refresh':
-          window.location.reload()
+          acknowledge(command, 'executed')
+          window.setTimeout(() => window.location.reload(), 50)
+          break
+        default:
+          acknowledge(command, 'error', 'unsupported command')
           break
       }
     }
 
-    const connection = createPlayerConnection(currentDeviceToken, onCommand)
+    connection = createPlayerConnection(currentDeviceToken, command => void handleCommand(command))
 
     const scheduleStart = () => {
       if (cancelled || reconnectTimer !== undefined) return
@@ -168,6 +276,29 @@ export function PlayerPage() {
       }
     }
 
+    async function synchronizeClock(sampleCount = 1) {
+      if (cancelled || connection.state !== HubConnectionState.Connected) return
+
+      let best: { offsetMs: number; roundTripMs: number } | undefined
+      for (let index = 0; index < sampleCount; index++) {
+        const startedAt = Date.now()
+        const serverTimeMs = await connection.invoke<number>('GetServerTime')
+        const finishedAt = Date.now()
+        const roundTripMs = finishedAt - startedAt
+        const midpointMs = startedAt + roundTripMs / 2
+        const offsetMs = serverTimeMs - midpointMs
+
+        if (!best || roundTripMs < best.roundTripMs)
+          best = { offsetMs, roundTripMs }
+      }
+
+      if (!best) return
+      clockOffsetMsRef.current = best.offsetMs
+      localStorage.setItem('revel-movies.clock-offset-ms', String(best.offsetMs))
+      localStorage.setItem('revel-movies.round-trip-ms', String(best.roundTripMs))
+      await connection.invoke('ReportClockSample', best.offsetMs, best.roundTripMs)
+    }
+
     async function start() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
@@ -184,8 +315,12 @@ export function PlayerPage() {
         await connection.start()
         if (cancelled) return
 
+        await synchronizeClock(3)
+
         if (heartbeatTimer === undefined)
           heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
+        if (clockSyncTimer === undefined)
+          clockSyncTimer = window.setInterval(() => void synchronizeClock(), clockSyncIntervalMs)
       } catch (error) {
         if (!cancelled) {
           console.error('Player connection failed to start:', error)
@@ -202,9 +337,10 @@ export function PlayerPage() {
     return () => {
       cancelled = true
       window.clearTimeout(startTimer)
+      clearScheduledStart()
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
-      connection.off('command', onCommand)
+      if (clockSyncTimer !== undefined) window.clearInterval(clockSyncTimer)
       void connection.stop().catch(error => console.error('Player connection failed to stop:', error))
     }
   }, [deviceToken])
@@ -283,6 +419,19 @@ export function PlayerPage() {
   )
 }
 
+function parseMediaCandidate(payload: Record<string, unknown> | undefined): (CacheCandidate & { mediaType: 'Video' | 'Image' }) | null {
+  const mediaId = payload?.mediaId
+  const mediaType = payload?.mediaType
+  const fileSize = payload?.fileSize
+
+  if (typeof mediaId !== 'string' || (mediaType !== 'Video' && mediaType !== 'Image')) return null
+  return {
+    mediaId,
+    mediaType,
+    fileSize: typeof fileSize === 'number' && fileSize >= 0 ? fileSize : null,
+  }
+}
+
 function parsePlaylistItems(value: unknown): PlaylistPlaybackItem[] {
   if (!Array.isArray(value)) return []
 
@@ -291,6 +440,7 @@ function parsePlaylistItems(value: unknown): PlaylistPlaybackItem[] {
     const candidate = item as Record<string, unknown>
     const mediaId = candidate.mediaId
     const mediaType = candidate.mediaType
+    const rawFileSize = candidate.fileSize
     const rawDuration = candidate.durationSeconds
 
     if (typeof mediaId !== 'string' || (mediaType !== 'Video' && mediaType !== 'Image')) return []
@@ -298,6 +448,7 @@ function parsePlaylistItems(value: unknown): PlaylistPlaybackItem[] {
     return [{
       mediaId,
       mediaType,
+      fileSize: typeof rawFileSize === 'number' && rawFileSize >= 0 ? rawFileSize : null,
       durationSeconds: typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : null,
     }]
   })

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.AspNetCore.SignalR;
 using RevelMovies.Api.Endpoints;
 using RevelMovies.Api.Hubs;
 using RevelMovies.Api.Runtime;
@@ -33,6 +32,8 @@ builder.Services.AddScoped<EventRegistry>();
 builder.Services.AddScoped<MediaRegistry>();
 builder.Services.AddScoped<DisplayGroupRegistry>();
 builder.Services.AddScoped<PlaylistRegistry>();
+builder.Services.AddScoped<CommandAcknowledgementRegistry>();
+builder.Services.AddScoped<PlayerCommandDispatcher>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -140,6 +141,7 @@ app.MapGet("/api/media/{mediaId:guid}", async (
 
 app.MapGet("/api/media/{mediaId:guid}/content", async (
     Guid mediaId,
+    HttpResponse response,
     MediaRegistry mediaRegistry,
     IMediaStorage storage,
     CancellationToken cancellationToken) =>
@@ -149,9 +151,11 @@ app.MapGet("/api/media/{mediaId:guid}/content", async (
         return Results.NotFound();
 
     var stream = await storage.OpenReadAsync(item.StorageKey, cancellationToken);
-    return stream is null
-        ? Results.NotFound()
-        : Results.File(stream, item.MimeType, enableRangeProcessing: true);
+    if (stream is null)
+        return Results.NotFound();
+
+    response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    return Results.File(stream, item.MimeType, enableRangeProcessing: true);
 });
 
 app.MapDelete("/api/media/{mediaId:guid}", async (
@@ -168,6 +172,34 @@ app.MapGet("/api/player/identity", async (HttpRequest request, DisplayRegistry r
     var token = request.Headers["X-Device-Token"].ToString();
     var display = await registry.AuthenticateAsync(token, cancellationToken);
     return display is null ? Results.Unauthorized() : Results.Ok(DisplayResponse.From(display));
+});
+
+app.MapGet("/api/player/diagnostics", async (
+    HttpRequest request,
+    DisplayRegistry registry,
+    CommandAcknowledgementRegistry acknowledgementRegistry,
+    CancellationToken cancellationToken) =>
+{
+    var token = request.Headers["X-Device-Token"].ToString();
+    var display = await registry.AuthenticateAsync(token, cancellationToken);
+    if (display is null)
+        return Results.Unauthorized();
+
+    var acknowledgements = await acknowledgementRegistry.GetLatestAsync(display.Id, 25, cancellationToken);
+    return Results.Ok(new
+    {
+        serverTime = DateTimeOffset.UtcNow,
+        display = DisplayResponse.From(display),
+        acknowledgements = acknowledgements.Select(x => new
+        {
+            x.CommandId,
+            x.CommandType,
+            x.Status,
+            x.Detail,
+            x.ClientTimestamp,
+            x.ServerReceivedAt
+        })
+    });
 });
 
 app.MapPost("/api/player/pairing-session", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
@@ -236,14 +268,13 @@ app.MapPost("/api/displays/{displayId:guid}/commands", async (
     SendCommandRequest request,
     DisplayRegistry displayRegistry,
     MediaRegistry mediaRegistry,
-    IHubContext<PlayerHub> hub,
+    PlayerCommandDispatcher dispatcher,
     CancellationToken cancellationToken) =>
 {
     var display = await displayRegistry.GetDisplayAsync(displayId, cancellationToken);
     if (display is null)
         return Results.NotFound();
 
-    JsonElement? commandPayload = request.Payload;
     if (string.Equals(request.Type, "media.play", StringComparison.OrdinalIgnoreCase))
     {
         if (request.Payload is not { } payload ||
@@ -259,21 +290,12 @@ app.MapPost("/api/displays/{displayId:guid}/commands", async (
         if (media is null || media.EventId != display.EventId)
             return Results.NotFound(new { error = "Media was not found for this display event." });
 
-        commandPayload = JsonSerializer.SerializeToElement(new
-        {
-            mediaId = media.Id,
-            mediaType = media.Type.ToString()
-        });
+        var dispatch = await dispatcher.SendMediaPlayAsync([display.Id], media, cancellationToken);
+        return Results.Accepted(value: dispatch);
     }
 
-    var command = new PlayerCommand(
-        1,
-        Guid.NewGuid(),
-        request.Type,
-        DateTimeOffset.UtcNow,
-        commandPayload);
-
-    await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
+    var command = dispatcher.Create(request.Type, request.Payload);
+    await dispatcher.SendAsync([display.Id], command, cancellationToken);
     return Results.Accepted(value: command);
 });
 
@@ -314,6 +336,9 @@ public sealed record DisplayResponse(
     string Name,
     DisplayStatus Status,
     DateTimeOffset? LastSeenAt,
+    double? ClockOffsetMs,
+    double? RoundTripMs,
+    DateTimeOffset? LastClockSyncAt,
     DateTimeOffset CreatedAt)
 {
     public static DisplayResponse From(Display item) => new(
@@ -322,6 +347,9 @@ public sealed record DisplayResponse(
         item.Name,
         item.Status,
         item.LastSeenAt,
+        item.ClockOffsetMs,
+        item.RoundTripMs,
+        item.LastClockSyncAt,
         item.CreatedAt);
 }
 

@@ -52,11 +52,14 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("RevelMovies.Domain.Displays.Display", b =>
         {
             b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<double?>("ClockOffsetMs").HasColumnType("float").HasColumnName("clock_offset_ms");
             b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetimeoffset").HasColumnName("created_at");
             b.Property<string>("DeviceTokenHash").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)").HasColumnName("device_token_hash");
             b.Property<Guid>("EventId").HasColumnType("uniqueidentifier").HasColumnName("event_id");
+            b.Property<DateTimeOffset?>("LastClockSyncAt").HasColumnType("datetimeoffset").HasColumnName("last_clock_sync_at");
             b.Property<DateTimeOffset?>("LastSeenAt").HasColumnType("datetimeoffset").HasColumnName("last_seen_at");
             b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("nvarchar(200)").HasColumnName("name");
+            b.Property<double?>("RoundTripMs").HasColumnType("float").HasColumnName("round_trip_ms");
             b.Property<int>("Status").HasColumnType("int").HasColumnName("status");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("datetimeoffset").HasColumnName("updated_at");
             b.HasKey("Id").HasName("pk_displays");
@@ -134,6 +137,22 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
             b.ToTable("playlist_items");
         });
 
+        modelBuilder.Entity("RevelMovies.Domain.Commands.CommandAcknowledgement", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<DateTimeOffset?>("ClientTimestamp").HasColumnType("datetimeoffset").HasColumnName("client_timestamp");
+            b.Property<Guid>("CommandId").HasColumnType("uniqueidentifier").HasColumnName("command_id");
+            b.Property<string>("CommandType").IsRequired().HasMaxLength(100).HasColumnType("nvarchar(100)").HasColumnName("command_type");
+            b.Property<string>("Detail").HasMaxLength(500).HasColumnType("nvarchar(500)").HasColumnName("detail");
+            b.Property<Guid>("DisplayId").HasColumnType("uniqueidentifier").HasColumnName("display_id");
+            b.Property<DateTimeOffset>("ServerReceivedAt").HasColumnType("datetimeoffset").HasColumnName("server_received_at");
+            b.Property<string>("Status").IsRequired().HasMaxLength(40).HasColumnType("nvarchar(40)").HasColumnName("status");
+            b.HasKey("Id").HasName("pk_command_acknowledgements");
+            b.HasIndex("DisplayId", "ServerReceivedAt").HasDatabaseName("ix_command_ack_display_received");
+            b.HasIndex("DisplayId", "CommandId", "Status").IsUnique().HasDatabaseName("ux_command_ack_display_command_status");
+            b.ToTable("command_acknowledgements");
+        });
+
         modelBuilder.Entity("RevelMovies.Domain.Displays.Display", b =>
         {
             b.HasOne("RevelMovies.Domain.Events.Event", null)
@@ -204,6 +223,16 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired()
                 .HasConstraintName("fk_playlist_items_playlists_playlist_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Commands.CommandAcknowledgement", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Displays.Display", null)
+                .WithMany()
+                .HasForeignKey("DisplayId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_command_ack_displays_display_id");
         });
 #pragma warning restore 612, 618
     }

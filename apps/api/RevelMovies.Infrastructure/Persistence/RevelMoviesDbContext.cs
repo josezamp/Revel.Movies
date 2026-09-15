@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RevelMovies.Domain.Commands;
 using RevelMovies.Domain.DisplayGroups;
 using RevelMovies.Domain.Displays;
 using RevelMovies.Domain.Media;
@@ -18,6 +19,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<DisplayGroupMember> DisplayGroupMembers => Set<DisplayGroupMember>();
     public DbSet<Playlist> Playlists => Set<Playlist>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
+    public DbSet<CommandAcknowledgement> CommandAcknowledgements => Set<CommandAcknowledgement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -49,6 +51,9 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.DeviceTokenHash).HasColumnName("device_token_hash").HasMaxLength(64).IsRequired();
             builder.Property(x => x.Status).HasColumnName("status").IsRequired();
             builder.Property(x => x.LastSeenAt).HasColumnName("last_seen_at");
+            builder.Property(x => x.ClockOffsetMs).HasColumnName("clock_offset_ms");
+            builder.Property(x => x.RoundTripMs).HasColumnName("round_trip_ms");
+            builder.Property(x => x.LastClockSyncAt).HasColumnName("last_clock_sync_at");
             builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
             builder.HasIndex(x => x.EventId).HasDatabaseName("ix_displays_event_id");
@@ -179,6 +184,30 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
                 .HasForeignKey(x => x.MediaAssetId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("fk_playlist_items_media_assets_media_asset_id");
+        });
+
+        modelBuilder.Entity<CommandAcknowledgement>(builder =>
+        {
+            builder.ToTable("command_acknowledgements");
+            builder.HasKey(x => x.Id).HasName("pk_command_acknowledgements");
+            builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+            builder.Property(x => x.DisplayId).HasColumnName("display_id").IsRequired();
+            builder.Property(x => x.CommandId).HasColumnName("command_id").IsRequired();
+            builder.Property(x => x.CommandType).HasColumnName("command_type").HasMaxLength(100).IsRequired();
+            builder.Property(x => x.Status).HasColumnName("status").HasMaxLength(40).IsRequired();
+            builder.Property(x => x.Detail).HasColumnName("detail").HasMaxLength(500);
+            builder.Property(x => x.ClientTimestamp).HasColumnName("client_timestamp");
+            builder.Property(x => x.ServerReceivedAt).HasColumnName("server_received_at").IsRequired();
+            builder.HasIndex(x => new { x.DisplayId, x.CommandId, x.Status })
+                .IsUnique()
+                .HasDatabaseName("ux_command_ack_display_command_status");
+            builder.HasIndex(x => new { x.DisplayId, x.ServerReceivedAt })
+                .HasDatabaseName("ix_command_ack_display_received");
+            builder.HasOne<Display>()
+                .WithMany()
+                .HasForeignKey(x => x.DisplayId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_command_ack_displays_display_id");
         });
     }
 }

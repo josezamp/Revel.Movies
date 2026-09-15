@@ -8,6 +8,9 @@ public sealed class Display
     public string DeviceTokenHash { get; set; } = string.Empty;
     public DisplayStatus Status { get; set; } = DisplayStatus.Unknown;
     public DateTimeOffset? LastSeenAt { get; set; }
+    public double? ClockOffsetMs { get; set; }
+    public double? RoundTripMs { get; set; }
+    public DateTimeOffset? LastClockSyncAt { get; set; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
