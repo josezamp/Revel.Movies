@@ -1,0 +1,54 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #f5f5f5;
+  background: #080808;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; min-height: 100%; margin: 0; }
+body { margin: 0; background: #080808; }
+button, a { font: inherit; }
+button { cursor: pointer; }
+
+.home-shell,
+.admin-shell {
+  min-height: 100vh;
+  padding: 48px;
+  background: radial-gradient(circle at 20% 10%, #262626, #080808 42%);
+}
+
+.home-shell { display: grid; place-items: center; }
+.home-shell > div { width: min(720px, 100%); }
+h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24px; }
+.eyebrow { letter-spacing: .22em; font-weight: 700; font-size: .75rem; color: #9ca3af; }
+.home-actions, .button-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.home-actions a, button { border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 10px 14px; border-radius: 10px; text-decoration: none; }
+.home-actions a:hover, button:hover { background: #27272a; }
+
+.admin-shell { max-width: 1400px; margin: 0 auto; }
+.admin-shell h1 { font-size: 3rem; }
+.admin-shell section { margin-top: 44px; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.card { padding: 20px; border: 1px solid #27272a; border-radius: 16px; background: #111113; display: grid; gap: 14px; }
+.display-heading { display: flex; align-items: center; gap: 10px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: #71717a; }
+.status-online, .status-1 { background: #22c55e; box-shadow: 0 0 14px #22c55e88; }
+.status-offline, .status-2 { background: #52525b; }
+.muted { color: #71717a; }
+
+.player-shell {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  cursor: none;
+}
+.pairing-screen { display: grid; place-content: center; text-align: center; gap: 16px; cursor: default; }
+.pairing-screen h1 { font-size: clamp(1.5rem, 4vw, 3rem); margin: 0; }
+.pairing-code { font-size: clamp(3rem, 12vw, 8rem); font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .08em; }
+.player-media { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.is-blackout .player-media { display: none; }
+.identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; font-size: 8vw; font-weight: 900; z-index: 10; }
+.identify-overlay small { font-size: 2vw; letter-spacing: .18em; }
