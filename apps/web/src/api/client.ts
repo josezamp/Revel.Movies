@@ -22,6 +22,12 @@ export interface Display {
   clockOffsetMs: number | null
   roundTripMs: number | null
   lastClockSyncAt: string | null
+  desiredPlaybackState: string | null
+  actualPlaybackState: string | null
+  playbackHealth: string | null
+  driftMs: number | null
+  actualPositionSeconds: number | null
+  lastPlaybackReportAt: string | null
   createdAt: string
 }
 
@@ -83,9 +89,29 @@ export interface CommandAcknowledgement {
   serverReceivedAt: string
 }
 
+export interface PlaybackStateDiagnostics {
+  desiredState: string
+  contentType: string | null
+  mediaAssetId: string | null
+  playlistId: string | null
+  startedAt: string | null
+  pausedPositionSeconds: number | null
+  actualState: string
+  actualMediaAssetId: string | null
+  actualPlaylistId: string | null
+  actualPlaylistIndex: number | null
+  actualPositionSeconds: number | null
+  actualDurationSeconds: number | null
+  actualReportedAt: string | null
+  driftMs: number | null
+  health: string
+  updatedAt: string
+}
+
 export interface PlayerDiagnostics {
   serverTime: string
   display: Display
+  playback: PlaybackStateDiagnostics | null
   acknowledgements: CommandAcknowledgement[]
 }
 
