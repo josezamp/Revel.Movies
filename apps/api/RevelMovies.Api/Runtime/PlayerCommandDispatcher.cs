@@ -8,6 +8,7 @@ namespace RevelMovies.Api.Runtime;
 
 public sealed class PlayerCommandDispatcher(
     IHubContext<PlayerHub> hub,
+    PlaybackStateRegistry playbackStateRegistry,
     IConfiguration configuration)
 {
     private readonly int syncLeadTimeMs = Math.Clamp(
@@ -27,7 +28,10 @@ public sealed class PlayerCommandDispatcher(
         PlayerCommand command,
         CancellationToken cancellationToken = default)
     {
-        foreach (var displayId in displayIds.Distinct())
+        var targets = displayIds.Distinct().ToArray();
+        await playbackStateRegistry.ApplyControlAsync(targets, command.Type, command.CommandId, cancellationToken);
+
+        foreach (var displayId in targets)
             await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
     }
 
@@ -55,8 +59,10 @@ public sealed class PlayerCommandDispatcher(
 
         var prepare = Create("media.prepare", preparePayload);
         var play = Create("media.play", playPayload);
-        await SendAsync(targets, prepare, cancellationToken);
-        await SendAsync(targets, play, cancellationToken);
+
+        await playbackStateRegistry.SetMediaPlayingAsync(targets, media, playPayload, startAt, play.CommandId, cancellationToken);
+        await SendRawAsync(targets, prepare, cancellationToken);
+        await SendRawAsync(targets, play, cancellationToken);
         return new SynchronizedDispatch(prepare, play, startAt, targets.Length);
     }
 
@@ -94,9 +100,20 @@ public sealed class PlayerCommandDispatcher(
 
         var prepare = Create("playlist.prepare", preparePayload);
         var play = Create("playlist.play", playPayload);
-        await SendAsync(targets, prepare, cancellationToken);
-        await SendAsync(targets, play, cancellationToken);
+
+        await playbackStateRegistry.SetPlaylistPlayingAsync(targets, playlistId, playPayload, startAt, play.CommandId, cancellationToken);
+        await SendRawAsync(targets, prepare, cancellationToken);
+        await SendRawAsync(targets, play, cancellationToken);
         return new SynchronizedDispatch(prepare, play, startAt, targets.Length);
+    }
+
+    private async Task SendRawAsync(
+        IEnumerable<Guid> displayIds,
+        PlayerCommand command,
+        CancellationToken cancellationToken)
+    {
+        foreach (var displayId in displayIds.Distinct())
+            await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
     }
 }
 

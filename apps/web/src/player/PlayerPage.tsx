@@ -5,8 +5,10 @@ import { createPlayerConnection, type PlayerCommand } from '../signalr/playerCon
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
 
 const tokenKey = 'revel-movies.device-token'
+const processedCommandsKey = 'revel-movies.processed-command-ids'
 const reconnectDelayMs = 3000
 const clockSyncIntervalMs = 60_000
+const playbackReportIntervalMs = 3000
 
 type ActiveMedia = {
   id: string
@@ -26,6 +28,23 @@ type ActivePlaylist = {
   items: PlaylistPlaybackItem[]
 }
 
+type PlaybackRecoveryState = {
+  desiredState: string
+  contentType: string | null
+  payload: Record<string, unknown> | null
+  resumePositionSeconds: number | null
+  resumePlaylistIndex: number | null
+  health: string
+  driftMs: number | null
+  updatedAt: string
+}
+
+type PlaybackReportResult = {
+  seekToSeconds: number | null
+  driftMs: number | null
+  health: string
+}
+
 export function PlayerPage() {
   const [pairingCode, setPairingCode] = useState<string>()
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
@@ -36,8 +55,11 @@ export function PlayerPage() {
   const [playlistIndex, setPlaylistIndex] = useState(0)
   const [playlistPaused, setPlaylistPaused] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const connectionRef = useRef<HubConnection | null>(null)
   const clockOffsetMsRef = useRef(0)
   const scheduledStartTimerRef = useRef<number | undefined>(undefined)
+  const pendingSeekSecondsRef = useRef<number | undefined>(undefined)
+  const itemStartedAtRef = useRef(Date.now())
 
   useEffect(() => {
     void registerMediaCache()
@@ -137,8 +159,56 @@ export function PlayerPage() {
       }
     }
 
+    function applyRecovery(recovery: PlaybackRecoveryState | null) {
+      if (!recovery) return
+      clearScheduledStart()
+
+      if (recovery.desiredState === 'Blackout') {
+        setBlackout(true)
+        return
+      }
+
+      if (recovery.desiredState === 'Stopped') {
+        videoRef.current?.pause()
+        setPlaylist(undefined)
+        setPlaylistIndex(0)
+        setPlaylistPaused(false)
+        setMedia(undefined)
+        setBlackout(false)
+        return
+      }
+
+      const payload = recovery.payload ?? undefined
+      const resumePosition = Math.max(0, recovery.resumePositionSeconds ?? 0)
+      pendingSeekSecondsRef.current = resumePosition
+      itemStartedAtRef.current = Date.now() - resumePosition * 1000
+      setBlackout(false)
+      setPlaylistPaused(recovery.desiredState === 'Paused')
+
+      if (recovery.contentType === 'Media') {
+        const candidate = parseMediaCandidate(payload)
+        if (!candidate) return
+        setPlaylist(undefined)
+        setPlaylistIndex(0)
+        setMedia({ id: candidate.mediaId, type: candidate.mediaType })
+        return
+      }
+
+      if (recovery.contentType === 'Playlist') {
+        const playlistId = payload?.playlistId
+        const items = parsePlaylistItems(payload?.items)
+        if (typeof playlistId !== 'string' || items.length === 0) return
+
+        const index = Math.min(Math.max(0, recovery.resumePlaylistIndex ?? 0), items.length - 1)
+        setPlaylist({ id: playlistId, loop: payload?.loop === true, items })
+        setPlaylistIndex(index)
+        setMedia({ id: items[index].mediaId, type: items[index].mediaType })
+      }
+    }
+
     async function handleCommand(command: PlayerCommand) {
-      if (cancelled) return
+      if (cancelled || wasCommandProcessed(command.commandId)) return
+      markCommandProcessed(command.commandId)
       acknowledge(command, 'received')
 
       switch (command.type) {
@@ -180,6 +250,8 @@ export function PlayerPage() {
           void prepareMediaAssets([candidate])
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
+            pendingSeekSecondsRef.current = 0
+            itemStartedAtRef.current = Date.now()
             setPlaylist(undefined)
             setPlaylistIndex(0)
             setPlaylistPaused(false)
@@ -221,6 +293,8 @@ export function PlayerPage() {
 
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
+            pendingSeekSecondsRef.current = 0
+            itemStartedAtRef.current = Date.now()
             setPlaylist(nextPlaylist)
             setPlaylistIndex(0)
             setPlaylistPaused(false)
@@ -257,6 +331,7 @@ export function PlayerPage() {
     }
 
     connection = createPlayerConnection(currentDeviceToken, command => void handleCommand(command))
+    connectionRef.current = connection
 
     const scheduleStart = () => {
       if (cancelled || reconnectTimer !== undefined) return
@@ -299,6 +374,12 @@ export function PlayerPage() {
       await connection.invoke('ReportClockSample', best.offsetMs, best.roundTripMs)
     }
 
+    async function recoverDesiredPlayback() {
+      await synchronizeClock(3)
+      const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
+      if (!cancelled) applyRecovery(recovery)
+    }
+
     async function start() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
@@ -315,7 +396,7 @@ export function PlayerPage() {
         await connection.start()
         if (cancelled) return
 
-        await synchronizeClock(3)
+        await recoverDesiredPlayback()
 
         if (heartbeatTimer === undefined)
           heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
@@ -329,9 +410,13 @@ export function PlayerPage() {
       }
     }
 
+    connection.onreconnected(() => {
+      void recoverDesiredPlayback().catch(error => {
+        if (!cancelled) console.error('Player recovery after reconnect failed:', error)
+      })
+    })
     connection.onclose(() => scheduleStart())
 
-    // Let Strict Mode's setup/cleanup replay finish before starting negotiation.
     const startTimer = window.setTimeout(() => void start(), 0)
 
     return () => {
@@ -341,6 +426,7 @@ export function PlayerPage() {
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
       if (clockSyncTimer !== undefined) window.clearInterval(clockSyncTimer)
+      connectionRef.current = null
       void connection.stop().catch(error => console.error('Player connection failed to stop:', error))
     }
   }, [deviceToken])
@@ -358,19 +444,33 @@ export function PlayerPage() {
       }
 
       const first = playlist.items[0]
+      pendingSeekSecondsRef.current = 0
+      itemStartedAtRef.current = Date.now()
       setPlaylistIndex(0)
       setMedia({ id: first.mediaId, type: first.mediaType })
       return
     }
 
     const next = playlist.items[nextIndex]
+    pendingSeekSecondsRef.current = 0
+    itemStartedAtRef.current = Date.now()
     setPlaylistIndex(nextIndex)
     setMedia({ id: next.mediaId, type: next.mediaType })
   }, [playlist, playlistIndex, playlistPaused])
 
   useEffect(() => {
-    if (media?.type === 'Video' && videoRef.current && !playlistPaused)
-      void videoRef.current.play().catch(() => undefined)
+    if (media?.type !== 'Video' || !videoRef.current) return
+
+    const video = videoRef.current
+    const seek = pendingSeekSecondsRef.current
+    if (seek !== undefined && video.readyState >= 1) {
+      const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
+      video.currentTime = Math.min(seek, maxSeek)
+      pendingSeekSecondsRef.current = undefined
+    }
+
+    if (!playlistPaused)
+      void video.play().catch(() => undefined)
   }, [media, playlistPaused])
 
   useEffect(() => {
@@ -380,9 +480,52 @@ export function PlayerPage() {
     if (!current) return
 
     const durationMs = Math.max(0.5, current.durationSeconds ?? 10) * 1000
-    const timer = window.setTimeout(advancePlaylist, durationMs)
+    const elapsedMs = Math.max(0, Date.now() - itemStartedAtRef.current)
+    const timer = window.setTimeout(advancePlaylist, Math.max(100, durationMs - elapsedMs))
     return () => window.clearTimeout(timer)
   }, [advancePlaylist, media, playlist, playlistIndex, playlistPaused])
+
+  useEffect(() => {
+    if (!deviceToken) return
+
+    async function reportPlayback() {
+      const connection = connectionRef.current
+      if (!connection || connection.state !== HubConnectionState.Connected) return
+
+      const positionSeconds = media?.type === 'Video'
+        ? Math.max(0, videoRef.current?.currentTime ?? 0)
+        : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
+      const durationSeconds = media?.type === 'Video' && Number.isFinite(videoRef.current?.duration)
+        ? videoRef.current?.duration ?? null
+        : null
+      const actualState = blackout ? 'Blackout' : media ? (playlistPaused ? 'Paused' : 'Playing') : 'Idle'
+
+      try {
+        const result = await connection.invoke<PlaybackReportResult | null>(
+          'ReportPlayback',
+          actualState,
+          media?.id ?? null,
+          playlist?.id ?? null,
+          playlist ? playlistIndex : null,
+          positionSeconds,
+          durationSeconds,
+        )
+
+        if (result?.seekToSeconds !== null && result?.seekToSeconds !== undefined && media?.type === 'Video' && videoRef.current) {
+          const maxSeek = Number.isFinite(videoRef.current.duration)
+            ? Math.max(0, videoRef.current.duration - 0.05)
+            : result.seekToSeconds
+          videoRef.current.currentTime = Math.min(Math.max(0, result.seekToSeconds), maxSeek)
+        }
+      } catch (error) {
+        console.error('Playback telemetry failed:', error)
+      }
+    }
+
+    void reportPlayback()
+    const timer = window.setInterval(() => void reportPlayback(), playbackReportIntervalMs)
+    return () => window.clearInterval(timer)
+  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused])
 
   if (!deviceToken) {
     return (
@@ -403,9 +546,21 @@ export function PlayerPage() {
           ref={videoRef}
           className="player-media"
           src={mediaContentUrl(media.id)}
-          autoPlay
+          autoPlay={!playlistPaused}
           muted
           playsInline
+          onLoadedMetadata={() => {
+            const video = videoRef.current
+            if (!video) return
+            const seek = pendingSeekSecondsRef.current
+            if (seek !== undefined) {
+              const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
+              video.currentTime = Math.min(Math.max(0, seek), maxSeek)
+              pendingSeekSecondsRef.current = undefined
+            }
+            if (playlistPaused) video.pause()
+            else void video.play().catch(() => undefined)
+          }}
           onEnded={() => {
             if (playlist) advancePlaylist()
           }}
@@ -452,4 +607,23 @@ function parsePlaylistItems(value: unknown): PlaylistPlaybackItem[] {
       durationSeconds: typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : null,
     }]
   })
+}
+
+function wasCommandProcessed(commandId: string) {
+  return readProcessedCommandIds().includes(commandId)
+}
+
+function markCommandProcessed(commandId: string) {
+  const ids = readProcessedCommandIds().filter(id => id !== commandId)
+  ids.push(commandId)
+  localStorage.setItem(processedCommandsKey, JSON.stringify(ids.slice(-100)))
+}
+
+function readProcessedCommandIds(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(processedCommandsKey) ?? '[]')
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
 }

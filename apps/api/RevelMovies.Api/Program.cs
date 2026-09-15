@@ -9,6 +9,7 @@ using RevelMovies.Application.Media;
 using RevelMovies.Domain.Displays;
 using RevelMovies.Domain.Events;
 using RevelMovies.Domain.Media;
+using RevelMovies.Domain.Playback;
 using RevelMovies.Infrastructure;
 using RevelMovies.Infrastructure.Media;
 using RevelMovies.Infrastructure.Persistence;
@@ -33,6 +34,7 @@ builder.Services.AddScoped<MediaRegistry>();
 builder.Services.AddScoped<DisplayGroupRegistry>();
 builder.Services.AddScoped<PlaylistRegistry>();
 builder.Services.AddScoped<CommandAcknowledgementRegistry>();
+builder.Services.AddScoped<PlaybackStateRegistry>();
 builder.Services.AddScoped<PlayerCommandDispatcher>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
@@ -178,6 +180,7 @@ app.MapGet("/api/player/diagnostics", async (
     HttpRequest request,
     DisplayRegistry registry,
     CommandAcknowledgementRegistry acknowledgementRegistry,
+    PlaybackStateRegistry playbackStateRegistry,
     CancellationToken cancellationToken) =>
 {
     var token = request.Headers["X-Device-Token"].ToString();
@@ -186,10 +189,12 @@ app.MapGet("/api/player/diagnostics", async (
         return Results.Unauthorized();
 
     var acknowledgements = await acknowledgementRegistry.GetLatestAsync(display.Id, 25, cancellationToken);
+    var playback = await playbackStateRegistry.GetAsync(display.Id, cancellationToken);
     return Results.Ok(new
     {
         serverTime = DateTimeOffset.UtcNow,
-        display = DisplayResponse.From(display),
+        display = DisplayResponse.From(display, playback),
+        playback,
         acknowledgements = acknowledgements.Select(x => new
         {
             x.CommandId,
@@ -257,10 +262,15 @@ app.MapPost("/api/displays/pair", async (
         : Results.Ok(DisplayResponse.From(display));
 });
 
-app.MapGet("/api/displays", async (Guid? eventId, DisplayRegistry registry, CancellationToken cancellationToken) =>
+app.MapGet("/api/displays", async (
+    Guid? eventId,
+    DisplayRegistry registry,
+    PlaybackStateRegistry playbackStateRegistry,
+    CancellationToken cancellationToken) =>
 {
     var displays = await registry.GetDisplaysAsync(eventId, cancellationToken);
-    return Results.Ok(displays.Select(DisplayResponse.From));
+    var playback = await playbackStateRegistry.GetForDisplaysAsync(displays.Select(x => x.Id), cancellationToken);
+    return Results.Ok(displays.Select(x => DisplayResponse.From(x, playback.GetValueOrDefault(x.Id))));
 });
 
 app.MapPost("/api/displays/{displayId:guid}/commands", async (
@@ -339,9 +349,15 @@ public sealed record DisplayResponse(
     double? ClockOffsetMs,
     double? RoundTripMs,
     DateTimeOffset? LastClockSyncAt,
+    string? DesiredPlaybackState,
+    string? ActualPlaybackState,
+    string? PlaybackHealth,
+    double? DriftMs,
+    double? ActualPositionSeconds,
+    DateTimeOffset? LastPlaybackReportAt,
     DateTimeOffset CreatedAt)
 {
-    public static DisplayResponse From(Display item) => new(
+    public static DisplayResponse From(Display item, DisplayPlaybackState? playback = null) => new(
         item.Id,
         item.EventId,
         item.Name,
@@ -350,6 +366,12 @@ public sealed record DisplayResponse(
         item.ClockOffsetMs,
         item.RoundTripMs,
         item.LastClockSyncAt,
+        playback?.DesiredState,
+        playback?.ActualState,
+        playback?.Health,
+        playback?.DriftMs,
+        playback?.ActualPositionSeconds,
+        playback?.ActualReportedAt,
         item.CreatedAt);
 }
 

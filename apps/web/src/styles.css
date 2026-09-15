@@ -39,6 +39,12 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #71717a; }
 .status-online, .status-1 { background: #22c55e; box-shadow: 0 0 14px #22c55e88; }
 .status-offline, .status-2 { background: #52525b; }
+.playback-health-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.playback-health { display: inline-flex; padding: 4px 8px; border-radius: 999px; border: 1px solid #3f3f46; color: #d4d4d8; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.health-synchronized { border-color: #166534; color: #86efac; }
+.health-starting, .health-recovering, .health-correcting { border-color: #854d0e; color: #fde68a; }
+.health-drifted, .health-error { border-color: #7f1d1d; color: #fca5a5; }
+.health-paused, .health-stopped, .health-blackout { border-color: #3f3f46; color: #a1a1aa; }
 .muted { color: #71717a; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; }
 .section-heading h2 { margin-bottom: 4px; }
