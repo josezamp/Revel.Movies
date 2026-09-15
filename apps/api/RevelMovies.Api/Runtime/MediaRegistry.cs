@@ -121,9 +121,15 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         if (asset is null)
             return false;
 
-        await storage.DeleteAsync(asset.StorageKey, cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        await db.PlaylistItems
+            .Where(x => x.MediaAssetId == mediaId)
+            .ExecuteDeleteAsync(cancellationToken);
         db.MediaAssets.Remove(asset);
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        await storage.DeleteAsync(asset.StorageKey, cancellationToken);
         return true;
     }
 
