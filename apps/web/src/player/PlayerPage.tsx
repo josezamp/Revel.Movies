@@ -73,6 +73,7 @@ export function PlayerPage() {
 
   useEffect(() => {
     if (!deviceToken) return
+    const currentDeviceToken = deviceToken
 
     let cancelled = false
     let heartbeatTimer: number | undefined
@@ -147,7 +148,7 @@ export function PlayerPage() {
       }
     }
 
-    const connection = createPlayerConnection(deviceToken, onCommand)
+    const connection = createPlayerConnection(currentDeviceToken, onCommand)
 
     const scheduleStart = () => {
       if (cancelled || reconnectTimer !== undefined) return
@@ -171,7 +172,7 @@ export function PlayerPage() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
       try {
-        const valid = await validateDeviceToken(deviceToken)
+        const valid = await validateDeviceToken(currentDeviceToken)
         if (cancelled) return
 
         if (!valid) {
