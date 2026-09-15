@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
+using RevelMovies.Api.Endpoints;
 using RevelMovies.Api.Hubs;
 using RevelMovies.Api.Runtime;
 using RevelMovies.Application.Commands;
@@ -30,6 +31,8 @@ builder.Services.AddSingleton<IMediaStorage>(_ => new LocalMediaStorage(mediaRoo
 builder.Services.AddScoped<DisplayRegistry>();
 builder.Services.AddScoped<EventRegistry>();
 builder.Services.AddScoped<MediaRegistry>();
+builder.Services.AddScoped<DisplayGroupRegistry>();
+builder.Services.AddScoped<PlaylistRegistry>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -51,6 +54,7 @@ if (builder.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
 app.UseCors("web");
 app.MapHealthChecks("/health");
 app.MapHub<PlayerHub>("/hubs/player");
+app.MapOrchestrationEndpoints();
 
 app.MapGet("/api/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {
