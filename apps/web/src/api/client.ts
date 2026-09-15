@@ -1,5 +1,6 @@
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
 export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
+export type MediaType = 'Video' | 'Image' | number
 
 export interface EventSummary {
   id: string
@@ -25,6 +26,22 @@ export interface PendingPairing {
   code: string
   createdAt: string
   expiresAt: string
+}
+
+export interface MediaAsset {
+  id: string
+  eventId: string
+  name: string
+  type: MediaType
+  mimeType: string
+  fileName: string
+  fileSize: number
+  durationSeconds: number | null
+  width: number | null
+  height: number | null
+  checksum: string
+  createdAt: string
+  contentUrl: string
 }
 
 export async function getEvents(): Promise<EventSummary[]> {
@@ -57,6 +74,29 @@ export async function pairDisplay(code: string, name: string, eventId: string): 
 export async function getDisplays(eventId?: string): Promise<Display[]> {
   const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''
   return getJson(`/api/displays${query}`)
+}
+
+export async function getMedia(eventId: string): Promise<MediaAsset[]> {
+  return getJson(`/api/events/${eventId}/media`)
+}
+
+export async function uploadMedia(eventId: string, file: File, name?: string): Promise<MediaAsset> {
+  const form = new FormData()
+  form.append('file', file)
+  if (name?.trim()) form.append('name', name.trim())
+
+  return requestJson(`/api/events/${eventId}/media`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
+export async function deleteMedia(mediaId: string): Promise<void> {
+  await requestVoid(`/api/media/${mediaId}`, { method: 'DELETE' })
+}
+
+export function mediaContentUrl(mediaId: string): string {
+  return `/api/media/${mediaId}/content`
 }
 
 export async function validateDeviceToken(deviceToken: string): Promise<boolean> {
@@ -93,4 +133,9 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
   return response.json()
+}
+
+async function requestVoid(url: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(url, init)
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
 }
