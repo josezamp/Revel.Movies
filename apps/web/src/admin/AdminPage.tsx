@@ -170,6 +170,14 @@ export function AdminPage() {
                 <strong>{display.name}</strong>
               </div>
               <small>{eventName(display.eventId)} · {String(display.status)}</small>
+              <div className="playback-health-row">
+                <span className={`playback-health health-${(display.playbackHealth ?? 'unknown').toLowerCase()}`}>
+                  {display.playbackHealth ?? 'No playback state'}
+                </span>
+                {display.desiredPlaybackState && <small>Desired: {display.desiredPlaybackState}</small>}
+                {display.actualPlaybackState && <small>Actual: {display.actualPlaybackState}</small>}
+                {display.driftMs !== null && <small>Drift: {display.driftMs.toFixed(0)} ms</small>}
+              </div>
               <div className="button-row">
                 <button onClick={() => void sendCommand(display.id, 'display.identify')}>Identify</button>
                 <button onClick={() => void sendCommand(display.id, 'display.blackout')}>Blackout</button>
