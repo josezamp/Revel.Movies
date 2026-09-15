@@ -37,7 +37,7 @@ export function PlayerPage() {
   const [playlistPaused, setPlaylistPaused] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const clockOffsetMsRef = useRef(0)
-  const scheduledStartTimerRef = useRef<number>()
+  const scheduledStartTimerRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     void registerMediaCache()
