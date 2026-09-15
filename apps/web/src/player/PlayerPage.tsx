@@ -374,6 +374,12 @@ export function PlayerPage() {
       await connection.invoke('ReportClockSample', best.offsetMs, best.roundTripMs)
     }
 
+    async function recoverDesiredPlayback() {
+      await synchronizeClock(3)
+      const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
+      if (!cancelled) applyRecovery(recovery)
+    }
+
     async function start() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
@@ -390,9 +396,7 @@ export function PlayerPage() {
         await connection.start()
         if (cancelled) return
 
-        await synchronizeClock(3)
-        const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
-        if (!cancelled) applyRecovery(recovery)
+        await recoverDesiredPlayback()
 
         if (heartbeatTimer === undefined)
           heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
@@ -406,6 +410,11 @@ export function PlayerPage() {
       }
     }
 
+    connection.onreconnected(() => {
+      void recoverDesiredPlayback().catch(error => {
+        if (!cancelled) console.error('Player recovery after reconnect failed:', error)
+      })
+    })
     connection.onclose(() => scheduleStart())
 
     const startTimer = window.setTimeout(() => void start(), 0)
