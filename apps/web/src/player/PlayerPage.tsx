@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { HubConnectionState } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, mediaContentUrl, validateDeviceToken } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
@@ -11,12 +11,27 @@ type ActiveMedia = {
   type: 'Video' | 'Image'
 }
 
+type PlaylistPlaybackItem = {
+  mediaId: string
+  mediaType: 'Video' | 'Image'
+  durationSeconds: number | null
+}
+
+type ActivePlaylist = {
+  id: string
+  loop: boolean
+  items: PlaylistPlaybackItem[]
+}
+
 export function PlayerPage() {
   const [pairingCode, setPairingCode] = useState<string>()
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
   const [media, setMedia] = useState<ActiveMedia>()
+  const [playlist, setPlaylist] = useState<ActivePlaylist>()
+  const [playlistIndex, setPlaylistIndex] = useState(0)
+  const [playlistPaused, setPlaylistPaused] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -58,6 +73,7 @@ export function PlayerPage() {
 
   useEffect(() => {
     if (!deviceToken) return
+    const currentDeviceToken = deviceToken
 
     let cancelled = false
     let heartbeatTimer: number | undefined
@@ -78,6 +94,9 @@ export function PlayerPage() {
           const mediaId = command.payload?.mediaId
           const mediaType = command.payload?.mediaType
           if (typeof mediaId === 'string' && (mediaType === 'Video' || mediaType === 'Image')) {
+            setPlaylist(undefined)
+            setPlaylistIndex(0)
+            setPlaylistPaused(false)
             setBlackout(false)
             setMedia({ id: mediaId, type: mediaType })
           }
@@ -85,9 +104,41 @@ export function PlayerPage() {
         }
         case 'media.pause':
           videoRef.current?.pause()
+          setPlaylistPaused(true)
           break
         case 'media.stop':
           videoRef.current?.pause()
+          setPlaylist(undefined)
+          setPlaylistIndex(0)
+          setPlaylistPaused(false)
+          setMedia(undefined)
+          break
+        case 'playlist.play': {
+          const playlistId = command.payload?.playlistId
+          const items = parsePlaylistItems(command.payload?.items)
+          if (typeof playlistId === 'string' && items.length > 0) {
+            const nextPlaylist: ActivePlaylist = {
+              id: playlistId,
+              loop: command.payload?.loop === true,
+              items,
+            }
+            setPlaylist(nextPlaylist)
+            setPlaylistIndex(0)
+            setPlaylistPaused(false)
+            setBlackout(false)
+            setMedia({ id: items[0].mediaId, type: items[0].mediaType })
+          }
+          break
+        }
+        case 'playlist.pause':
+          videoRef.current?.pause()
+          setPlaylistPaused(true)
+          break
+        case 'playlist.stop':
+          videoRef.current?.pause()
+          setPlaylist(undefined)
+          setPlaylistIndex(0)
+          setPlaylistPaused(false)
           setMedia(undefined)
           break
         case 'player.reload':
@@ -97,7 +148,7 @@ export function PlayerPage() {
       }
     }
 
-    const connection = createPlayerConnection(deviceToken, onCommand)
+    const connection = createPlayerConnection(currentDeviceToken, onCommand)
 
     const scheduleStart = () => {
       if (cancelled || reconnectTimer !== undefined) return
@@ -121,7 +172,7 @@ export function PlayerPage() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
       try {
-        const valid = await validateDeviceToken(deviceToken)
+        const valid = await validateDeviceToken(currentDeviceToken)
         if (cancelled) return
 
         if (!valid) {
@@ -158,10 +209,44 @@ export function PlayerPage() {
     }
   }, [deviceToken])
 
+  const advancePlaylist = useCallback(() => {
+    if (!playlist || playlistPaused || playlist.items.length === 0) return
+
+    const nextIndex = playlistIndex + 1
+    if (nextIndex >= playlist.items.length) {
+      if (!playlist.loop) {
+        setPlaylist(undefined)
+        setPlaylistIndex(0)
+        setMedia(undefined)
+        return
+      }
+
+      const first = playlist.items[0]
+      setPlaylistIndex(0)
+      setMedia({ id: first.mediaId, type: first.mediaType })
+      return
+    }
+
+    const next = playlist.items[nextIndex]
+    setPlaylistIndex(nextIndex)
+    setMedia({ id: next.mediaId, type: next.mediaType })
+  }, [playlist, playlistIndex, playlistPaused])
+
   useEffect(() => {
-    if (media?.type === 'Video' && videoRef.current)
+    if (media?.type === 'Video' && videoRef.current && !playlistPaused)
       void videoRef.current.play().catch(() => undefined)
-  }, [media])
+  }, [media, playlistPaused])
+
+  useEffect(() => {
+    if (!playlist || playlistPaused || media?.type !== 'Image') return
+
+    const current = playlist.items[playlistIndex]
+    if (!current) return
+
+    const durationMs = Math.max(0.5, current.durationSeconds ?? 10) * 1000
+    const timer = window.setTimeout(advancePlaylist, durationMs)
+    return () => window.clearTimeout(timer)
+  }, [advancePlaylist, media, playlist, playlistIndex, playlistPaused])
 
   if (!deviceToken) {
     return (
@@ -185,6 +270,9 @@ export function PlayerPage() {
           autoPlay
           muted
           playsInline
+          onEnded={() => {
+            if (playlist) advancePlaylist()
+          }}
         />
       )}
       {media?.type === 'Image' && (
@@ -193,4 +281,24 @@ export function PlayerPage() {
       {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
     </main>
   )
+}
+
+function parsePlaylistItems(value: unknown): PlaylistPlaybackItem[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const candidate = item as Record<string, unknown>
+    const mediaId = candidate.mediaId
+    const mediaType = candidate.mediaType
+    const rawDuration = candidate.durationSeconds
+
+    if (typeof mediaId !== 'string' || (mediaType !== 'Video' && mediaType !== 'Image')) return []
+
+    return [{
+      mediaId,
+      mediaType,
+      durationSeconds: typeof rawDuration === 'number' && rawDuration > 0 ? rawDuration : null,
+    }]
+  })
 }

@@ -87,6 +87,53 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
             b.ToTable("media_assets");
         });
 
+        modelBuilder.Entity("RevelMovies.Domain.DisplayGroups.DisplayGroup", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetimeoffset").HasColumnName("created_at");
+            b.Property<Guid>("EventId").HasColumnType("uniqueidentifier").HasColumnName("event_id");
+            b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("nvarchar(200)").HasColumnName("name");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("datetimeoffset").HasColumnName("updated_at");
+            b.HasKey("Id").HasName("pk_display_groups");
+            b.HasIndex("EventId").HasDatabaseName("ix_display_groups_event_id");
+            b.ToTable("display_groups");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.DisplayGroups.DisplayGroupMember", b =>
+        {
+            b.Property<Guid>("DisplayGroupId").HasColumnType("uniqueidentifier").HasColumnName("display_group_id");
+            b.Property<Guid>("DisplayId").HasColumnType("uniqueidentifier").HasColumnName("display_id");
+            b.HasKey("DisplayGroupId", "DisplayId").HasName("pk_display_group_members");
+            b.HasIndex("DisplayId").HasDatabaseName("ix_display_group_members_display_id");
+            b.ToTable("display_group_members");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Playlists.Playlist", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetimeoffset").HasColumnName("created_at");
+            b.Property<Guid>("EventId").HasColumnType("uniqueidentifier").HasColumnName("event_id");
+            b.Property<bool>("IsLoop").HasColumnType("bit").HasColumnName("is_loop");
+            b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("nvarchar(200)").HasColumnName("name");
+            b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("datetimeoffset").HasColumnName("updated_at");
+            b.HasKey("Id").HasName("pk_playlists");
+            b.HasIndex("EventId").HasDatabaseName("ix_playlists_event_id");
+            b.ToTable("playlists");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Playlists.PlaylistItem", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<double?>("DurationSeconds").HasColumnType("float").HasColumnName("duration_seconds");
+            b.Property<Guid>("MediaAssetId").HasColumnType("uniqueidentifier").HasColumnName("media_asset_id");
+            b.Property<Guid>("PlaylistId").HasColumnType("uniqueidentifier").HasColumnName("playlist_id");
+            b.Property<int>("Position").HasColumnType("int").HasColumnName("position");
+            b.HasKey("Id").HasName("pk_playlist_items");
+            b.HasIndex("MediaAssetId").HasDatabaseName("ix_playlist_items_media_asset_id");
+            b.HasIndex("PlaylistId", "Position").IsUnique().HasDatabaseName("ux_playlist_items_playlist_position");
+            b.ToTable("playlist_items");
+        });
+
         modelBuilder.Entity("RevelMovies.Domain.Displays.Display", b =>
         {
             b.HasOne("RevelMovies.Domain.Events.Event", null)
@@ -105,6 +152,58 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired()
                 .HasConstraintName("fk_media_assets_events_event_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.DisplayGroups.DisplayGroup", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Events.Event", null)
+                .WithMany()
+                .HasForeignKey("EventId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_display_groups_events_event_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.DisplayGroups.DisplayGroupMember", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Displays.Display", null)
+                .WithMany()
+                .HasForeignKey("DisplayId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired()
+                .HasConstraintName("fk_display_group_members_displays_display_id");
+            b.HasOne("RevelMovies.Domain.DisplayGroups.DisplayGroup", null)
+                .WithMany()
+                .HasForeignKey("DisplayGroupId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_display_group_members_groups_group_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Playlists.Playlist", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Events.Event", null)
+                .WithMany()
+                .HasForeignKey("EventId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_playlists_events_event_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Playlists.PlaylistItem", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Media.MediaAsset", null)
+                .WithMany()
+                .HasForeignKey("MediaAssetId")
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired()
+                .HasConstraintName("fk_playlist_items_media_assets_media_asset_id");
+            b.HasOne("RevelMovies.Domain.Playlists.Playlist", null)
+                .WithMany()
+                .HasForeignKey("PlaylistId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_playlist_items_playlists_playlist_id");
         });
 #pragma warning restore 612, 618
     }

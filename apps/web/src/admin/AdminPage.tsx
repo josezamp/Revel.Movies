@@ -14,6 +14,7 @@ import {
   type MediaAsset,
   type PendingPairing,
 } from '../api/client'
+import { OrchestrationPanel } from './OrchestrationPanel'
 
 export function AdminPage() {
   const [pending, setPending] = useState<PendingPairing[]>([])
@@ -178,6 +179,8 @@ export function AdminPage() {
           ))}
         </div>
       </section>
+
+      <OrchestrationPanel eventId={selectedEventId} displays={visibleDisplays} media={media} />
 
       <section>
         <div className="section-heading">
