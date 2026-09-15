@@ -114,8 +114,8 @@ export function PlayerPage() {
         }
 
         heartbeatTimer = window.setInterval(() => {
-          if (connection?.state === 'Connected')
-            void connection.invoke('Heartbeat')
+          if (connection)
+            void connection.invoke('Heartbeat').catch(() => undefined)
         }, 10000)
       } catch {
         scheduleReconnect()

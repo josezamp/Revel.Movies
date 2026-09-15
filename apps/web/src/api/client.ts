@@ -5,8 +5,8 @@ export interface EventSummary {
   id: string
   name: string
   slug: string
-  startsAt?: string
-  endsAt?: string
+  startsAt: string | null
+  endsAt: string | null
   timeZone: string
   status: EventStatus
   createdAt: string
@@ -17,7 +17,7 @@ export interface Display {
   eventId: string
   name: string
   status: DisplayStatus
-  lastSeenAt?: string
+  lastSeenAt: string | null
   createdAt: string
 }
 
