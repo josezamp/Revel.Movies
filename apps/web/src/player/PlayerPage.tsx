@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
-import { createPairingSession, getPairingResult, mediaContentUrl, validateDeviceToken } from '../api/client'
+import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
 
@@ -9,6 +9,8 @@ const processedCommandsKey = 'revel-movies.processed-command-ids'
 const reconnectDelayMs = 3000
 const clockSyncIntervalMs = 60_000
 const playbackReportIntervalMs = 3000
+
+type DisplayRotation = 0 | 90 | 180 | 270
 
 type ActiveMedia = {
   id: string
@@ -50,6 +52,7 @@ export function PlayerPage() {
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
+  const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [media, setMedia] = useState<ActiveMedia>()
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
   const [playlistIndex, setPlaylistIndex] = useState(0)
@@ -212,6 +215,16 @@ export function PlayerPage() {
       acknowledge(command, 'received')
 
       switch (command.type) {
+        case 'display.settings': {
+          const nextRotation = parseRotation(command.payload?.rotation)
+          if (nextRotation === null) {
+            acknowledge(command, 'error', 'invalid display.settings rotation')
+            break
+          }
+          setRotation(nextRotation)
+          acknowledge(command, 'executed')
+          break
+        }
         case 'display.blackout':
           clearScheduledStart()
           setBlackout(true)
@@ -374,7 +387,16 @@ export function PlayerPage() {
       await connection.invoke('ReportClockSample', best.offsetMs, best.roundTripMs)
     }
 
+    async function refreshDisplaySettings() {
+      const identity = await getPlayerIdentity(currentDeviceToken)
+      if (!identity) return false
+
+      setRotation(parseRotation(identity.rotation) ?? 0)
+      return true
+    }
+
     async function recoverDesiredPlayback() {
+      await refreshDisplaySettings()
       await synchronizeClock(3)
       const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
       if (!cancelled) applyRecovery(recovery)
@@ -384,15 +406,16 @@ export function PlayerPage() {
       if (cancelled || connection.state !== HubConnectionState.Disconnected) return
 
       try {
-        const valid = await validateDeviceToken(currentDeviceToken)
+        const identity = await getPlayerIdentity(currentDeviceToken)
         if (cancelled) return
 
-        if (!valid) {
+        if (!identity) {
           localStorage.removeItem(tokenKey)
           setDeviceToken(undefined)
           return
         }
 
+        setRotation(parseRotation(identity.rotation) ?? 0)
         await connection.start()
         if (cancelled) return
 
@@ -540,38 +563,47 @@ export function PlayerPage() {
 
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
-      {media?.type === 'Video' && (
-        <video
-          key={media.id}
-          ref={videoRef}
-          className="player-media"
-          src={mediaContentUrl(media.id)}
-          autoPlay={!playlistPaused}
-          muted
-          playsInline
-          onLoadedMetadata={() => {
-            const video = videoRef.current
-            if (!video) return
-            const seek = pendingSeekSecondsRef.current
-            if (seek !== undefined) {
-              const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
-              video.currentTime = Math.min(Math.max(0, seek), maxSeek)
-              pendingSeekSecondsRef.current = undefined
-            }
-            if (playlistPaused) video.pause()
-            else void video.play().catch(() => undefined)
-          }}
-          onEnded={() => {
-            if (playlist) advancePlaylist()
-          }}
-        />
-      )}
-      {media?.type === 'Image' && (
-        <img key={media.id} className="player-media" src={mediaContentUrl(media.id)} alt="" />
-      )}
-      {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
+      <div className={`player-viewport rotation-${rotation}`}>
+        {media?.type === 'Video' && (
+          <video
+            key={media.id}
+            ref={videoRef}
+            className="player-media"
+            src={mediaContentUrl(media.id)}
+            autoPlay={!playlistPaused}
+            muted
+            playsInline
+            onLoadedMetadata={() => {
+              const video = videoRef.current
+              if (!video) return
+              const seek = pendingSeekSecondsRef.current
+              if (seek !== undefined) {
+                const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
+                video.currentTime = Math.min(Math.max(0, seek), maxSeek)
+                pendingSeekSecondsRef.current = undefined
+              }
+              if (playlistPaused) video.pause()
+              else void video.play().catch(() => undefined)
+            }}
+            onEnded={() => {
+              if (playlist) advancePlaylist()
+            }}
+          />
+        )}
+        {media?.type === 'Image' && (
+          <img key={media.id} className="player-media" src={mediaContentUrl(media.id)} alt="" />
+        )}
+        {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
+      </div>
     </main>
   )
+}
+
+function parseRotation(value: unknown): DisplayRotation | null {
+  if (value === 0 || value === 90 || value === 180 || value === 270)
+    return value
+
+  return null
 }
 
 function parseMediaCandidate(payload: Record<string, unknown> | undefined): (CacheCandidate & { mediaType: 'Video' | 'Image' }) | null {
