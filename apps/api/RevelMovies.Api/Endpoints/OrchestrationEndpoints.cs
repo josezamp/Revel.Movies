@@ -1,6 +1,4 @@
 using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
-using RevelMovies.Api.Hubs;
 using RevelMovies.Api.Runtime;
 using RevelMovies.Application.Commands;
 using RevelMovies.Domain.DisplayGroups;
@@ -64,25 +62,32 @@ public static class OrchestrationEndpoints
             SendCommandRequest request,
             DisplayGroupRegistry groupRegistry,
             MediaRegistry mediaRegistry,
-            IHubContext<PlayerHub> hub,
+            PlayerCommandDispatcher dispatcher,
             CancellationToken cancellationToken) =>
         {
             var group = await groupRegistry.GetAsync(groupId, cancellationToken);
             if (group is null)
                 return Results.NotFound();
 
-            var payloadResult = await NormalizePayloadAsync(request.Type, request.Payload, group.EventId, mediaRegistry, cancellationToken);
-            if (!payloadResult.Success)
-                return payloadResult.MediaMissing
-                    ? Results.NotFound(new { error = payloadResult.Error })
-                    : Results.BadRequest(new { error = payloadResult.Error });
-
             var displayIds = await groupRegistry.GetDisplayIdsAsync(groupId, cancellationToken);
             if (displayIds.Count == 0)
                 return Results.BadRequest(new { error = "Display group has no members." });
 
-            var command = NewCommand(request.Type, payloadResult.Payload);
-            await SendToDisplaysAsync(displayIds, command, hub, cancellationToken);
+            if (string.Equals(request.Type, "media.play", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!TryGetMediaId(request.Payload, out var mediaId))
+                    return Results.BadRequest(new { error = "media.play requires a valid mediaId." });
+
+                var media = await mediaRegistry.GetAsync(mediaId, cancellationToken);
+                if (media is null || media.EventId != group.EventId)
+                    return Results.NotFound(new { error = "Media was not found for this event." });
+
+                var dispatch = await dispatcher.SendMediaPlayAsync(displayIds, media, cancellationToken);
+                return Results.Accepted(value: dispatch);
+            }
+
+            var command = dispatcher.Create(request.Type, request.Payload);
+            await dispatcher.SendAsync(displayIds, command, cancellationToken);
             return Results.Accepted(value: new { command, targets = displayIds.Count });
         });
 
@@ -158,7 +163,7 @@ public static class OrchestrationEndpoints
             PlaylistRegistry playlistRegistry,
             DisplayRegistry displayRegistry,
             DisplayGroupRegistry groupRegistry,
-            IHubContext<PlayerHub> hub,
+            PlayerCommandDispatcher dispatcher,
             CancellationToken cancellationToken) =>
         {
             var playlist = await playlistRegistry.GetViewAsync(playlistId, cancellationToken);
@@ -192,74 +197,35 @@ public static class OrchestrationEndpoints
                 return Results.BadRequest(new { error = "TargetType must be 'display' or 'group'." });
             }
 
-            var payload = JsonSerializer.SerializeToElement(new
-            {
-                playlistId = playlist.Playlist.Id,
-                loop = playlist.Playlist.IsLoop,
-                items = playlist.Items.Select(item => new
-                {
-                    mediaId = item.Media.Id,
-                    mediaType = item.Media.Type.ToString(),
-                    durationSeconds = item.Item.DurationSeconds ?? (item.Media.Type == MediaType.Image ? 10d : (double?)null)
-                })
-            });
+            var items = playlist.Items.Select(item => new PlaylistDispatchItem(
+                item.Media.Id,
+                item.Media.Type.ToString(),
+                item.Media.FileSize,
+                item.Item.DurationSeconds ?? (item.Media.Type == MediaType.Image ? 10d : null)))
+                .ToArray();
 
-            var command = NewCommand("playlist.play", payload);
-            await SendToDisplaysAsync(targetDisplayIds, command, hub, cancellationToken);
-            return Results.Accepted(value: new { command, targets = targetDisplayIds.Count });
+            var dispatch = await dispatcher.SendPlaylistPlayAsync(
+                targetDisplayIds,
+                playlist.Playlist.Id,
+                playlist.Playlist.IsLoop,
+                items,
+                cancellationToken);
+
+            return Results.Accepted(value: dispatch);
         });
 
         return app;
     }
 
-    private static async Task<NormalizedPayload> NormalizePayloadAsync(
-        string type,
-        JsonElement? payload,
-        Guid eventId,
-        MediaRegistry mediaRegistry,
-        CancellationToken cancellationToken)
+    private static bool TryGetMediaId(JsonElement? payload, out Guid mediaId)
     {
-        if (!string.Equals(type, "media.play", StringComparison.OrdinalIgnoreCase))
-            return new NormalizedPayload(true, payload, null, false);
-
-        if (payload is not { } value ||
-            value.ValueKind != JsonValueKind.Object ||
-            !value.TryGetProperty("mediaId", out var mediaIdProperty) ||
-            mediaIdProperty.ValueKind != JsonValueKind.String ||
-            !Guid.TryParse(mediaIdProperty.GetString(), out var mediaId))
-        {
-            return new NormalizedPayload(false, null, "media.play requires a valid mediaId.", false);
-        }
-
-        var media = await mediaRegistry.GetAsync(mediaId, cancellationToken);
-        if (media is null || media.EventId != eventId)
-            return new NormalizedPayload(false, null, "Media was not found for this event.", true);
-
-        return new NormalizedPayload(true, JsonSerializer.SerializeToElement(new
-        {
-            mediaId = media.Id,
-            mediaType = media.Type.ToString()
-        }), null, false);
+        mediaId = Guid.Empty;
+        return payload is { } value &&
+               value.ValueKind == JsonValueKind.Object &&
+               value.TryGetProperty("mediaId", out var mediaIdProperty) &&
+               mediaIdProperty.ValueKind == JsonValueKind.String &&
+               Guid.TryParse(mediaIdProperty.GetString(), out mediaId);
     }
-
-    private static PlayerCommand NewCommand(string type, JsonElement? payload) => new(
-        1,
-        Guid.NewGuid(),
-        type,
-        DateTimeOffset.UtcNow,
-        payload);
-
-    private static async Task SendToDisplaysAsync(
-        IEnumerable<Guid> displayIds,
-        PlayerCommand command,
-        IHubContext<PlayerHub> hub,
-        CancellationToken cancellationToken)
-    {
-        foreach (var displayId in displayIds.Distinct())
-            await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
-    }
-
-    private sealed record NormalizedPayload(bool Success, JsonElement? Payload, string? Error, bool MediaMissing);
 }
 
 public sealed record CreateDisplayGroupRequest(string Name);
