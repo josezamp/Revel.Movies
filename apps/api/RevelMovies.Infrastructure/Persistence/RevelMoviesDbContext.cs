@@ -4,6 +4,7 @@ using RevelMovies.Domain.DisplayGroups;
 using RevelMovies.Domain.Displays;
 using RevelMovies.Domain.Media;
 using RevelMovies.Domain.Pairing;
+using RevelMovies.Domain.Playback;
 using RevelMovies.Domain.Playlists;
 using RevelEvent = RevelMovies.Domain.Events.Event;
 
@@ -20,6 +21,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<Playlist> Playlists => Set<Playlist>();
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
     public DbSet<CommandAcknowledgement> CommandAcknowledgements => Set<CommandAcknowledgement>();
+    public DbSet<DisplayPlaybackState> DisplayPlaybackStates => Set<DisplayPlaybackState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -208,6 +210,36 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
                 .HasForeignKey(x => x.DisplayId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_command_ack_displays_display_id");
+        });
+
+        modelBuilder.Entity<DisplayPlaybackState>(builder =>
+        {
+            builder.ToTable("display_playback_states");
+            builder.HasKey(x => x.DisplayId).HasName("pk_display_playback_states");
+            builder.Property(x => x.DisplayId).HasColumnName("display_id").ValueGeneratedNever();
+            builder.Property(x => x.DesiredState).HasColumnName("desired_state").HasMaxLength(40).IsRequired();
+            builder.Property(x => x.ContentType).HasColumnName("content_type").HasMaxLength(40);
+            builder.Property(x => x.MediaAssetId).HasColumnName("media_asset_id");
+            builder.Property(x => x.PlaylistId).HasColumnName("playlist_id");
+            builder.Property(x => x.PayloadJson).HasColumnName("payload_json");
+            builder.Property(x => x.StartedAt).HasColumnName("started_at");
+            builder.Property(x => x.PausedPositionSeconds).HasColumnName("paused_position_seconds");
+            builder.Property(x => x.LastCommandId).HasColumnName("last_command_id");
+            builder.Property(x => x.ActualState).HasColumnName("actual_state").HasMaxLength(40).IsRequired();
+            builder.Property(x => x.ActualMediaAssetId).HasColumnName("actual_media_asset_id");
+            builder.Property(x => x.ActualPlaylistId).HasColumnName("actual_playlist_id");
+            builder.Property(x => x.ActualPlaylistIndex).HasColumnName("actual_playlist_index");
+            builder.Property(x => x.ActualPositionSeconds).HasColumnName("actual_position_seconds");
+            builder.Property(x => x.ActualDurationSeconds).HasColumnName("actual_duration_seconds");
+            builder.Property(x => x.ActualReportedAt).HasColumnName("actual_reported_at");
+            builder.Property(x => x.DriftMs).HasColumnName("drift_ms");
+            builder.Property(x => x.Health).HasColumnName("health").HasMaxLength(40).IsRequired();
+            builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            builder.HasOne<Display>()
+                .WithOne()
+                .HasForeignKey<DisplayPlaybackState>(x => x.DisplayId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_display_playback_states_displays_display_id");
         });
     }
 }
