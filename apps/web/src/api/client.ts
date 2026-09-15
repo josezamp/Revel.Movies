@@ -105,7 +105,7 @@ export async function validateDeviceToken(deviceToken: string): Promise<boolean>
   })
 
   if (response.status === 401) return false
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await responseError(response)
   return true
 }
 
@@ -131,11 +131,24 @@ async function getJson<T>(url: string): Promise<T> {
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await responseError(response)
   return response.json()
 }
 
 async function requestVoid(url: string, init?: RequestInit): Promise<void> {
   const response = await fetch(url, init)
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  if (!response.ok) throw await responseError(response)
+}
+
+async function responseError(response: Response): Promise<Error> {
+  let message = `${response.status} ${response.statusText}`
+
+  try {
+    const body = await response.json() as { error?: string }
+    if (body.error) message = body.error
+  } catch {
+    // The response did not contain JSON. Keep the HTTP status message.
+  }
+
+  return new Error(message)
 }

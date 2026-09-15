@@ -65,7 +65,7 @@ public sealed class LocalMediaStorage : IMediaStorage
             path,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.Read,
+            FileShare.Read | FileShare.Delete,
             81920,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
 

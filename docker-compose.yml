@@ -20,7 +20,8 @@ services:
       context: ./apps/api
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__RevelMovies: Server=sqlserver,1433;Database=RevelMovies;User Id=sa;Password=${MSSQL_SA_PASSWORD:-RevelMovies_dev_2026!};TrustServerCertificate=True;MultipleActiveResultSets=true
+      ConnectionStrings__RevelMovies: Server=sqlserver,1433;Database=Revel.Movies;User Id=sa;Password=${MSSQL_SA_PASSWORD:-RevelMovies_dev_2026!};TrustServerCertificate=True
+      MediaStorage__RootPath: /app/media
     ports:
       - "5080:8080"
     depends_on:
