@@ -65,6 +65,28 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
             b.ToTable("displays");
         });
 
+        modelBuilder.Entity("RevelMovies.Domain.Media.MediaAsset", b =>
+        {
+            b.Property<Guid>("Id").ValueGeneratedNever().HasColumnType("uniqueidentifier").HasColumnName("id");
+            b.Property<string>("Checksum").IsRequired().HasMaxLength(64).HasColumnType("nvarchar(64)").HasColumnName("checksum");
+            b.Property<DateTimeOffset>("CreatedAt").HasColumnType("datetimeoffset").HasColumnName("created_at");
+            b.Property<double?>("DurationSeconds").HasColumnType("float").HasColumnName("duration_seconds");
+            b.Property<Guid>("EventId").HasColumnType("uniqueidentifier").HasColumnName("event_id");
+            b.Property<string>("FileName").IsRequired().HasMaxLength(260).HasColumnType("nvarchar(260)").HasColumnName("file_name");
+            b.Property<long>("FileSize").HasColumnType("bigint").HasColumnName("file_size");
+            b.Property<int?>("Height").HasColumnType("int").HasColumnName("height");
+            b.Property<string>("MimeType").IsRequired().HasMaxLength(100).HasColumnType("nvarchar(100)").HasColumnName("mime_type");
+            b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("nvarchar(200)").HasColumnName("name");
+            b.Property<string>("StorageKey").IsRequired().HasMaxLength(450).HasColumnType("nvarchar(450)").HasColumnName("storage_key");
+            b.Property<int>("Type").HasColumnType("int").HasColumnName("type");
+            b.Property<int?>("Width").HasColumnType("int").HasColumnName("width");
+            b.HasKey("Id").HasName("pk_media_assets");
+            b.HasIndex("Checksum").HasDatabaseName("ix_media_assets_checksum");
+            b.HasIndex("EventId").HasDatabaseName("ix_media_assets_event_id");
+            b.HasIndex("StorageKey").IsUnique().HasDatabaseName("ux_media_assets_storage_key");
+            b.ToTable("media_assets");
+        });
+
         modelBuilder.Entity("RevelMovies.Domain.Displays.Display", b =>
         {
             b.HasOne("RevelMovies.Domain.Events.Event", null)
@@ -73,6 +95,16 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired()
                 .HasConstraintName("fk_displays_events_event_id");
+        });
+
+        modelBuilder.Entity("RevelMovies.Domain.Media.MediaAsset", b =>
+        {
+            b.HasOne("RevelMovies.Domain.Events.Event", null)
+                .WithMany()
+                .HasForeignKey("EventId")
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired()
+                .HasConstraintName("fk_media_assets_events_event_id");
         });
 #pragma warning restore 612, 618
     }

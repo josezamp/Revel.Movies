@@ -6,10 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:5080',
-      '/health': 'http://localhost:5080',
+      '/api': 'http://localhost:65179',
+      '/health': 'http://localhost:65179',
       '/hubs': {
-        target: 'http://localhost:5080',
+        target: 'http://localhost:65179',
         ws: true,
       },
     },

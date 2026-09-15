@@ -1,21 +1,35 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using RevelMovies.Api.Hubs;
 using RevelMovies.Api.Runtime;
 using RevelMovies.Application.Commands;
+using RevelMovies.Application.Media;
 using RevelMovies.Domain.Displays;
 using RevelMovies.Domain.Events;
+using RevelMovies.Domain.Media;
 using RevelMovies.Infrastructure;
+using RevelMovies.Infrastructure.Media;
 using RevelMovies.Infrastructure.Persistence;
 using RevelEvent = RevelMovies.Domain.Events.Event;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("RevelMovies")
     ?? throw new InvalidOperationException("Connection string 'RevelMovies' is required.");
+var maxMediaUploadBytes = builder.Configuration.GetValue<long>("MediaStorage:MaxUploadBytes", 1073741824);
+var configuredMediaRoot = builder.Configuration["MediaStorage:RootPath"] ?? "media";
+var mediaRoot = Path.IsPathRooted(configuredMediaRoot)
+    ? configuredMediaRoot
+    : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, configuredMediaRoot));
 
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxMediaUploadBytes);
+builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxMediaUploadBytes);
 builder.Services.AddRevelMoviesInfrastructure(connectionString);
+builder.Services.AddSingleton<IMediaStorage>(_ => new LocalMediaStorage(mediaRoot));
 builder.Services.AddScoped<DisplayRegistry>();
 builder.Services.AddScoped<EventRegistry>();
+builder.Services.AddScoped<MediaRegistry>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -69,6 +83,80 @@ app.MapPost("/api/events", async (CreateEventRequest request, EventRegistry regi
         cancellationToken);
 
     return Results.Created($"/api/events/{item.Id}", EventResponse.From(item));
+});
+
+app.MapGet("/api/events/{eventId:guid}/media", async (
+    Guid eventId,
+    MediaRegistry mediaRegistry,
+    CancellationToken cancellationToken) =>
+{
+    var items = await mediaRegistry.GetForEventAsync(eventId, cancellationToken);
+    return Results.Ok(items.Select(MediaResponse.From));
+});
+
+app.MapPost("/api/events/{eventId:guid}/media", async (
+    Guid eventId,
+    HttpRequest request,
+    MediaRegistry mediaRegistry,
+    CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+        return Results.BadRequest(new { error = "multipart/form-data is required." });
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+    if (file is null)
+        return Results.BadRequest(new { error = "A media file is required." });
+
+    await using var stream = file.OpenReadStream();
+    var result = await mediaRegistry.UploadAsync(
+        eventId,
+        file.FileName,
+        file.ContentType,
+        form["name"].FirstOrDefault(),
+        file.Length,
+        stream,
+        maxMediaUploadBytes,
+        cancellationToken);
+
+    if (result.Asset is null)
+        return Results.BadRequest(new { error = result.Error });
+
+    return Results.Created($"/api/media/{result.Asset.Id}", MediaResponse.From(result.Asset));
+});
+
+app.MapGet("/api/media/{mediaId:guid}", async (
+    Guid mediaId,
+    MediaRegistry mediaRegistry,
+    CancellationToken cancellationToken) =>
+{
+    var item = await mediaRegistry.GetAsync(mediaId, cancellationToken);
+    return item is null ? Results.NotFound() : Results.Ok(MediaResponse.From(item));
+});
+
+app.MapGet("/api/media/{mediaId:guid}/content", async (
+    Guid mediaId,
+    MediaRegistry mediaRegistry,
+    IMediaStorage storage,
+    CancellationToken cancellationToken) =>
+{
+    var item = await mediaRegistry.GetAsync(mediaId, cancellationToken);
+    if (item is null)
+        return Results.NotFound();
+
+    var stream = await storage.OpenReadAsync(item.StorageKey, cancellationToken);
+    return stream is null
+        ? Results.NotFound()
+        : Results.File(stream, item.MimeType, enableRangeProcessing: true);
+});
+
+app.MapDelete("/api/media/{mediaId:guid}", async (
+    Guid mediaId,
+    MediaRegistry mediaRegistry,
+    CancellationToken cancellationToken) =>
+{
+    var deleted = await mediaRegistry.DeleteAsync(mediaId, cancellationToken);
+    return deleted ? Results.NoContent() : Results.NotFound();
 });
 
 app.MapGet("/api/player/identity", async (HttpRequest request, DisplayRegistry registry, CancellationToken cancellationToken) =>
@@ -142,19 +230,44 @@ app.MapGet("/api/displays", async (Guid? eventId, DisplayRegistry registry, Canc
 app.MapPost("/api/displays/{displayId:guid}/commands", async (
     Guid displayId,
     SendCommandRequest request,
-    DisplayRegistry registry,
+    DisplayRegistry displayRegistry,
+    MediaRegistry mediaRegistry,
     IHubContext<PlayerHub> hub,
     CancellationToken cancellationToken) =>
 {
-    if (await registry.GetDisplayAsync(displayId, cancellationToken) is null)
+    var display = await displayRegistry.GetDisplayAsync(displayId, cancellationToken);
+    if (display is null)
         return Results.NotFound();
+
+    JsonElement? commandPayload = request.Payload;
+    if (string.Equals(request.Type, "media.play", StringComparison.OrdinalIgnoreCase))
+    {
+        if (request.Payload is not { } payload ||
+            payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty("mediaId", out var mediaIdProperty) ||
+            mediaIdProperty.ValueKind != JsonValueKind.String ||
+            !Guid.TryParse(mediaIdProperty.GetString(), out var mediaId))
+        {
+            return Results.BadRequest(new { error = "media.play requires a valid mediaId." });
+        }
+
+        var media = await mediaRegistry.GetAsync(mediaId, cancellationToken);
+        if (media is null || media.EventId != display.EventId)
+            return Results.NotFound(new { error = "Media was not found for this display event." });
+
+        commandPayload = JsonSerializer.SerializeToElement(new
+        {
+            mediaId = media.Id,
+            mediaType = media.Type.ToString()
+        });
+    }
 
     var command = new PlayerCommand(
         1,
         Guid.NewGuid(),
         request.Type,
         DateTimeOffset.UtcNow,
-        request.Payload);
+        commandPayload);
 
     await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
     return Results.Accepted(value: command);
@@ -206,4 +319,35 @@ public sealed record DisplayResponse(
         item.Status,
         item.LastSeenAt,
         item.CreatedAt);
+}
+
+public sealed record MediaResponse(
+    Guid Id,
+    Guid EventId,
+    string Name,
+    MediaType Type,
+    string MimeType,
+    string FileName,
+    long FileSize,
+    double? DurationSeconds,
+    int? Width,
+    int? Height,
+    string Checksum,
+    DateTimeOffset CreatedAt,
+    string ContentUrl)
+{
+    public static MediaResponse From(MediaAsset item) => new(
+        item.Id,
+        item.EventId,
+        item.Name,
+        item.Type,
+        item.MimeType,
+        item.FileName,
+        item.FileSize,
+        item.DurationSeconds,
+        item.Width,
+        item.Height,
+        item.Checksum,
+        item.CreatedAt,
+        $"/api/media/{item.Id}/content");
 }

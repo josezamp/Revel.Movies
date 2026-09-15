@@ -26,3 +26,4 @@ media/
 .env
 .env.*
 !.env.example
+/apps/web/.vite/deps
