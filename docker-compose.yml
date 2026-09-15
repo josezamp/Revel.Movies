@@ -1,28 +1,31 @@
 services:
-  postgres:
-    image: postgres:17-alpine
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
-      POSTGRES_DB: revel_movies
-      POSTGRES_USER: revel
-      POSTGRES_PASSWORD: revel
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:-RevelMovies_dev_2026!}
+    ports:
+      - "1433:1433"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - sqlserver-data:/var/opt/mssql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U revel -d revel_movies"]
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" || exit 1"]
       interval: 5s
-      timeout: 3s
-      retries: 10
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   api:
     build:
       context: ./apps/api
     environment:
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__RevelMovies: Host=postgres;Port=5432;Database=revel_movies;Username=revel;Password=revel
+      ConnectionStrings__RevelMovies: Server=sqlserver,1433;Database=Revel.Movies;User Id=sa;Password=${MSSQL_SA_PASSWORD:-RevelMovies_dev_2026!};TrustServerCertificate=True
+      MediaStorage__RootPath: /app/media
     ports:
       - "5080:8080"
     depends_on:
-      postgres:
+      sqlserver:
         condition: service_healthy
     volumes:
       - media:/app/media
@@ -37,5 +40,5 @@ services:
       - api
 
 volumes:
-  postgres-data:
+  sqlserver-data:
   media:

@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { HubConnectionState } from '@microsoft/signalr'
-import { createPairingSession, getPairingResult } from '../api/client'
+import { createPairingSession, getPairingResult, mediaContentUrl, validateDeviceToken } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 
 const tokenKey = 'revel-movies.device-token'
+const reconnectDelayMs = 3000
+
+type ActiveMedia = {
+  id: string
+  type: 'Video' | 'Image'
+}
 
 export function PlayerPage() {
   const [pairingCode, setPairingCode] = useState<string>()
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
-  const [mediaUrl, setMediaUrl] = useState<string>()
+  const [media, setMedia] = useState<ActiveMedia>()
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -20,19 +26,27 @@ export function PlayerPage() {
     let timer: number | undefined
 
     async function pair() {
-      const session = await createPairingSession()
-      if (cancelled) return
-      setPairingCode(session.code)
+      try {
+        const session = await createPairingSession()
+        if (cancelled) return
+        setPairingCode(session.code)
 
-      timer = window.setInterval(async () => {
-        const result = await getPairingResult(session.sessionToken)
-        if (!result.isPaired || !result.deviceToken) return
+        timer = window.setInterval(async () => {
+          try {
+            const result = await getPairingResult(session.sessionToken)
+            if (!result.isPaired || !result.deviceToken) return
 
-        localStorage.setItem(tokenKey, result.deviceToken)
-        setDeviceToken(result.deviceToken)
-        setPairingCode(undefined)
-        if (timer) window.clearInterval(timer)
-      }, 1500)
+            localStorage.setItem(tokenKey, result.deviceToken)
+            setDeviceToken(result.deviceToken)
+            setPairingCode(undefined)
+            if (timer) window.clearInterval(timer)
+          } catch (error) {
+            if (!cancelled) console.error('Pairing status failed:', error)
+          }
+        }, 1500)
+      } catch (error) {
+        if (!cancelled) console.error('Pairing session failed:', error)
+      }
     }
 
     void pair()
@@ -46,8 +60,12 @@ export function PlayerPage() {
     if (!deviceToken) return
 
     let cancelled = false
+    let heartbeatTimer: number | undefined
+    let reconnectTimer: number | undefined
+
     const onCommand = (command: PlayerCommand) => {
       if (cancelled) return
+
       switch (command.type) {
         case 'display.blackout':
           setBlackout(true)
@@ -57,10 +75,11 @@ export function PlayerPage() {
           window.setTimeout(() => setIdentify(false), 5000)
           break
         case 'media.play': {
-          const url = command.payload?.url
-          if (typeof url === 'string') {
+          const mediaId = command.payload?.mediaId
+          const mediaType = command.payload?.mediaType
+          if (typeof mediaId === 'string' && (mediaType === 'Video' || mediaType === 'Image')) {
             setBlackout(false)
-            setMediaUrl(url)
+            setMedia({ id: mediaId, type: mediaType })
           }
           break
         }
@@ -69,7 +88,7 @@ export function PlayerPage() {
           break
         case 'media.stop':
           videoRef.current?.pause()
-          setMediaUrl(undefined)
+          setMedia(undefined)
           break
         case 'player.reload':
         case 'system.refresh':
@@ -79,7 +98,14 @@ export function PlayerPage() {
     }
 
     const connection = createPlayerConnection(deviceToken, onCommand)
-    let heartbeatTimer: number | undefined
+
+    const scheduleStart = () => {
+      if (cancelled || reconnectTimer !== undefined) return
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined
+        void start()
+      }, reconnectDelayMs)
+    }
 
     async function heartbeat() {
       if (cancelled || connection.state !== HubConnectionState.Connected) return
@@ -92,14 +118,32 @@ export function PlayerPage() {
     }
 
     async function start() {
+      if (cancelled || connection.state !== HubConnectionState.Disconnected) return
+
       try {
+        const valid = await validateDeviceToken(deviceToken)
+        if (cancelled) return
+
+        if (!valid) {
+          localStorage.removeItem(tokenKey)
+          setDeviceToken(undefined)
+          return
+        }
+
         await connection.start()
         if (cancelled) return
-        heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
+
+        if (heartbeatTimer === undefined)
+          heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
       } catch (error) {
-        if (!cancelled) console.error('Player connection failed to start:', error)
+        if (!cancelled) {
+          console.error('Player connection failed to start:', error)
+          scheduleStart()
+        }
       }
     }
+
+    connection.onclose(() => scheduleStart())
 
     // Let Strict Mode's setup/cleanup replay finish before starting negotiation.
     const startTimer = window.setTimeout(() => void start(), 0)
@@ -107,6 +151,7 @@ export function PlayerPage() {
     return () => {
       cancelled = true
       window.clearTimeout(startTimer)
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
       connection.off('command', onCommand)
       void connection.stop().catch(error => console.error('Player connection failed to stop:', error))
@@ -114,8 +159,9 @@ export function PlayerPage() {
   }, [deviceToken])
 
   useEffect(() => {
-    if (mediaUrl && videoRef.current) void videoRef.current.play().catch(() => undefined)
-  }, [mediaUrl])
+    if (media?.type === 'Video' && videoRef.current)
+      void videoRef.current.play().catch(() => undefined)
+  }, [media])
 
   if (!deviceToken) {
     return (
@@ -130,7 +176,20 @@ export function PlayerPage() {
 
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
-      {mediaUrl && <video ref={videoRef} className="player-media" src={mediaUrl} autoPlay muted playsInline />}
+      {media?.type === 'Video' && (
+        <video
+          key={media.id}
+          ref={videoRef}
+          className="player-media"
+          src={mediaContentUrl(media.id)}
+          autoPlay
+          muted
+          playsInline
+        />
+      )}
+      {media?.type === 'Image' && (
+        <img key={media.id} className="player-media" src={mediaContentUrl(media.id)} alt="" />
+      )}
       {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
     </main>
   )
