@@ -1,137 +1,186 @@
-using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
 using RevelMovies.Domain.Displays;
+using RevelMovies.Domain.Pairing;
+using RevelMovies.Infrastructure.Persistence;
 
 namespace RevelMovies.Api.Runtime;
 
-public sealed class DisplayRegistry
+public sealed class DisplayRegistry(RevelMoviesDbContext db)
 {
-    private readonly ConcurrentDictionary<string, PairingSession> _pairingSessions = new();
-    private readonly ConcurrentDictionary<Guid, Display> _displays = new();
-    private readonly ConcurrentDictionary<string, Guid> _displayByToken = new();
+    private static readonly TimeSpan PairingLifetime = TimeSpan.FromMinutes(10);
 
-    public PairingSession CreatePairingSession()
+    public async Task<PairingSession> CreatePairingSessionAsync(CancellationToken cancellationToken = default)
     {
-        RemoveExpiredPairingSessions();
+        await RemoveExpiredPairingSessionsAsync(cancellationToken);
+
+        var now = DateTimeOffset.UtcNow;
+        string? code = null;
+
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var candidate = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+            var exists = await db.PairingSessions.AnyAsync(x =>
+                x.Code == candidate &&
+                x.DisplayId == null &&
+                x.ExpiresAt > now, cancellationToken);
+
+            if (!exists)
+            {
+                code = candidate;
+                break;
+            }
+        }
+
+        if (code is null)
+            throw new InvalidOperationException("Could not allocate a unique pairing code.");
 
         var session = new PairingSession(
             Guid.NewGuid().ToString("N"),
-            Random.Shared.Next(100000, 1000000).ToString(),
-            DateTimeOffset.UtcNow.AddMinutes(10));
+            code,
+            now.Add(PairingLifetime));
 
-        _pairingSessions[session.SessionToken] = session;
+        db.PairingSessions.Add(session);
+        await db.SaveChangesAsync(cancellationToken);
         return session;
     }
 
-    public IReadOnlyCollection<PairingSession> GetPendingPairings() =>
-        _pairingSessions.Values
-            .Where(x => !x.IsPaired && x.ExpiresAt > DateTimeOffset.UtcNow)
-            .OrderBy(x => x.CreatedAt)
-            .ToArray();
-
-    public PairingResult? GetPairingResult(string sessionToken)
+    public async Task<IReadOnlyList<PairingSession>> GetPendingPairingsAsync(CancellationToken cancellationToken = default)
     {
-        if (!_pairingSessions.TryGetValue(sessionToken, out var session) || session.ExpiresAt <= DateTimeOffset.UtcNow)
-            return null;
+        await RemoveExpiredPairingSessionsAsync(cancellationToken);
+        var now = DateTimeOffset.UtcNow;
 
-        return session.IsPaired
-            ? new PairingResult(true, session.DisplayId, session.DeviceToken)
-            : new PairingResult(false, null, null);
+        return await db.PairingSessions
+            .AsNoTracking()
+            .Where(x => x.DisplayId == null && x.ExpiresAt > now)
+            .OrderBy(x => x.CreatedAt)
+            .ToListAsync(cancellationToken);
     }
 
-    public Display? Pair(string code, string name)
+    public async Task<PairingResult?> GetPairingResultAsync(string sessionToken, CancellationToken cancellationToken = default)
     {
-        var session = _pairingSessions.Values.FirstOrDefault(x =>
-            !x.IsPaired &&
-            x.ExpiresAt > DateTimeOffset.UtcNow &&
-            string.Equals(x.Code, code, StringComparison.Ordinal));
+        var now = DateTimeOffset.UtcNow;
+        var session = await db.PairingSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.SessionToken == sessionToken && x.ExpiresAt > now, cancellationToken);
 
         if (session is null)
             return null;
 
+        return session.DisplayId.HasValue && !string.IsNullOrWhiteSpace(session.DeviceToken)
+            ? new PairingResult(true, session.DisplayId, session.DeviceToken)
+            : new PairingResult(false, null, null);
+    }
+
+    public async Task<Display?> PairAsync(string code, string name, Guid eventId, CancellationToken cancellationToken = default)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var eventExists = await db.Events.AnyAsync(x => x.Id == eventId, cancellationToken);
+        if (!eventExists)
+            return null;
+
+        var session = await db.PairingSessions.FirstOrDefaultAsync(x =>
+            x.Code == code &&
+            x.DisplayId == null &&
+            x.ExpiresAt > now, cancellationToken);
+
+        if (session is null)
+            return null;
+
+        var deviceToken = GenerateDeviceToken();
         var display = new Display
         {
+            EventId = eventId,
             Name = name.Trim(),
-            Status = DisplayStatus.Offline
+            DeviceTokenHash = HashDeviceToken(deviceToken),
+            Status = DisplayStatus.Offline,
+            UpdatedAt = now
         };
 
-        _displays[display.Id] = display;
-        _displayByToken[display.DeviceToken] = display.Id;
-
-        session.Pair(display.Id, display.DeviceToken);
+        db.Displays.Add(display);
+        session.Pair(display.Id, deviceToken);
+        await db.SaveChangesAsync(cancellationToken);
         return display;
     }
 
-    public Display? Authenticate(string? deviceToken)
+    public async Task<Display?> AuthenticateAsync(string? deviceToken, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(deviceToken) || !_displayByToken.TryGetValue(deviceToken, out var displayId))
+        if (string.IsNullOrWhiteSpace(deviceToken))
             return null;
 
-        return _displays.GetValueOrDefault(displayId);
+        var hash = HashDeviceToken(deviceToken);
+        return await db.Displays
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.DeviceTokenHash == hash, cancellationToken);
     }
 
-    public IReadOnlyCollection<Display> GetDisplays() =>
-        _displays.Values.OrderBy(x => x.Name).ToArray();
-
-    public Display? GetDisplay(Guid id) => _displays.GetValueOrDefault(id);
-
-    public void SetOnline(Guid id)
+    public async Task<IReadOnlyList<Display>> GetDisplaysAsync(Guid? eventId = null, CancellationToken cancellationToken = default)
     {
-        if (!_displays.TryGetValue(id, out var display))
-            return;
+        var query = db.Displays.AsNoTracking();
+        if (eventId.HasValue)
+            query = query.Where(x => x.EventId == eventId.Value);
 
-        display.Status = DisplayStatus.Online;
-        display.LastSeenAt = DateTimeOffset.UtcNow;
+        return await query.OrderBy(x => x.Name).ToListAsync(cancellationToken);
     }
 
-    public void SetOffline(Guid id)
+    public Task<Display?> GetDisplayAsync(Guid id, CancellationToken cancellationToken = default) =>
+        db.Displays.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+    public Task SetOnlineAsync(Guid id, CancellationToken cancellationToken = default) =>
+        UpdatePresenceAsync(id, DisplayStatus.Online, cancellationToken);
+
+    public Task SetOfflineAsync(Guid id, CancellationToken cancellationToken = default) =>
+        UpdatePresenceAsync(id, DisplayStatus.Offline, cancellationToken);
+
+    public async Task HeartbeatAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        if (!_displays.TryGetValue(id, out var display))
+        var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (display is null)
             return;
 
-        display.Status = DisplayStatus.Offline;
         display.LastSeenAt = DateTimeOffset.UtcNow;
-    }
-
-    public void Heartbeat(Guid id)
-    {
-        if (!_displays.TryGetValue(id, out var display))
-            return;
-
-        display.LastSeenAt = DateTimeOffset.UtcNow;
-        if (display.Status == DisplayStatus.Offline || display.Status == DisplayStatus.Unknown)
+        display.UpdatedAt = display.LastSeenAt.Value;
+        if (display.Status is DisplayStatus.Offline or DisplayStatus.Unknown)
             display.Status = DisplayStatus.Online;
+
+        await db.SaveChangesAsync(cancellationToken);
     }
 
-    private void RemoveExpiredPairingSessions()
+    private async Task UpdatePresenceAsync(Guid id, DisplayStatus status, CancellationToken cancellationToken)
     {
-        foreach (var session in _pairingSessions.Values.Where(x => !x.IsPaired && x.ExpiresAt <= DateTimeOffset.UtcNow))
-            _pairingSessions.TryRemove(session.SessionToken, out _);
-    }
-}
+        var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (display is null)
+            return;
 
-public sealed class PairingSession
-{
-    public PairingSession(string sessionToken, string code, DateTimeOffset expiresAt)
-    {
-        SessionToken = sessionToken;
-        Code = code;
-        ExpiresAt = expiresAt;
-        CreatedAt = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+        display.Status = status;
+        display.LastSeenAt = now;
+        display.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
     }
 
-    public string SessionToken { get; }
-    public string Code { get; }
-    public DateTimeOffset CreatedAt { get; }
-    public DateTimeOffset ExpiresAt { get; }
-    public bool IsPaired { get; private set; }
-    public Guid? DisplayId { get; private set; }
-    public string? DeviceToken { get; private set; }
-
-    public void Pair(Guid displayId, string deviceToken)
+    private Task RemoveExpiredPairingSessionsAsync(CancellationToken cancellationToken)
     {
-        IsPaired = true;
-        DisplayId = displayId;
-        DeviceToken = deviceToken;
+        var now = DateTimeOffset.UtcNow;
+        return db.PairingSessions
+            .Where(x => x.ExpiresAt <= now)
+            .ExecuteDeleteAsync(cancellationToken);
+    }
+
+    private static string GenerateDeviceToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+    }
+
+    private static string HashDeviceToken(string token)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }
 

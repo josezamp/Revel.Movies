@@ -9,10 +9,11 @@ Revel Movies turns browser-capable devices into remotely controlled media player
 - .NET 10 / ASP.NET Core
 - SignalR
 - Entity Framework Core
-- PostgreSQL
+- SQL Server
 - React + TypeScript + Vite
 - TanStack Query
-- Docker / Docker Compose
+- IIS for the primary Windows Server deployment
+- Docker / Docker Compose as an optional local or portable deployment path
 
 ## Repository structure
 

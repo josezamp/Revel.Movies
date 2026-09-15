@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPairingSession, getPairingResult } from '../api/client'
+import { createPairingSession, getPairingResult, validateDeviceToken } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 
 const tokenKey = 'revel-movies.device-token'
+const reconnectDelayMs = 3000
 
 export function PlayerPage() {
   const [pairingCode, setPairingCode] = useState<string>()
@@ -44,6 +45,11 @@ export function PlayerPage() {
   useEffect(() => {
     if (!deviceToken) return
 
+    let disposed = false
+    let heartbeatTimer: number | undefined
+    let reconnectTimer: number | undefined
+    let connection: ReturnType<typeof createPlayerConnection> | undefined
+
     const onCommand = (command: PlayerCommand) => {
       switch (command.type) {
         case 'display.blackout':
@@ -75,16 +81,54 @@ export function PlayerPage() {
       }
     }
 
-    const connection = createPlayerConnection(deviceToken, onCommand)
-    let heartbeatTimer: number | undefined
+    const scheduleReconnect = () => {
+      if (disposed || reconnectTimer) return
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = undefined
+        void connect()
+      }, reconnectDelayMs)
+    }
 
-    void connection.start().then(() => {
-      heartbeatTimer = window.setInterval(() => void connection.invoke('Heartbeat'), 10000)
-    })
+    async function connect() {
+      try {
+        const valid = await validateDeviceToken(deviceToken)
+        if (disposed) return
+
+        if (!valid) {
+          localStorage.removeItem(tokenKey)
+          setDeviceToken(undefined)
+          return
+        }
+      } catch {
+        if (disposed) return
+      }
+
+      connection = createPlayerConnection(deviceToken, onCommand)
+      connection.onclose(() => scheduleReconnect())
+
+      try {
+        await connection.start()
+        if (disposed) {
+          await connection.stop()
+          return
+        }
+
+        heartbeatTimer = window.setInterval(() => {
+          if (connection)
+            void connection.invoke('Heartbeat').catch(() => undefined)
+        }, 10000)
+      } catch {
+        scheduleReconnect()
+      }
+    }
+
+    void connect()
 
     return () => {
+      disposed = true
       if (heartbeatTimer) window.clearInterval(heartbeatTimer)
-      void connection.stop()
+      if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      void connection?.stop()
     }
   }, [deviceToken])
 

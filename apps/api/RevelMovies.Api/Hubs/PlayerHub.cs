@@ -10,7 +10,7 @@ public sealed class PlayerHub(DisplayRegistry registry) : Hub
     public override async Task OnConnectedAsync()
     {
         var token = Context.GetHttpContext()?.Request.Query["deviceToken"].ToString();
-        var display = registry.Authenticate(token);
+        var display = await registry.AuthenticateAsync(token, Context.ConnectionAborted);
 
         if (display is null)
         {
@@ -19,26 +19,24 @@ public sealed class PlayerHub(DisplayRegistry registry) : Hub
         }
 
         Context.Items[DisplayIdItemKey] = display.Id;
-        registry.SetOnline(display.Id);
+        await registry.SetOnlineAsync(display.Id, Context.ConnectionAborted);
 
-        await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(display.Id));
+        await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(display.Id), Context.ConnectionAborted);
         await base.OnConnectedAsync();
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         if (Context.Items.TryGetValue(DisplayIdItemKey, out var value) && value is Guid displayId)
-            registry.SetOffline(displayId);
+            await registry.SetOfflineAsync(displayId);
 
         await base.OnDisconnectedAsync(exception);
     }
 
-    public Task Heartbeat()
+    public async Task Heartbeat()
     {
         if (Context.Items.TryGetValue(DisplayIdItemKey, out var value) && value is Guid displayId)
-            registry.Heartbeat(displayId);
-
-        return Task.CompletedTask;
+            await registry.HeartbeatAsync(displayId, Context.ConnectionAborted);
     }
 
     public static string GroupName(Guid displayId) => $"display:{displayId:N}";

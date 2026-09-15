@@ -7,8 +7,9 @@
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; min-height: 100%; margin: 0; }
 body { margin: 0; background: #080808; }
-button, a { font: inherit; }
+button, a, select { font: inherit; }
 button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
 
 .home-shell,
 .admin-shell {
@@ -28,6 +29,9 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .admin-shell { max-width: 1400px; margin: 0 auto; }
 .admin-shell h1 { font-size: 3rem; }
 .admin-shell section { margin-top: 44px; }
+.admin-toolbar { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.admin-toolbar label { display: grid; gap: 6px; color: #a1a1aa; font-size: .8rem; }
+.admin-toolbar select { min-width: 240px; border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 10px 36px 10px 12px; border-radius: 10px; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
 .card { padding: 20px; border: 1px solid #27272a; border-radius: 16px; background: #111113; display: grid; gap: 14px; }
 .display-heading { display: flex; align-items: center; gap: 10px; }

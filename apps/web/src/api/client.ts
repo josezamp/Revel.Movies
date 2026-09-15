@@ -1,10 +1,24 @@
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
+export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
+
+export interface EventSummary {
+  id: string
+  name: string
+  slug: string
+  startsAt: string | null
+  endsAt: string | null
+  timeZone: string
+  status: EventStatus
+  createdAt: string
+}
 
 export interface Display {
   id: string
+  eventId: string
   name: string
   status: DisplayStatus
-  lastSeenAt?: string
+  lastSeenAt: string | null
+  createdAt: string
 }
 
 export interface PendingPairing {
@@ -13,20 +27,46 @@ export interface PendingPairing {
   expiresAt: string
 }
 
+export async function getEvents(): Promise<EventSummary[]> {
+  return getJson('/api/events')
+}
+
+export async function createEvent(name: string): Promise<EventSummary> {
+  return requestJson('/api/events', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    }),
+  })
+}
+
 export async function getPendingPairings(): Promise<PendingPairing[]> {
   return getJson('/api/pairing/pending')
 }
 
-export async function pairDisplay(code: string, name: string): Promise<Display> {
+export async function pairDisplay(code: string, name: string, eventId: string): Promise<Display> {
   return requestJson('/api/displays/pair', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, name }),
+    body: JSON.stringify({ code, name, eventId }),
   })
 }
 
-export async function getDisplays(): Promise<Display[]> {
-  return getJson('/api/displays')
+export async function getDisplays(eventId?: string): Promise<Display[]> {
+  const query = eventId ? `?eventId=${encodeURIComponent(eventId)}` : ''
+  return getJson(`/api/displays${query}`)
+}
+
+export async function validateDeviceToken(deviceToken: string): Promise<boolean> {
+  const response = await fetch('/api/player/identity', {
+    headers: { 'X-Device-Token': deviceToken },
+  })
+
+  if (response.status === 401) return false
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  return true
 }
 
 export async function sendCommand(displayId: string, type: string, payload?: unknown) {
