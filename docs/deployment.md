@@ -20,6 +20,7 @@ Windows Server
 Required Windows features/components:
 
 - IIS
+- IIS URL Rewrite module (for the React application's browser routes)
 - WebSocket Protocol
 - ASP.NET Core Hosting Bundle for .NET 10
 - SQL Server reachable by the API process
@@ -33,6 +34,44 @@ Server=localhost;Database=Revel.Movies;Trusted_Connection=True;TrustServerCertif
 For IIS, override the connection string using the deployment environment instead of committing production credentials to the repository.
 
 The application currently applies pending EF Core migrations on startup when `Database:ApplyMigrationsOnStartup` is `true`.
+
+## IIS: frontend at the site root and API at `/api`
+
+Build both applications from the repository root:
+
+```powershell
+dotnet publish apps/api/RevelMovies.Api/RevelMovies.Api.csproj -c Release
+npm --prefix apps/web ci
+npm --prefix apps/web run build
+```
+
+Deploy the contents of these folders:
+
+| Build output | IIS destination |
+| --- | --- |
+| `apps/web/dist` | Physical path of the root website |
+| `apps/api/RevelMovies.Api/bin/Release/net10.0/publish` | Physical path of the child application with alias `api` |
+
+The frontend output includes `index.html`, `assets`, `sw.js`, and `web.config`. Copy its `web.config` to the website root. It sets `index.html` as the default document and rewrites browser routes such as `/admin` and `/player` to it, while excluding `/api`, existing files, and existing directories. Its settings are not inherited by child applications. The IIS URL Rewrite module must be installed for this configuration to load.
+
+The backend must be an IIS **application**, with its own application pool set to **No Managed Code**. Keep the backend's generated `web.config` in the API publish directory; it is separate from the frontend's `web.config`.
+
+IIS supplies `/api` as the backend's `PathBase`, so backend endpoint patterns are relative to it (`/events`, `/media`, etc.). When running directly on Kestrel, `UsePathBase("/api")` extracts the same prefix before routing. Public REST URLs therefore remain `/api/events`, `/api/media/{id}/content`, and so on in IIS, development, and Docker. SignalR uses `/api/hubs/player`; both the Vite and nginx proxies support WebSocket upgrades on `/api`.
+
+After publishing **both** applications, check:
+
+- `/admin` and `/player`: the React application loads, including on refresh.
+- `/api/health`: returns `Healthy`.
+- `/api/events`: returns a JSON array.
+- `/api/hubs/player/negotiate?negotiateVersion=1`: a POST returns SignalR negotiation JSON.
+
+The health endpoint only checks whether the API is running; `/api/events` also exercises the database connection. Do not use `/api/api/events`.
+
+Routing regression checks (including simulated IIS `PathBase` handling) can be run without SQL Server:
+
+```powershell
+dotnet test apps/api/RevelMovies.Api.Tests/RevelMovies.Api.Tests.csproj
+```
 
 ## Media storage
 
@@ -84,7 +123,7 @@ Open:
 
 - Admin: `http://localhost:5173/admin`
 - Player: `http://localhost:5173/player`
-- Health: `http://localhost:65179/health`
+- Health: `http://localhost:65179/api/health`
 
 ## Docker Compose
 

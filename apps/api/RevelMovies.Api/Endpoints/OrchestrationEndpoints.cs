@@ -11,7 +11,7 @@ public static class OrchestrationEndpoints
 {
     public static IEndpointRouteBuilder MapOrchestrationEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/events/{eventId:guid}/display-groups", async (
+        app.MapGet("/events/{eventId:guid}/display-groups", async (
             Guid eventId,
             DisplayGroupRegistry registry,
             CancellationToken cancellationToken) =>
@@ -20,7 +20,7 @@ public static class OrchestrationEndpoints
             return Results.Ok(groups.Select(DisplayGroupResponse.From));
         });
 
-        app.MapPost("/api/events/{eventId:guid}/display-groups", async (
+        app.MapPost("/events/{eventId:guid}/display-groups", async (
             Guid eventId,
             CreateDisplayGroupRequest request,
             DisplayGroupRegistry registry,
@@ -38,7 +38,7 @@ public static class OrchestrationEndpoints
                 : Results.Created($"/api/display-groups/{group.Id}", new DisplayGroupResponse(group.Id, group.EventId, group.Name, [], group.CreatedAt));
         });
 
-        app.MapPut("/api/display-groups/{groupId:guid}/members", async (
+        app.MapPut("/display-groups/{groupId:guid}/members", async (
             Guid groupId,
             ReplaceDisplayGroupMembersRequest request,
             DisplayGroupRegistry registry,
@@ -48,7 +48,7 @@ public static class OrchestrationEndpoints
             return result.Success ? Results.NoContent() : Results.BadRequest(new { error = result.Error });
         });
 
-        app.MapDelete("/api/display-groups/{groupId:guid}", async (
+        app.MapDelete("/display-groups/{groupId:guid}", async (
             Guid groupId,
             DisplayGroupRegistry registry,
             CancellationToken cancellationToken) =>
@@ -57,7 +57,7 @@ public static class OrchestrationEndpoints
             return deleted ? Results.NoContent() : Results.NotFound();
         });
 
-        app.MapPost("/api/display-groups/{groupId:guid}/commands", async (
+        app.MapPost("/display-groups/{groupId:guid}/commands", async (
             Guid groupId,
             SendCommandRequest request,
             DisplayGroupRegistry groupRegistry,
@@ -91,7 +91,7 @@ public static class OrchestrationEndpoints
             return Results.Accepted(value: new { command, targets = displayIds.Count });
         });
 
-        app.MapGet("/api/events/{eventId:guid}/playlists", async (
+        app.MapGet("/events/{eventId:guid}/playlists", async (
             Guid eventId,
             PlaylistRegistry registry,
             CancellationToken cancellationToken) =>
@@ -100,7 +100,7 @@ public static class OrchestrationEndpoints
             return Results.Ok(playlists.Select(PlaylistResponse.From));
         });
 
-        app.MapPost("/api/events/{eventId:guid}/playlists", async (
+        app.MapPost("/events/{eventId:guid}/playlists", async (
             Guid eventId,
             CreatePlaylistRequest request,
             PlaylistRegistry registry,
@@ -118,7 +118,7 @@ public static class OrchestrationEndpoints
                 : Results.Created($"/api/playlists/{playlist.Id}", PlaylistResponse.From(new PlaylistView(playlist, [])));
         });
 
-        app.MapPut("/api/playlists/{playlistId:guid}", async (
+        app.MapPut("/playlists/{playlistId:guid}", async (
             Guid playlistId,
             UpdatePlaylistRequest request,
             PlaylistRegistry registry,
@@ -134,7 +134,7 @@ public static class OrchestrationEndpoints
             return playlist is null ? Results.NotFound() : Results.Ok(playlist);
         });
 
-        app.MapPut("/api/playlists/{playlistId:guid}/items", async (
+        app.MapPut("/playlists/{playlistId:guid}/items", async (
             Guid playlistId,
             ReplacePlaylistItemsRequest request,
             PlaylistRegistry registry,
@@ -148,7 +148,7 @@ public static class OrchestrationEndpoints
             return result.Success ? Results.NoContent() : Results.BadRequest(new { error = result.Error });
         });
 
-        app.MapDelete("/api/playlists/{playlistId:guid}", async (
+        app.MapDelete("/playlists/{playlistId:guid}", async (
             Guid playlistId,
             PlaylistRegistry registry,
             CancellationToken cancellationToken) =>
@@ -157,7 +157,7 @@ public static class OrchestrationEndpoints
             return deleted ? Results.NoContent() : Results.NotFound();
         });
 
-        app.MapPost("/api/playlists/{playlistId:guid}/play", async (
+        app.MapPost("/playlists/{playlistId:guid}/play", async (
             Guid playlistId,
             PlayPlaylistRequest request,
             PlaylistRegistry playlistRegistry,

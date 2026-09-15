@@ -10,7 +10,7 @@ export interface PlayerCommand {
 
 export function createPlayerConnection(deviceToken: string, onCommand: (command: PlayerCommand) => void) {
   const connection = new signalR.HubConnectionBuilder()
-    .withUrl(`/hubs/player?deviceToken=${encodeURIComponent(deviceToken)}`)
+    .withUrl(`/api/hubs/player?deviceToken=${encodeURIComponent(deviceToken)}`)
     .withAutomaticReconnect()
     .build()
 

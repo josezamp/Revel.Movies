@@ -19,7 +19,7 @@ Media binaries are never stored in SQL Server.
 3. Admin discovers the pending pairing and assigns a display name and Event.
 4. API persists the Display and pairing result in SQL Server.
 5. Player receives its device token and stores it in `localStorage`.
-6. Player connects to `/hubs/player` using the device token.
+6. Player connects to `/api/hubs/player` using the device token.
 7. API marks the Display online and joins it to `display:{id}`.
 8. Admin sends versioned commands through the REST API.
 9. API publishes the command to the SignalR display group.

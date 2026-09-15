@@ -54,24 +54,28 @@ var app = builder.Build();
 if (builder.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
     await DatabaseBootstrapper.InitializeAsync(app.Services);
 
+// IIS supplies PathBase for the /api application. Extract it here as well
+// when running directly through Kestrel (development and Docker).
+app.UsePathBase("/api");
+app.UseRouting();
 app.UseCors("web");
 app.MapHealthChecks("/health");
 app.MapHub<PlayerHub>("/hubs/player");
 app.MapOrchestrationEndpoints();
 
-app.MapGet("/api/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
+app.MapGet("/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {
     var events = await registry.GetEventsAsync(cancellationToken);
     return Results.Ok(events.Select(EventResponse.From));
 });
 
-app.MapGet("/api/events/{eventId:guid}", async (Guid eventId, EventRegistry registry, CancellationToken cancellationToken) =>
+app.MapGet("/events/{eventId:guid}", async (Guid eventId, EventRegistry registry, CancellationToken cancellationToken) =>
 {
     var item = await registry.GetEventAsync(eventId, cancellationToken);
     return item is null ? Results.NotFound() : Results.Ok(EventResponse.From(item));
 });
 
-app.MapPost("/api/events", async (CreateEventRequest request, EventRegistry registry, CancellationToken cancellationToken) =>
+app.MapPost("/events", async (CreateEventRequest request, EventRegistry registry, CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Name))
         return Results.BadRequest(new { error = "Event name is required." });
@@ -92,7 +96,7 @@ app.MapPost("/api/events", async (CreateEventRequest request, EventRegistry regi
     return Results.Created($"/api/events/{item.Id}", EventResponse.From(item));
 });
 
-app.MapGet("/api/events/{eventId:guid}/media", async (
+app.MapGet("/events/{eventId:guid}/media", async (
     Guid eventId,
     MediaRegistry mediaRegistry,
     CancellationToken cancellationToken) =>
@@ -101,7 +105,7 @@ app.MapGet("/api/events/{eventId:guid}/media", async (
     return Results.Ok(items.Select(MediaResponse.From));
 });
 
-app.MapPost("/api/events/{eventId:guid}/media", async (
+app.MapPost("/events/{eventId:guid}/media", async (
     Guid eventId,
     HttpRequest request,
     MediaRegistry mediaRegistry,
@@ -132,7 +136,7 @@ app.MapPost("/api/events/{eventId:guid}/media", async (
     return Results.Created($"/api/media/{result.Asset.Id}", MediaResponse.From(result.Asset));
 });
 
-app.MapGet("/api/media/{mediaId:guid}", async (
+app.MapGet("/media/{mediaId:guid}", async (
     Guid mediaId,
     MediaRegistry mediaRegistry,
     CancellationToken cancellationToken) =>
@@ -141,7 +145,7 @@ app.MapGet("/api/media/{mediaId:guid}", async (
     return item is null ? Results.NotFound() : Results.Ok(MediaResponse.From(item));
 });
 
-app.MapGet("/api/media/{mediaId:guid}/content", async (
+app.MapGet("/media/{mediaId:guid}/content", async (
     Guid mediaId,
     HttpResponse response,
     MediaRegistry mediaRegistry,
@@ -160,7 +164,7 @@ app.MapGet("/api/media/{mediaId:guid}/content", async (
     return Results.File(stream, item.MimeType, enableRangeProcessing: true);
 });
 
-app.MapDelete("/api/media/{mediaId:guid}", async (
+app.MapDelete("/media/{mediaId:guid}", async (
     Guid mediaId,
     MediaRegistry mediaRegistry,
     CancellationToken cancellationToken) =>
@@ -169,14 +173,14 @@ app.MapDelete("/api/media/{mediaId:guid}", async (
     return deleted ? Results.NoContent() : Results.NotFound();
 });
 
-app.MapGet("/api/player/identity", async (HttpRequest request, DisplayRegistry registry, CancellationToken cancellationToken) =>
+app.MapGet("/player/identity", async (HttpRequest request, DisplayRegistry registry, CancellationToken cancellationToken) =>
 {
     var token = request.Headers["X-Device-Token"].ToString();
     var display = await registry.AuthenticateAsync(token, cancellationToken);
     return display is null ? Results.Unauthorized() : Results.Ok(DisplayResponse.From(display));
 });
 
-app.MapGet("/api/player/diagnostics", async (
+app.MapGet("/player/diagnostics", async (
     HttpRequest request,
     DisplayRegistry registry,
     CommandAcknowledgementRegistry acknowledgementRegistry,
@@ -207,7 +211,7 @@ app.MapGet("/api/player/diagnostics", async (
     });
 });
 
-app.MapPost("/api/player/pairing-session", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
+app.MapPost("/player/pairing-session", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
 {
     var session = await registry.CreatePairingSessionAsync(cancellationToken);
     return Results.Ok(new
@@ -218,7 +222,7 @@ app.MapPost("/api/player/pairing-session", async (DisplayRegistry registry, Canc
     });
 });
 
-app.MapGet("/api/player/pairing-session/{sessionToken}", async (
+app.MapGet("/player/pairing-session/{sessionToken}", async (
     string sessionToken,
     DisplayRegistry registry,
     CancellationToken cancellationToken) =>
@@ -227,7 +231,7 @@ app.MapGet("/api/player/pairing-session/{sessionToken}", async (
     return result is null ? Results.NotFound() : Results.Ok(result);
 });
 
-app.MapGet("/api/pairing/pending", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
+app.MapGet("/pairing/pending", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
 {
     var pending = await registry.GetPendingPairingsAsync(cancellationToken);
     return Results.Ok(pending.Select(x => new
@@ -238,7 +242,7 @@ app.MapGet("/api/pairing/pending", async (DisplayRegistry registry, Cancellation
     }));
 });
 
-app.MapPost("/api/displays/pair", async (
+app.MapPost("/displays/pair", async (
     PairDisplayRequest request,
     DisplayRegistry registry,
     EventRegistry eventRegistry,
@@ -262,7 +266,7 @@ app.MapPost("/api/displays/pair", async (
         : Results.Ok(DisplayResponse.From(display));
 });
 
-app.MapGet("/api/displays", async (
+app.MapGet("/displays", async (
     Guid? eventId,
     DisplayRegistry registry,
     PlaybackStateRegistry playbackStateRegistry,
@@ -273,7 +277,7 @@ app.MapGet("/api/displays", async (
     return Results.Ok(displays.Select(x => DisplayResponse.From(x, playback.GetValueOrDefault(x.Id))));
 });
 
-app.MapPost("/api/displays/{displayId:guid}/commands", async (
+app.MapPost("/displays/{displayId:guid}/commands", async (
     Guid displayId,
     SendCommandRequest request,
     DisplayRegistry displayRegistry,

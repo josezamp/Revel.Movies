@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/admin/adminpage.tsx","./src/admin/orchestrationpanel.tsx","./src/api/client.ts","./src/player/diagnosticspage.tsx","./src/player/playerpage.tsx","./src/player/mediacache.ts","./src/signalr/playerconnection.ts"],"version":"5.9.3"}
