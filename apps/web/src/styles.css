@@ -52,6 +52,27 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .danger-button { border-color: #7f1d1d; }
 .danger-button:hover { background: #450a0a; }
 
+.orchestration-grid { margin-top: 16px; }
+.count-badge { margin-left: auto; font-size: .7rem; color: #a1a1aa; border: 1px solid #3f3f46; border-radius: 999px; padding: 4px 8px; }
+.member-list { display: grid; gap: 8px; padding: 12px; border: 1px solid #27272a; border-radius: 10px; background: #0b0b0d; }
+.member-list label { display: flex; align-items: center; gap: 8px; color: #d4d4d8; font-size: .85rem; }
+.inline-control { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.inline-control select { flex: 1 1 180px; min-width: 0; border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 10px 12px; border-radius: 10px; }
+.playlist-target-toolbar { margin-bottom: 16px; }
+.playlist-list { display: grid; gap: 16px; }
+.playlist-card { gap: 16px; }
+.playlist-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.playlist-heading > div { display: grid; gap: 4px; }
+.playlist-heading small { color: #71717a; }
+.loop-toggle { display: flex; align-items: center; gap: 7px; color: #d4d4d8; font-size: .85rem; }
+.playlist-items { display: grid; gap: 8px; }
+.playlist-item { display: grid; grid-template-columns: auto minmax(140px, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid #27272a; border-radius: 10px; background: #0b0b0d; }
+.playlist-item > div:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.playlist-item small { color: #71717a; }
+.playlist-position { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: #27272a; color: #d4d4d8; font-size: .75rem; font-weight: 700; }
+.playlist-item-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.playlist-item-actions button { padding: 6px 8px; font-size: .75rem; }
+
 .player-shell {
   position: fixed;
   inset: 0;
@@ -68,3 +89,9 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .is-blackout .player-media { display: none; }
 .identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; font-size: 8vw; font-weight: 900; z-index: 10; }
 .identify-overlay small { font-size: 2vw; letter-spacing: .18em; }
+
+@media (max-width: 720px) {
+  .admin-shell { padding: 24px; }
+  .playlist-item { grid-template-columns: auto 1fr; }
+  .playlist-item-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
