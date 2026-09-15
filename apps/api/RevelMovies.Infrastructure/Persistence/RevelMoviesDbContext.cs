@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using RevelMovies.Domain.DisplayGroups;
 using RevelMovies.Domain.Displays;
 using RevelMovies.Domain.Media;
 using RevelMovies.Domain.Pairing;
+using RevelMovies.Domain.Playlists;
 using RevelEvent = RevelMovies.Domain.Events.Event;
 
 namespace RevelMovies.Infrastructure.Persistence;
@@ -12,6 +14,10 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<Display> Displays => Set<Display>();
     public DbSet<PairingSession> PairingSessions => Set<PairingSession>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<DisplayGroup> DisplayGroups => Set<DisplayGroup>();
+    public DbSet<DisplayGroupMember> DisplayGroupMembers => Set<DisplayGroupMember>();
+    public DbSet<Playlist> Playlists => Set<Playlist>();
+    public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -96,6 +102,83 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
                 .HasForeignKey(x => x.EventId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_media_assets_events_event_id");
+        });
+
+        modelBuilder.Entity<DisplayGroup>(builder =>
+        {
+            builder.ToTable("display_groups");
+            builder.HasKey(x => x.Id).HasName("pk_display_groups");
+            builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+            builder.Property(x => x.EventId).HasColumnName("event_id").IsRequired();
+            builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            builder.HasIndex(x => x.EventId).HasDatabaseName("ix_display_groups_event_id");
+            builder.HasOne<RevelEvent>()
+                .WithMany()
+                .HasForeignKey(x => x.EventId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_display_groups_events_event_id");
+        });
+
+        modelBuilder.Entity<DisplayGroupMember>(builder =>
+        {
+            builder.ToTable("display_group_members");
+            builder.HasKey(x => new { x.DisplayGroupId, x.DisplayId }).HasName("pk_display_group_members");
+            builder.Property(x => x.DisplayGroupId).HasColumnName("display_group_id");
+            builder.Property(x => x.DisplayId).HasColumnName("display_id");
+            builder.HasIndex(x => x.DisplayId).HasDatabaseName("ix_display_group_members_display_id");
+            builder.HasOne<DisplayGroup>()
+                .WithMany()
+                .HasForeignKey(x => x.DisplayGroupId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_display_group_members_groups_group_id");
+            builder.HasOne<Display>()
+                .WithMany()
+                .HasForeignKey(x => x.DisplayId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_display_group_members_displays_display_id");
+        });
+
+        modelBuilder.Entity<Playlist>(builder =>
+        {
+            builder.ToTable("playlists");
+            builder.HasKey(x => x.Id).HasName("pk_playlists");
+            builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+            builder.Property(x => x.EventId).HasColumnName("event_id").IsRequired();
+            builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
+            builder.Property(x => x.IsLoop).HasColumnName("is_loop").IsRequired();
+            builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
+            builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            builder.HasIndex(x => x.EventId).HasDatabaseName("ix_playlists_event_id");
+            builder.HasOne<RevelEvent>()
+                .WithMany()
+                .HasForeignKey(x => x.EventId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_playlists_events_event_id");
+        });
+
+        modelBuilder.Entity<PlaylistItem>(builder =>
+        {
+            builder.ToTable("playlist_items");
+            builder.HasKey(x => x.Id).HasName("pk_playlist_items");
+            builder.Property(x => x.Id).HasColumnName("id").ValueGeneratedNever();
+            builder.Property(x => x.PlaylistId).HasColumnName("playlist_id").IsRequired();
+            builder.Property(x => x.MediaAssetId).HasColumnName("media_asset_id").IsRequired();
+            builder.Property(x => x.Position).HasColumnName("position").IsRequired();
+            builder.Property(x => x.DurationSeconds).HasColumnName("duration_seconds");
+            builder.HasIndex(x => new { x.PlaylistId, x.Position }).IsUnique().HasDatabaseName("ux_playlist_items_playlist_position");
+            builder.HasIndex(x => x.MediaAssetId).HasDatabaseName("ix_playlist_items_media_asset_id");
+            builder.HasOne<Playlist>()
+                .WithMany()
+                .HasForeignKey(x => x.PlaylistId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("fk_playlist_items_playlists_playlist_id");
+            builder.HasOne<MediaAsset>()
+                .WithMany()
+                .HasForeignKey(x => x.MediaAssetId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("fk_playlist_items_media_assets_media_asset_id");
         });
     }
 }
