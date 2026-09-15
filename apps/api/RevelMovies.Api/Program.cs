@@ -277,6 +277,27 @@ app.MapGet("/displays", async (
     return Results.Ok(displays.Select(x => DisplayResponse.From(x, playback.GetValueOrDefault(x.Id))));
 });
 
+app.MapPut("/displays/{displayId:guid}/settings", async (
+    Guid displayId,
+    UpdateDisplaySettingsRequest request,
+    DisplayRegistry displayRegistry,
+    PlayerCommandDispatcher dispatcher,
+    CancellationToken cancellationToken) =>
+{
+    if (request.Rotation is not (0 or 90 or 180 or 270))
+        return Results.BadRequest(new { error = "Rotation must be 0, 90, 180 or 270 degrees." });
+
+    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken);
+    if (display is null)
+        return Results.NotFound();
+
+    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation });
+    var command = dispatcher.Create("display.settings", payload);
+    await dispatcher.SendAsync([display.Id], command, cancellationToken);
+
+    return Results.Ok(DisplayResponse.From(display));
+});
+
 app.MapPost("/displays/{displayId:guid}/commands", async (
     Guid displayId,
     SendCommandRequest request,
@@ -322,6 +343,7 @@ public sealed record CreateEventRequest(
     DateTimeOffset? EndsAt);
 
 public sealed record PairDisplayRequest(string Code, string Name, Guid EventId);
+public sealed record UpdateDisplaySettingsRequest(int Rotation);
 
 public sealed record EventResponse(
     Guid Id,
@@ -348,6 +370,7 @@ public sealed record DisplayResponse(
     Guid Id,
     Guid EventId,
     string Name,
+    int Rotation,
     DisplayStatus Status,
     DateTimeOffset? LastSeenAt,
     double? ClockOffsetMs,
@@ -365,6 +388,7 @@ public sealed record DisplayResponse(
         item.Id,
         item.EventId,
         item.Name,
+        item.Rotation,
         item.Status,
         item.LastSeenAt,
         item.ClockOffsetMs,
