@@ -6,6 +6,7 @@ public sealed class Display
     public Guid EventId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string DeviceTokenHash { get; set; } = string.Empty;
+    public int Rotation { get; set; }
     public DisplayStatus Status { get; set; } = DisplayStatus.Unknown;
     public DateTimeOffset? LastSeenAt { get; set; }
     public double? ClockOffsetMs { get; set; }
