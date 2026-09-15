@@ -59,6 +59,16 @@ export async function getDisplays(eventId?: string): Promise<Display[]> {
   return getJson(`/api/displays${query}`)
 }
 
+export async function validateDeviceToken(deviceToken: string): Promise<boolean> {
+  const response = await fetch('/api/player/identity', {
+    headers: { 'X-Device-Token': deviceToken },
+  })
+
+  if (response.status === 401) return false
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+  return true
+}
+
 export async function sendCommand(displayId: string, type: string, payload?: unknown) {
   return requestJson(`/api/displays/${displayId}/commands`, {
     method: 'POST',

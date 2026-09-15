@@ -71,6 +71,13 @@ app.MapPost("/api/events", async (CreateEventRequest request, EventRegistry regi
     return Results.Created($"/api/events/{item.Id}", EventResponse.From(item));
 });
 
+app.MapGet("/api/player/identity", async (HttpRequest request, DisplayRegistry registry, CancellationToken cancellationToken) =>
+{
+    var token = request.Headers["X-Device-Token"].ToString();
+    var display = await registry.AuthenticateAsync(token, cancellationToken);
+    return display is null ? Results.Unauthorized() : Results.Ok(DisplayResponse.From(display));
+});
+
 app.MapPost("/api/player/pairing-session", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
 {
     var session = await registry.CreatePairingSessionAsync(cancellationToken);

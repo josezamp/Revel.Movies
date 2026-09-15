@@ -39,8 +39,8 @@ public sealed class EventRegistry(RevelMoviesDbContext db)
             Name = name.Trim(),
             Slug = slug,
             TimeZone = string.IsNullOrWhiteSpace(timeZone) ? "UTC" : timeZone.Trim(),
-            StartsAt = startsAt,
-            EndsAt = endsAt,
+            StartsAt = startsAt?.ToUniversalTime(),
+            EndsAt = endsAt?.ToUniversalTime(),
             Status = EventStatus.Active
         };
 
@@ -62,6 +62,13 @@ public sealed class EventRegistry(RevelMoviesDbContext db)
 
         var ascii = builder.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant();
         var slug = Regex.Replace(ascii, "[^a-z0-9]+", "-").Trim('-');
-        return string.IsNullOrWhiteSpace(slug) ? $"event-{Guid.NewGuid():N}" : slug;
+
+        if (string.IsNullOrWhiteSpace(slug))
+            return $"event-{Guid.NewGuid():N}";
+
+        if (slug.Length > 180)
+            slug = slug[..180].Trim('-');
+
+        return slug;
     }
 }
