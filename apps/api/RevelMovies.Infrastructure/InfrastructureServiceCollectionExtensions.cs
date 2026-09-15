@@ -8,7 +8,7 @@ public static class InfrastructureServiceCollectionExtensions
 {
     public static IServiceCollection AddRevelMoviesInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<RevelMoviesDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<RevelMoviesDbContext>(options => options.UseSqlServer(connectionString));
         return services;
     }
 }
