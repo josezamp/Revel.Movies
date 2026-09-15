@@ -147,6 +147,28 @@ public sealed class DisplayRegistry(RevelMoviesDbContext db)
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task UpdateClockSampleAsync(
+        Guid id,
+        double clockOffsetMs,
+        double roundTripMs,
+        CancellationToken cancellationToken = default)
+    {
+        if (!double.IsFinite(clockOffsetMs) || !double.IsFinite(roundTripMs))
+            return;
+
+        var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (display is null)
+            return;
+
+        var now = DateTimeOffset.UtcNow;
+        display.ClockOffsetMs = Math.Clamp(clockOffsetMs, -86_400_000d, 86_400_000d);
+        display.RoundTripMs = Math.Clamp(roundTripMs, 0d, 60_000d);
+        display.LastClockSyncAt = now;
+        display.LastSeenAt = now;
+        display.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task UpdatePresenceAsync(Guid id, DisplayStatus status, CancellationToken cancellationToken)
     {
         var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
