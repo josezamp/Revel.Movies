@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { HubConnectionState } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 
@@ -44,7 +45,9 @@ export function PlayerPage() {
   useEffect(() => {
     if (!deviceToken) return
 
+    let cancelled = false
     const onCommand = (command: PlayerCommand) => {
+      if (cancelled) return
       switch (command.type) {
         case 'display.blackout':
           setBlackout(true)
@@ -78,13 +81,35 @@ export function PlayerPage() {
     const connection = createPlayerConnection(deviceToken, onCommand)
     let heartbeatTimer: number | undefined
 
-    void connection.start().then(() => {
-      heartbeatTimer = window.setInterval(() => void connection.invoke('Heartbeat'), 10000)
-    })
+    async function heartbeat() {
+      if (cancelled || connection.state !== HubConnectionState.Connected) return
+
+      try {
+        await connection.invoke('Heartbeat')
+      } catch (error) {
+        if (!cancelled) console.error('Player heartbeat failed:', error)
+      }
+    }
+
+    async function start() {
+      try {
+        await connection.start()
+        if (cancelled) return
+        heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)
+      } catch (error) {
+        if (!cancelled) console.error('Player connection failed to start:', error)
+      }
+    }
+
+    // Let Strict Mode's setup/cleanup replay finish before starting negotiation.
+    const startTimer = window.setTimeout(() => void start(), 0)
 
     return () => {
-      if (heartbeatTimer) window.clearInterval(heartbeatTimer)
-      void connection.stop()
+      cancelled = true
+      window.clearTimeout(startTimer)
+      if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
+      connection.off('command', onCommand)
+      void connection.stop().catch(error => console.error('Player connection failed to stop:', error))
     }
   }, [deviceToken])
 
