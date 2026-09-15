@@ -64,6 +64,9 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
             return MediaUploadResult.Fail($"The file MIME type does not match the {extension} extension.");
         }
 
+        if (!await HasExpectedSignatureAsync(extension, content, cancellationToken))
+            return MediaUploadResult.Fail("The file contents do not match the selected media format.");
+
         var name = string.IsNullOrWhiteSpace(requestedName)
             ? Path.GetFileNameWithoutExtension(safeFileName)
             : requestedName.Trim();
@@ -90,6 +93,12 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         try
         {
             stored = await storage.SaveAsync(eventId, asset.Id, extension, content, cancellationToken);
+            if (stored.FileSize > maxUploadBytes)
+            {
+                await storage.DeleteAsync(stored.StorageKey, cancellationToken);
+                return MediaUploadResult.Fail($"The uploaded file exceeds the {FormatBytes(maxUploadBytes)} limit.");
+            }
+
             asset.StorageKey = stored.StorageKey;
             asset.FileSize = stored.FileSize;
             asset.Checksum = stored.Checksum;
@@ -116,6 +125,33 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         db.MediaAssets.Remove(asset);
         await db.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private static async Task<bool> HasExpectedSignatureAsync(
+        string extension,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        if (!content.CanSeek)
+            return true;
+
+        var position = content.Position;
+        var header = new byte[16];
+        var read = await content.ReadAsync(header.AsMemory(0, header.Length), cancellationToken);
+        content.Position = position;
+
+        return extension.ToLowerInvariant() switch
+        {
+            ".mp4" => read >= 8 && header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p',
+            ".jpg" or ".jpeg" => read >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF,
+            ".png" => read >= 8 && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 &&
+                      header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A,
+            ".gif" => read >= 6 && header[0] == (byte)'G' && header[1] == (byte)'I' && header[2] == (byte)'F' &&
+                      header[3] == (byte)'8' && (header[4] == (byte)'7' || header[4] == (byte)'9') && header[5] == (byte)'a',
+            ".webp" => read >= 12 && header[0] == (byte)'R' && header[1] == (byte)'I' && header[2] == (byte)'F' && header[3] == (byte)'F' &&
+                       header[8] == (byte)'W' && header[9] == (byte)'E' && header[10] == (byte)'B' && header[11] == (byte)'P',
+            _ => false
+        };
     }
 
     private static string FormatBytes(long bytes) =>
