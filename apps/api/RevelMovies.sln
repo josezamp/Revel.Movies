@@ -1,6 +1,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.10.12201.205 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevelMovies.Api", "RevelMovies.Api\RevelMovies.Api.csproj", "{8C0A4389-98CE-44C0-A693-6A187995A832}"
 EndProject
@@ -11,26 +11,29 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevelMovies.Infrastructure", "RevelMovies.Infrastructure\RevelMovies.Infrastructure.csproj", "{5C19D957-E35C-42E9-8A7F-B451B917DAF7}"
 EndProject
 Global
-  GlobalSection(SolutionConfigurationPlatforms) = preSolution
-    Debug|Any CPU = Debug|Any CPU
-    Release|Any CPU = Release|Any CPU
-  EndGlobalSection
-  GlobalSection(ProjectConfigurationPlatforms) = postSolution
-    {8C0A4389-98CE-44C0-A693-6A187995A832}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-    {8C0A4389-98CE-44C0-A693-6A187995A832}.Debug|Any CPU.Build.0 = Debug|Any CPU
-    {8C0A4389-98CE-44C0-A693-6A187995A832}.Release|Any CPU.ActiveCfg = Release|Any CPU
-    {8C0A4389-98CE-44C0-A693-6A187995A832}.Release|Any CPU.Build.0 = Release|Any CPU
-    {0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-    {0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-    {0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-    {0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Release|Any CPU.Build.0 = Release|Any CPU
-    {9010C58F-CF81-4C33-9848-29A4BEE6F478}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-    {9010C58F-CF81-4C33-9848-29A4BEE6F478}.Debug|Any CPU.Build.0 = Debug|Any CPU
-    {9010C58F-CF81-4C33-9848-29A4BEE6F478}.Release|Any CPU.ActiveCfg = Release|Any CPU
-    {9010C58F-CF81-4C33-9848-29A4BEE6F478}.Release|Any CPU.Build.0 = Release|Any CPU
-    {5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-    {5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
-    {5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-    {5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Release|Any CPU.Build.0 = Release|Any CPU
-  EndGlobalSection
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8C0A4389-98CE-44C0-A693-6A187995A832}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C0A4389-98CE-44C0-A693-6A187995A832}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C0A4389-98CE-44C0-A693-6A187995A832}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C0A4389-98CE-44C0-A693-6A187995A832}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0AF4AF35-E483-4C53-A50B-FCA163AF55EE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9010C58F-CF81-4C33-9848-29A4BEE6F478}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9010C58F-CF81-4C33-9848-29A4BEE6F478}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9010C58F-CF81-4C33-9848-29A4BEE6F478}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9010C58F-CF81-4C33-9848-29A4BEE6F478}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C19D957-E35C-42E9-8A7F-B451B917DAF7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
 EndGlobal
