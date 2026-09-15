@@ -1,5 +1,6 @@
 import { Link, Navigate, Route, Routes } from 'react-router'
 import { AdminPage } from './admin/AdminPage'
+import { DiagnosticsPage } from './player/DiagnosticsPage'
 import { PlayerPage } from './player/PlayerPage'
 
 export function App() {
@@ -8,6 +9,7 @@ export function App() {
       <Route path="/" element={<Home />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/player" element={<PlayerPage />} />
+      <Route path="/player/diagnostics" element={<DiagnosticsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
@@ -23,6 +25,7 @@ function Home() {
         <nav className="home-actions">
           <Link to="/admin">Open Admin</Link>
           <Link to="/player">Open Player</Link>
+          <Link to="/player/diagnostics">Player diagnostics</Link>
         </nav>
       </div>
     </main>
