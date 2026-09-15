@@ -127,6 +127,21 @@ public sealed class DisplayRegistry(RevelMoviesDbContext db)
     public Task<Display?> GetDisplayAsync(Guid id, CancellationToken cancellationToken = default) =>
         db.Displays.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public async Task<Display?> UpdateSettingsAsync(
+        Guid id,
+        int rotation,
+        CancellationToken cancellationToken = default)
+    {
+        var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (display is null)
+            return null;
+
+        display.Rotation = rotation;
+        display.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return display;
+    }
+
     public Task SetOnlineAsync(Guid id, CancellationToken cancellationToken = default) =>
         UpdatePresenceAsync(id, DisplayStatus.Online, cancellationToken);
 
