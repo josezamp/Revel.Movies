@@ -5,7 +5,8 @@ namespace RevelMovies.Api.Hubs;
 
 public sealed class PlayerHub(
     DisplayRegistry registry,
-    CommandAcknowledgementRegistry acknowledgementRegistry) : Hub
+    CommandAcknowledgementRegistry acknowledgementRegistry,
+    PlaybackStateRegistry playbackStateRegistry) : Hub
 {
     private const string DisplayIdItemKey = "display-id";
 
@@ -47,6 +48,31 @@ public sealed class PlayerHub(
     {
         if (TryGetDisplayId(out var displayId))
             await registry.UpdateClockSampleAsync(displayId, clockOffsetMs, roundTripMs, Context.ConnectionAborted);
+    }
+
+    public async Task<PlaybackRecoveryState?> GetDesiredPlaybackState()
+    {
+        if (!TryGetDisplayId(out var displayId))
+            return null;
+
+        return await playbackStateRegistry.GetRecoveryAsync(displayId, Context.ConnectionAborted);
+    }
+
+    public async Task<PlaybackReportResult?> ReportPlayback(
+        string state,
+        Guid? mediaAssetId,
+        Guid? playlistId,
+        int? playlistIndex,
+        double positionSeconds,
+        double? durationSeconds)
+    {
+        if (!TryGetDisplayId(out var displayId))
+            return null;
+
+        return await playbackStateRegistry.ReportAsync(
+            displayId,
+            new PlaybackTelemetryReport(state, mediaAssetId, playlistId, playlistIndex, positionSeconds, durationSeconds),
+            Context.ConnectionAborted);
     }
 
     public async Task Acknowledge(
