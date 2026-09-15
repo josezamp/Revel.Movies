@@ -17,6 +17,7 @@ export interface Display {
   id: string
   eventId: string
   name: string
+  rotation: number
   status: DisplayStatus
   lastSeenAt: string | null
   clockOffsetMs: number | null
@@ -149,6 +150,14 @@ export async function getDisplays(eventId?: string): Promise<Display[]> {
   return getJson(`/api/displays${query}`)
 }
 
+export async function updateDisplaySettings(displayId: string, rotation: number): Promise<Display> {
+  return requestJson(`/api/displays/${displayId}/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rotation }),
+  })
+}
+
 export async function getMedia(eventId: string): Promise<MediaAsset[]> {
   return getJson(`/api/events/${eventId}/media`)
 }
@@ -247,14 +256,18 @@ export async function playPlaylist(playlistId: string, targetType: PlaybackTarge
   })
 }
 
-export async function validateDeviceToken(deviceToken: string): Promise<boolean> {
+export async function getPlayerIdentity(deviceToken: string): Promise<Display | null> {
   const response = await fetch('/api/player/identity', {
     headers: { 'X-Device-Token': deviceToken },
   })
 
-  if (response.status === 401) return false
+  if (response.status === 401) return null
   if (!response.ok) throw await responseError(response)
-  return true
+  return response.json()
+}
+
+export async function validateDeviceToken(deviceToken: string): Promise<boolean> {
+  return (await getPlayerIdentity(deviceToken)) !== null
 }
 
 export async function getPlayerDiagnostics(deviceToken: string): Promise<PlayerDiagnostics> {
