@@ -12,15 +12,15 @@ public partial class InitialPersistence : Migration
             name: "events",
             columns: table => new
             {
-                id = table.Column<Guid>(type: "uuid", nullable: false),
-                name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                slug = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                starts_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                ends_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                time_zone = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                status = table.Column<int>(type: "integer", nullable: false),
-                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                slug = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                starts_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
+                ends_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
+                time_zone = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                status = table.Column<int>(type: "int", nullable: false),
+                created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
             },
             constraints: table =>
             {
@@ -31,14 +31,14 @@ public partial class InitialPersistence : Migration
             name: "pairing_sessions",
             columns: table => new
             {
-                id = table.Column<Guid>(type: "uuid", nullable: false),
-                session_token = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                code = table.Column<string>(type: "character varying(6)", maxLength: 6, nullable: false),
-                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                display_id = table.Column<Guid>(type: "uuid", nullable: true),
-                device_token = table.Column<string>(type: "character varying(128)", maxLength: 128, nullable: true),
-                paired_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                session_token = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                code = table.Column<string>(type: "nvarchar(6)", maxLength: 6, nullable: false),
+                created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                expires_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                display_id = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                device_token = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true),
+                paired_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true)
             },
             constraints: table =>
             {
@@ -49,14 +49,14 @@ public partial class InitialPersistence : Migration
             name: "displays",
             columns: table => new
             {
-                id = table.Column<Guid>(type: "uuid", nullable: false),
-                event_id = table.Column<Guid>(type: "uuid", nullable: false),
-                name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                device_token_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
-                status = table.Column<int>(type: "integer", nullable: false),
-                last_seen_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
-                created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                event_id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                name = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                device_token_hash = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                status = table.Column<int>(type: "int", nullable: false),
+                last_seen_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
+                created_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                updated_at = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
             },
             constraints: table =>
             {
