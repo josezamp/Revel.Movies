@@ -39,6 +39,10 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #71717a; }
 .status-online, .status-1 { background: #22c55e; box-shadow: 0 0 14px #22c55e88; }
 .status-offline, .status-2 { background: #52525b; }
+.display-settings-row { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
+.display-settings-row label { display: grid; gap: 6px; flex: 1 1 210px; color: #a1a1aa; font-size: .75rem; }
+.display-settings-row select { width: 100%; min-width: 0; border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 9px 34px 9px 10px; border-radius: 9px; }
+.orientation-badge { display: inline-flex; min-width: 48px; justify-content: center; padding: 8px 10px; border: 1px solid #3f3f46; border-radius: 9px; color: #d4d4d8; font-size: .75rem; font-weight: 800; }
 .playback-health-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .playback-health { display: inline-flex; padding: 4px 8px; border-radius: 999px; border: 1px solid #3f3f46; color: #d4d4d8; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
 .health-synchronized { border-color: #166534; color: #86efac; }
@@ -92,6 +96,25 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .pairing-screen { display: grid; place-content: center; text-align: center; gap: 16px; cursor: default; }
 .pairing-screen h1 { font-size: clamp(1.5rem, 4vw, 3rem); margin: 0; }
 .pairing-code { font-size: clamp(3rem, 12vw, 8rem); font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .08em; }
+.player-viewport {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  background: #000;
+}
+.player-viewport.rotation-90,
+.player-viewport.rotation-270 {
+  width: 100vh;
+  height: 100vw;
+}
+.player-viewport.rotation-90 { transform: translate(-50%, -50%) rotate(90deg); }
+.player-viewport.rotation-180 { transform: translate(-50%, -50%) rotate(180deg); }
+.player-viewport.rotation-270 { transform: translate(-50%, -50%) rotate(270deg); }
 .player-media { width: 100%; height: 100%; object-fit: contain; background: #000; }
 .is-blackout .player-media { display: none; }
 .identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; font-size: 8vw; font-weight: 900; z-index: 10; }

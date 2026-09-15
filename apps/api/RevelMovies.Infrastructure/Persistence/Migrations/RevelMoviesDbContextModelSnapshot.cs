@@ -59,6 +59,7 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
             b.Property<DateTimeOffset?>("LastClockSyncAt").HasColumnType("datetimeoffset").HasColumnName("last_clock_sync_at");
             b.Property<DateTimeOffset?>("LastSeenAt").HasColumnType("datetimeoffset").HasColumnName("last_seen_at");
             b.Property<string>("Name").IsRequired().HasMaxLength(200).HasColumnType("nvarchar(200)").HasColumnName("name");
+            b.Property<int>("Rotation").HasColumnType("int").HasColumnName("rotation");
             b.Property<double?>("RoundTripMs").HasColumnType("float").HasColumnName("round_trip_ms");
             b.Property<int>("Status").HasColumnType("int").HasColumnName("status");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("datetimeoffset").HasColumnName("updated_at");

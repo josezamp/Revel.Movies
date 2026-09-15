@@ -8,6 +8,7 @@ import {
   getPendingPairings,
   pairDisplay,
   sendCommand,
+  updateDisplaySettings,
   uploadMedia,
   type Display,
   type EventSummary,
@@ -93,6 +94,17 @@ export function AdminPage() {
     await refresh()
   }
 
+  async function changeDisplayRotation(displayId: string, rotation: number) {
+    try {
+      const updated = await updateDisplaySettings(displayId, rotation)
+      setDisplays((current) => current.map((display) =>
+        display.id === updated.id ? { ...display, rotation: updated.rotation } : display,
+      ))
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not update display rotation.')
+    }
+  }
+
   async function uploadSelectedMedia() {
     if (!selectedEventId || !selectedFile || uploading) return
 
@@ -170,6 +182,23 @@ export function AdminPage() {
                 <strong>{display.name}</strong>
               </div>
               <small>{eventName(display.eventId)} · {String(display.status)}</small>
+              <div className="display-settings-row">
+                <label>
+                  Rotation
+                  <select
+                    value={display.rotation}
+                    onChange={(event) => void changeDisplayRotation(display.id, Number(event.target.value))}
+                  >
+                    <option value={0}>0° · Landscape</option>
+                    <option value={90}>90° · Portrait right</option>
+                    <option value={180}>180° · Landscape inverted</option>
+                    <option value={270}>270° · Portrait left</option>
+                  </select>
+                </label>
+                <span className="orientation-badge">
+                  {display.rotation === 90 || display.rotation === 270 ? '9:16' : '16:9'}
+                </span>
+              </div>
               <div className="playback-health-row">
                 <span className={`playback-health health-${(display.playbackHealth ?? 'unknown').toLowerCase()}`}>
                   {display.playbackHealth ?? 'No playback state'}
