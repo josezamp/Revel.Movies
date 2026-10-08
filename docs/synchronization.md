@@ -41,6 +41,16 @@ When Service Workers are unavailable (for example, an older Smart TV or plain HT
 
 The API also emits long-lived immutable cache headers for `/api/media/{id}/content`, since a MediaAsset ID points to immutable binary content.
 
+### Video buffering
+
+The video element requests `preload="auto"`. Before starting or resuming after a stall, the Player waits for 15 seconds of contiguous buffered video at the current position (or the remaining duration for shorter clips). This also applies to network playback for files above the full-file cache limit and on devices without Service Workers.
+
+Native browser buffers cannot be assigned a fixed size. If a device caps preloading while paused, the Player allows playback after 15 seconds of waiting as soon as playable data is available. These defaults are `playbackBufferSeconds` and `maxBufferWaitMs` in `apps/web/src/player/videoBuffer.ts`. Slow connections can still stall if their sustained throughput is below the video's bitrate.
+
+While waiting, telemetry reports `Buffering`. The server keeps the desired playback clock but does not request drift correction in this state. Once playback resumes, the Player only applies corrections whose destination has the same buffer reserve. Late telemetry responses from a previous video or playback control are ignored. A slow device can start later or stay behind the group until a safe correction is possible.
+
+Preparation commands share in-flight downloads per URL, and the play command does not start a second cache download. Cache writes consume the response directly to avoid retaining an unread copy of a large video in memory.
+
 ## Command acknowledgements
 
 Players report command lifecycle acknowledgements over SignalR:
@@ -82,4 +92,4 @@ The page shows:
 7. Test a playlist with video -> image -> video.
 8. Disable HTTPS/use a browser without Service Worker and confirm playback still works through network fallback.
 
-The next synchronization refinement, if needed after real-TV testing, should be drift correction during long videos and/or late-start catch-up by seeking to the expected playback position.
+Single-video playback uses drift correction with a 500 ms threshold, subject to the buffer checks above. Real-TV testing should include high-bitrate clips, network throttling, pause/resume during buffering, and switching videos while telemetry is in flight.

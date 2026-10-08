@@ -219,7 +219,12 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         }
 
         double? correction = null;
-        if (state.DesiredState == "Playing" &&
+        if (state.DesiredState == "Playing" && string.Equals(state.ActualState, "Buffering", StringComparison.OrdinalIgnoreCase))
+        {
+            state.DriftMs = null;
+            state.Health = "Buffering";
+        }
+        else if (state.DesiredState == "Playing" &&
             state.ContentType == "Media" &&
             state.MediaAssetId.HasValue &&
             state.MediaAssetId == report.MediaAssetId &&

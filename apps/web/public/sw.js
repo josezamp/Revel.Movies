@@ -1,5 +1,6 @@
 const MEDIA_CACHE = 'revel-movies-media-v1'
 const MEDIA_PATH = /^\/api\/media\/[0-9a-f-]+\/content$/i
+const pendingPreparations = new Map()
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))
@@ -9,19 +10,12 @@ self.addEventListener('message', event => {
   if (!data || data.type !== 'prepare-media' || !Array.isArray(data.urls)) return
 
   event.waitUntil((async () => {
-    const cache = await caches.open(MEDIA_CACHE)
     let prepared = 0
     let failed = 0
 
     for (const url of data.urls) {
       try {
-        const request = new Request(url, { credentials: 'same-origin' })
-        const existing = await cache.match(request)
-        if (!existing) {
-          const response = await fetch(request)
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
-          await cache.put(request, response.clone())
-        }
+        await prepareMedia(url)
         prepared++
       } catch (error) {
         console.warn('Failed to prepare media:', url, error)
@@ -32,6 +26,24 @@ self.addEventListener('message', event => {
     event.ports?.[0]?.postMessage({ prepared, failed })
   })())
 })
+
+function prepareMedia(url) {
+  const request = new Request(url, { credentials: 'same-origin' })
+  const existing = pendingPreparations.get(request.url)
+  if (existing) return existing
+
+  const preparation = (async () => {
+    const cache = await caches.open(MEDIA_CACHE)
+    if (await cache.match(request)) return
+    const response = await fetch(request)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    // Cache consumes the response directly; an unread clone can retain a large video in memory.
+    await cache.put(request, response)
+  })().finally(() => pendingPreparations.delete(request.url))
+
+  pendingPreparations.set(request.url, preparation)
+  return preparation
+}
 
 self.addEventListener('fetch', event => {
   const request = event.request

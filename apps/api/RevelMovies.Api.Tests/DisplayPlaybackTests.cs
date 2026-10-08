@@ -147,6 +147,41 @@ public sealed class DisplayPlaybackTests
         Assert.Equal(0, resume!.ResumePositionSeconds);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Buffering_is_reported_without_forcing_a_seek_or_changing_the_playback_clock(bool playlist)
+    {
+        await using var factory = new PlaybackApiFactory();
+        using var client = factory.CreateClient();
+        var id = await SeedAsync(factory, playlist);
+        using var scope = factory.Services.CreateScope();
+        var registry = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var before = await registry.GetAsync(id);
+        var report = new PlaybackTelemetryReport("Buffering", before!.MediaAssetId, before.PlaylistId,
+            playlist ? 2 : null, 1, 120);
+
+        var result = await registry.ReportAsync(id, report);
+
+        Assert.Null(result.SeekToSeconds);
+        Assert.Null(result.DriftMs);
+        Assert.Equal("Buffering", result.Health);
+        var after = await registry.GetAsync(id);
+        Assert.Equal("Playing", after!.DesiredState);
+        Assert.Equal(before.StartedAt, after.StartedAt);
+        if (playlist)
+        {
+            var recovery = await registry.GetRecoveryAsync(id);
+            Assert.Equal(1, recovery!.ResumePositionSeconds);
+            Assert.Equal(2, recovery.ResumePlaylistIndex);
+        }
+        else
+        {
+            var resumed = await registry.ReportAsync(id, report with { State = "Playing" });
+            Assert.NotNull(resumed.SeekToSeconds);
+        }
+    }
+
     private static async Task<Guid> SeedAsync(PlaybackApiFactory factory, bool playlist = false)
     {
         using var scope = factory.Services.CreateScope();

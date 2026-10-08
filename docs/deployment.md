@@ -129,6 +129,14 @@ Open:
 - Player: `http://localhost:5173/player`
 - Health: `http://localhost:65179/api/health`
 
+## Samsung Tizen video orientation
+
+Some Samsung TV browsers resize the native video plane without applying the page's CSS rotation. For Tizen Smart TV user agents, the player uses a canvas when a video is oriented at 90°, 180° or 270°. Images and overlays continue to rotate with the viewport; 0° and desktop playback use the native video element.
+
+The same video element retains playback, pause, seek, loop and playlist state. Frame copies are capped at 30 fps and a longest edge of 1920 pixels to limit TV rendering cost. Changing media, returning to 0°, or enabling blackout disposes the frame loop. If the browser rejects copying video frames, the player keeps the native video visible and displays an orientation error.
+
+Publish the frontend and reload the TV's Player page to load this change. Validate with the actual TV model: desktop browser tests do not reproduce Tizen's hardware video plane, frame-copy restrictions or performance. Check 0°/90°/180°/270°, pause/resume, playlist transitions, announcements and blackout.
+
 ## Docker Compose
 
 Docker remains available as an optional local or portable deployment path. The compose stack uses SQL Server 2022 and a persistent media volume.

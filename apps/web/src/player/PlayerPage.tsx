@@ -3,8 +3,11 @@ import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
+import { bufferVideoPlayback, canCorrectPlayback } from './videoBuffer'
 import { parseAnnouncement, type Announcement } from '../announcements/announcement'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
+import { VideoRotationCanvas } from './VideoRotationCanvas'
+import { needsVideoCanvas } from './videoCanvas'
 
 const tokenKey = 'revel-movies.device-token'
 const processedCommandsKey = 'revel-movies.processed-command-ids'
@@ -57,6 +60,7 @@ export function PlayerPage() {
   const [identify, setIdentify] = useState(false)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
+  const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
   const [media, setMedia] = useState<ActiveMedia>()
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
   const [playlistIndex, setPlaylistIndex] = useState(0)
@@ -66,6 +70,7 @@ export function PlayerPage() {
   const loopRef = useRef(false)
   const pausedPositionSecondsRef = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const bufferingRef = useRef(false)
   const connectionRef = useRef<HubConnection | null>(null)
   const clockOffsetMsRef = useRef(0)
   const getServerNow = useCallback(() => Date.now() + clockOffsetMsRef.current, [])
@@ -346,7 +351,6 @@ export function PlayerPage() {
 
           loopRef.current = command.payload?.loop === true
           setMediaLoop(loopRef.current)
-          void prepareMediaAssets([candidate])
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
             pendingSeekSecondsRef.current = 0
@@ -389,7 +393,6 @@ export function PlayerPage() {
             break
           }
 
-          void prepareMediaAssets(items.map(item => ({ mediaId: item.mediaId, fileSize: item.fileSize })))
           const nextPlaylist: ActivePlaylist = {
             id: playlistId,
             loop: command.payload?.loop === true,
@@ -567,18 +570,30 @@ export function PlayerPage() {
   }, [playlist, playlistIndex, playlistPaused])
 
   useEffect(() => {
+    bufferingRef.current = false
     if (media?.type !== 'Video' || !videoRef.current) return
 
     const video = videoRef.current
-    const seek = pendingSeekSecondsRef.current
-    if (seek !== undefined && video.readyState >= 1) {
-      const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
-      video.currentTime = Math.min(seek, maxSeek)
-      pendingSeekSecondsRef.current = undefined
+    const applyPendingSeek = () => {
+      const seek = pendingSeekSecondsRef.current
+      if (seek !== undefined && video.readyState >= 1) {
+        const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
+        video.currentTime = Math.min(Math.max(0, seek), maxSeek)
+        pendingSeekSecondsRef.current = undefined
+      }
     }
 
-    if (!playlistPaused)
-      void video.play().catch(() => undefined)
+    video.addEventListener('loadedmetadata', applyPendingSeek)
+    applyPendingSeek()
+    if (playlistPaused) video.pause()
+    const stopBuffering = playlistPaused ? undefined : bufferVideoPlayback(video, buffering => {
+      bufferingRef.current = buffering
+    })
+
+    return () => {
+      video.removeEventListener('loadedmetadata', applyPendingSeek)
+      stopBuffering?.()
+    }
   }, [media, playlistPaused])
 
   useEffect(() => {
@@ -595,10 +610,12 @@ export function PlayerPage() {
 
   useEffect(() => {
     if (!deviceToken) return
+    let cancelled = false
 
     async function reportPlayback() {
       const connection = connectionRef.current
       if (!connection || connection.state !== HubConnectionState.Connected) return
+      const video = videoRef.current
 
       const positionSeconds = media?.type === 'Video'
         ? Math.max(0, videoRef.current?.currentTime ?? 0)
@@ -606,7 +623,10 @@ export function PlayerPage() {
       const durationSeconds = media?.type === 'Video' && Number.isFinite(videoRef.current?.duration)
         ? videoRef.current?.duration ?? null
         : null
-      const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : media ? (playlistPaused ? 'Paused' : 'Playing') : 'Idle'
+      const buffering = media?.type === 'Video' &&
+        (bufferingRef.current || !video || video.paused || video.seeking || video.readyState < 3)
+      const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : !media ? 'Idle'
+        : playlistPaused ? 'Paused' : buffering ? 'Buffering' : 'Playing'
 
       try {
         const result = await connection.invoke<PlaybackReportResult | null>(
@@ -619,11 +639,13 @@ export function PlayerPage() {
           durationSeconds,
         )
 
-        if (result?.seekToSeconds !== null && result?.seekToSeconds !== undefined && media?.type === 'Video' && videoRef.current) {
-          const maxSeek = Number.isFinite(videoRef.current.duration)
-            ? Math.max(0, videoRef.current.duration - 0.05)
+        if (!cancelled && result?.seekToSeconds !== null && result?.seekToSeconds !== undefined &&
+          media?.type === 'Video' && video && videoRef.current === video && !playlistPaused && !bufferingRef.current) {
+          const maxSeek = Number.isFinite(video.duration)
+            ? Math.max(0, video.duration - 0.05)
             : result.seekToSeconds
-          videoRef.current.currentTime = Math.min(Math.max(0, result.seekToSeconds), maxSeek)
+          const target = Math.min(Math.max(0, result.seekToSeconds), maxSeek)
+          if (canCorrectPlayback(video, target)) video.currentTime = target
         }
       } catch (error) {
         console.error('Playback telemetry failed:', error)
@@ -632,7 +654,10 @@ export function PlayerPage() {
 
     void reportPlayback()
     const timer = window.setInterval(() => void reportPlayback(), playbackReportIntervalMs)
-    return () => window.clearInterval(timer)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
   }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused, playbackEnded])
 
   if (!deviceToken) {
@@ -656,27 +681,18 @@ export function PlayerPage() {
             className="player-media"
             hidden={playbackEnded && !!playlist}
             src={mediaContentUrl(media.id)}
-            autoPlay={!playlistPaused}
+            preload="auto"
             loop={!playlist && mediaLoop}
             muted
             playsInline
-            onLoadedMetadata={() => {
-              const video = videoRef.current
-              if (!video) return
-              const seek = pendingSeekSecondsRef.current
-              if (seek !== undefined) {
-                const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
-                video.currentTime = Math.min(Math.max(0, seek), maxSeek)
-                pendingSeekSecondsRef.current = undefined
-              }
-              if (playlistPaused) video.pause()
-              else void video.play().catch(() => undefined)
-            }}
             onEnded={() => {
               if (playlist) advancePlaylist()
               else setPlaybackEnded(true)
             }}
           />
+        )}
+        {useVideoCanvas && rotation !== 0 && media?.type === 'Video' && !blackout && !(playbackEnded && playlist) && (
+          <VideoRotationCanvas key={`rotation-${media.id}`} videoRef={videoRef} />
         )}
         {media?.type === 'Image' && (
           <img key={media.id} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt="" />
