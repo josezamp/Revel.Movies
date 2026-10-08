@@ -29,6 +29,8 @@ export function AdminPage() {
   const [selectedFile, setSelectedFile] = useState<File>()
   const [uploading, setUploading] = useState(false)
   const [removingDisplayId, setRemovingDisplayId] = useState<string>()
+  const [savingRotations, setSavingRotations] = useState<Record<string, number>>({})
+  const savingRotationIds = useRef(new Set<string>())
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function refresh() {
@@ -114,13 +116,26 @@ export function AdminPage() {
   }
 
   async function changeDisplayRotation(displayId: string, rotation: number) {
+    if (savingRotationIds.current.has(displayId)) return
+
+    const normalizedRotation = ((rotation % 360) + 360) % 360
+    savingRotationIds.current.add(displayId)
+    setSavingRotations((current) => ({ ...current, [displayId]: normalizedRotation }))
+
     try {
-      const updated = await updateDisplaySettings(displayId, rotation)
+      const updated = await updateDisplaySettings(displayId, normalizedRotation)
       setDisplays((current) => current.map((display) =>
         display.id === updated.id ? { ...display, rotation: updated.rotation } : display,
       ))
     } catch (error) {
       window.alert(error instanceof Error ? error.message : 'Could not update display rotation.')
+    } finally {
+      savingRotationIds.current.delete(displayId)
+      setSavingRotations((current) => {
+        const next = { ...current }
+        delete next[displayId]
+        return next
+      })
     }
   }
 
@@ -202,11 +217,28 @@ export function AdminPage() {
                 <strong>{display.name}</strong>
               </div>
               <small>{eventName(display.eventId)} · {String(display.status)}</small>
-              <div className="display-settings-row">
-                <label>
-                  Rotation
+              <div className="display-orientation">
+                <div className="display-orientation-heading">
+                  <span>Orientation</span>
+                  {Object.prototype.hasOwnProperty.call(savingRotations, display.id) && (
+                    <small role="status" aria-live="polite">Saving…</small>
+                  )}
+                </div>
+                <div className="display-settings-row">
+                  <button
+                    type="button"
+                    className="rotation-step"
+                    title="Rotate 90° left"
+                    aria-label={`Rotate ${display.name} 90° left`}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
+                    onClick={() => void changeDisplayRotation(display.id, display.rotation - 90)}
+                  >
+                    ↶
+                  </button>
                   <select
-                    value={display.rotation}
+                    aria-label={`Orientation for ${display.name}`}
+                    value={savingRotations[display.id] ?? display.rotation}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
                     onChange={(event) => void changeDisplayRotation(display.id, Number(event.target.value))}
                   >
                     <option value={0}>0° · Landscape</option>
@@ -214,10 +246,20 @@ export function AdminPage() {
                     <option value={180}>180° · Landscape inverted</option>
                     <option value={270}>270° · Portrait left</option>
                   </select>
-                </label>
-                <span className="orientation-badge">
-                  {display.rotation === 90 || display.rotation === 270 ? '9:16' : '16:9'}
-                </span>
+                  <button
+                    type="button"
+                    className="rotation-step"
+                    title="Rotate 90° right"
+                    aria-label={`Rotate ${display.name} 90° right`}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
+                    onClick={() => void changeDisplayRotation(display.id, display.rotation + 90)}
+                  >
+                    ↷
+                  </button>
+                  <span className="orientation-badge">
+                    {(savingRotations[display.id] ?? display.rotation) % 180 !== 0 ? '9:16' : '16:9'}
+                  </span>
+                </div>
               </div>
               <div className="playback-health-row">
                 <span className={`playback-health health-${(display.playbackHealth ?? 'unknown').toLowerCase()}`}>
