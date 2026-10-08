@@ -228,11 +228,21 @@ export async function getPlaylists(eventId: string): Promise<Playlist[]> {
   return getJson(`/api/events/${eventId}/playlists`)
 }
 
-export async function createPlaylist(eventId: string, name: string, isLoop = false): Promise<Playlist> {
+export type PlaylistItemInput = { mediaAssetId: string; durationSeconds?: number | null }
+
+export async function createPlaylist(eventId: string, name: string, isLoop = false, items: PlaylistItemInput[] = []): Promise<Playlist> {
   return requestJson(`/api/events/${eventId}/playlists`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, isLoop }),
+    body: JSON.stringify({ name, isLoop, items }),
+  })
+}
+
+export async function appendPlaylistItems(playlistId: string, items: PlaylistItemInput[]): Promise<Playlist> {
+  return requestJson(`/api/playlists/${playlistId}/items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
   })
 }
 

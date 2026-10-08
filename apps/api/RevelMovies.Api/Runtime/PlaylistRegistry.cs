@@ -54,10 +54,14 @@ public sealed class PlaylistRegistry(RevelMoviesDbContext db)
         return new PlaylistView(playlist, items);
     }
 
-    public async Task<Playlist?> CreateAsync(Guid eventId, string name, bool isLoop, CancellationToken cancellationToken = default)
+    public async Task<PlaylistWriteResult> CreateAsync(Guid eventId, string name, bool isLoop,
+        IReadOnlyList<PlaylistItemDefinition> definitions, CancellationToken cancellationToken = default)
     {
         if (!await db.Events.AnyAsync(x => x.Id == eventId, cancellationToken))
-            return null;
+            return new(null, "Event was not found.", true);
+
+        var error = await ValidateItemsAsync(eventId, definitions, cancellationToken);
+        if (error is not null) return new(null, error);
 
         var playlist = new Playlist
         {
@@ -68,8 +72,29 @@ public sealed class PlaylistRegistry(RevelMoviesDbContext db)
         };
 
         db.Playlists.Add(playlist);
+        AddItems(playlist.Id, definitions, 0);
         await db.SaveChangesAsync(cancellationToken);
-        return playlist;
+        return new(await GetViewAsync(playlist.Id, cancellationToken), null);
+    }
+
+    public async Task<PlaylistWriteResult> AppendItemsAsync(Guid playlistId,
+        IReadOnlyList<PlaylistItemDefinition> definitions, CancellationToken cancellationToken = default)
+    {
+        // Serialize appends so two operators cannot allocate the same positions.
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        var playlist = await db.Playlists.FirstOrDefaultAsync(x => x.Id == playlistId, cancellationToken);
+        if (playlist is null) return new(null, "Playlist was not found.", true);
+        if (definitions.Count == 0) return new(null, "Select at least one media item.");
+        var error = await ValidateItemsAsync(playlist.EventId, definitions, cancellationToken);
+        if (error is not null) return new(null, error);
+
+        var lastPosition = await db.PlaylistItems.Where(x => x.PlaylistId == playlistId)
+            .MaxAsync(x => (int?)x.Position, cancellationToken) ?? -1;
+        AddItems(playlistId, definitions, lastPosition + 1);
+        playlist.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new(await GetViewAsync(playlistId, cancellationToken), null);
     }
 
     public async Task<Playlist?> UpdateAsync(Guid playlistId, string name, bool isLoop, CancellationToken cancellationToken = default)
@@ -94,34 +119,39 @@ public sealed class PlaylistRegistry(RevelMoviesDbContext db)
         if (playlist is null)
             return new PlaylistItemsUpdateResult(false, "Playlist was not found.");
 
-        if (definitions.Any(x => x.MediaAssetId == Guid.Empty || x.DurationSeconds is <= 0))
-            return new PlaylistItemsUpdateResult(false, "Playlist items contain invalid media or duration values.");
+        var error = await ValidateItemsAsync(playlist.EventId, definitions, cancellationToken);
+        if (error is not null) return new(false, error);
 
-        var mediaIds = definitions.Select(x => x.MediaAssetId).Distinct().ToArray();
-        var media = await db.MediaAssets
-            .AsNoTracking()
-            .Where(x => mediaIds.Contains(x.Id) && x.EventId == playlist.EventId)
-            .ToListAsync(cancellationToken);
-
-        if (media.Count != mediaIds.Length)
-            return new PlaylistItemsUpdateResult(false, "Every media item must belong to the same event as the playlist.");
-
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         await db.PlaylistItems
             .Where(x => x.PlaylistId == playlistId)
             .ExecuteDeleteAsync(cancellationToken);
 
-        db.PlaylistItems.AddRange(definitions.Select((definition, index) => new PlaylistItem
-        {
-            PlaylistId = playlistId,
-            MediaAssetId = definition.MediaAssetId,
-            Position = index,
-            DurationSeconds = definition.DurationSeconds
-        }));
+        AddItems(playlistId, definitions, 0);
 
         playlist.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return new PlaylistItemsUpdateResult(true, null);
     }
+
+    private async Task<string?> ValidateItemsAsync(Guid eventId, IReadOnlyList<PlaylistItemDefinition> definitions, CancellationToken cancellationToken)
+    {
+        if (definitions.Any(x => x.MediaAssetId == Guid.Empty ||
+            (x.DurationSeconds is { } duration && (!double.IsFinite(duration) || duration <= 0))))
+            return "Playlist items contain invalid media or duration values.";
+
+        var ids = definitions.Select(x => x.MediaAssetId).Distinct().ToArray();
+        var count = await db.MediaAssets.CountAsync(x => ids.Contains(x.Id) && x.EventId == eventId, cancellationToken);
+        return count == ids.Length ? null : "Every media item must belong to the same event as the playlist.";
+    }
+
+    private void AddItems(Guid playlistId, IReadOnlyList<PlaylistItemDefinition> definitions, int startPosition) =>
+        db.PlaylistItems.AddRange(definitions.Select((definition, index) => new PlaylistItem
+        {
+            PlaylistId = playlistId, MediaAssetId = definition.MediaAssetId,
+            Position = startPosition + index, DurationSeconds = definition.DurationSeconds
+        }));
 
     public async Task<bool> DeleteAsync(Guid playlistId, CancellationToken cancellationToken = default)
     {
@@ -134,3 +164,4 @@ public sealed record PlaylistItemDefinition(Guid MediaAssetId, double? DurationS
 public sealed record PlaylistItemView(PlaylistItem Item, MediaAsset Media);
 public sealed record PlaylistView(Playlist Playlist, IReadOnlyList<PlaylistItemView> Items);
 public sealed record PlaylistItemsUpdateResult(bool Success, string? Error);
+public sealed record PlaylistWriteResult(PlaylistView? View, string? Error, bool NotFound = false);

@@ -121,10 +121,21 @@ public static class OrchestrationEndpoints
             if (request.Name.Trim().Length > 200)
                 return Results.BadRequest(new { error = "Playlist name cannot exceed 200 characters." });
 
-            var playlist = await registry.CreateAsync(eventId, request.Name, request.IsLoop, cancellationToken);
-            return playlist is null
-                ? Results.NotFound(new { error = "Event was not found." })
-                : Results.Created($"/api/playlists/{playlist.Id}", PlaylistResponse.From(new PlaylistView(playlist, [])));
+            var definitions = (request.Items ?? []).Select(x => new PlaylistItemDefinition(x.MediaAssetId, x.DurationSeconds)).ToArray();
+            var result = await registry.CreateAsync(eventId, request.Name, request.IsLoop, definitions, cancellationToken);
+            if (result.NotFound) return Results.NotFound(new { error = result.Error });
+            return result.View is { } view
+                ? Results.Created($"/api/playlists/{view.Playlist.Id}", PlaylistResponse.From(view))
+                : Results.BadRequest(new { error = result.Error });
+        });
+
+        app.MapPost("/playlists/{playlistId:guid}/items", async (
+            Guid playlistId, ReplacePlaylistItemsRequest request, PlaylistRegistry registry, CancellationToken cancellationToken) =>
+        {
+            var definitions = (request.Items ?? []).Select(x => new PlaylistItemDefinition(x.MediaAssetId, x.DurationSeconds)).ToArray();
+            var result = await registry.AppendItemsAsync(playlistId, definitions, cancellationToken);
+            if (result.NotFound) return Results.NotFound(new { error = result.Error });
+            return result.View is { } view ? Results.Ok(PlaylistResponse.From(view)) : Results.BadRequest(new { error = result.Error });
         });
 
         app.MapPut("/playlists/{playlistId:guid}", async (
@@ -239,7 +250,7 @@ public static class OrchestrationEndpoints
 
 public sealed record CreateDisplayGroupRequest(string Name);
 public sealed record ReplaceDisplayGroupMembersRequest(IReadOnlyList<Guid>? DisplayIds);
-public sealed record CreatePlaylistRequest(string Name, bool IsLoop);
+public sealed record CreatePlaylistRequest(string Name, bool IsLoop, IReadOnlyList<PlaylistItemRequest>? Items = null);
 public sealed record UpdatePlaylistRequest(string Name, bool IsLoop);
 public sealed record ReplacePlaylistItemsRequest(IReadOnlyList<PlaylistItemRequest>? Items);
 public sealed record PlaylistItemRequest(Guid MediaAssetId, double? DurationSeconds);
