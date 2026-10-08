@@ -65,6 +65,15 @@ public static class OrchestrationEndpoints
             PlayerCommandDispatcher dispatcher,
             CancellationToken cancellationToken) =>
         {
+            if (AnnouncementCommand.IsShow(request.Type))
+            {
+                var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);
+                if (error is not null) return Results.BadRequest(new { error });
+                request = request with { Type = "announcement.show", Payload = normalized };
+            }
+            else if (AnnouncementCommand.IsClear(request.Type))
+                request = request with { Type = "announcement.clear", Payload = null };
+
             var group = await groupRegistry.GetAsync(groupId, cancellationToken);
             if (group is null)
                 return Results.NotFound();

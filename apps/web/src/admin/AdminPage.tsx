@@ -152,6 +152,7 @@ export function AdminPage() {
             </select>
           </label>
           <button onClick={() => void createNewEvent()}>New event</button>
+          <a className="announcement-shortcut" href="#anuncios">Crear anuncio</a>
         </div>
       </header>
 
@@ -217,7 +218,7 @@ export function AdminPage() {
         </div>
       </section>
 
-      <OrchestrationPanel eventId={selectedEventId} displays={visibleDisplays} media={media} />
+      <OrchestrationPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={media} />
 
       <section>
         <div className="section-heading">

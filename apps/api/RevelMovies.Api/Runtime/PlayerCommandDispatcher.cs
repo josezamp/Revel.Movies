@@ -29,6 +29,9 @@ public sealed class PlayerCommandDispatcher(
         CancellationToken cancellationToken = default)
     {
         var targets = displayIds.Distinct().ToArray();
+        if (AnnouncementCommand.IsShow(command.Type) || AnnouncementCommand.IsClear(command.Type))
+            await playbackStateRegistry.SetAnnouncementAsync(targets,
+                AnnouncementCommand.IsShow(command.Type) ? command.Payload : null, cancellationToken);
         await playbackStateRegistry.ApplyControlAsync(targets, command.Type, command.CommandId, cancellationToken);
 
         foreach (var displayId in targets)

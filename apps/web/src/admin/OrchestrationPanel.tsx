@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { AnnouncementsPanel } from './AnnouncementsPanel'
 import {
   createDisplayGroup,
   createPlaylist,
@@ -183,6 +184,7 @@ export function OrchestrationPanel({ eventId, displays, media }: Props) {
 
   return (
     <>
+      <AnnouncementsPanel eventId={eventId} displays={displays} groups={groups} />
       <section>
         <div className="section-heading">
           <div>

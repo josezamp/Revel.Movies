@@ -306,6 +306,15 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
     PlayerCommandDispatcher dispatcher,
     CancellationToken cancellationToken) =>
 {
+    if (AnnouncementCommand.IsShow(request.Type))
+    {
+        var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);
+        if (error is not null) return Results.BadRequest(new { error });
+        request = request with { Type = "announcement.show", Payload = normalized };
+    }
+    else if (AnnouncementCommand.IsClear(request.Type))
+        request = request with { Type = "announcement.clear", Payload = null };
+
     var display = await displayRegistry.GetDisplayAsync(displayId, cancellationToken);
     if (display is null)
         return Results.NotFound();
@@ -382,6 +391,7 @@ public sealed record DisplayResponse(
     double? DriftMs,
     double? ActualPositionSeconds,
     DateTimeOffset? LastPlaybackReportAt,
+    JsonElement? Announcement,
     DateTimeOffset CreatedAt)
 {
     public static DisplayResponse From(Display item, DisplayPlaybackState? playback = null) => new(
@@ -400,6 +410,7 @@ public sealed record DisplayResponse(
         playback?.DriftMs,
         playback?.ActualPositionSeconds,
         playback?.ActualReportedAt,
+        PlaybackStateRegistry.ReadAnnouncement(playback),
         item.CreatedAt);
 }
 

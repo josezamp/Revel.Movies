@@ -3,6 +3,8 @@ import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
+import { parseAnnouncement, type Announcement } from '../announcements/announcement'
+import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 
 const tokenKey = 'revel-movies.device-token'
 const processedCommandsKey = 'revel-movies.processed-command-ids'
@@ -31,6 +33,7 @@ type ActivePlaylist = {
 }
 
 type PlaybackRecoveryState = {
+  announcement: unknown
   desiredState: string
   contentType: string | null
   payload: Record<string, unknown> | null
@@ -52,6 +55,7 @@ export function PlayerPage() {
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [media, setMedia] = useState<ActiveMedia>()
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
@@ -60,6 +64,7 @@ export function PlayerPage() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const connectionRef = useRef<HubConnection | null>(null)
   const clockOffsetMsRef = useRef(0)
+  const getServerNow = useCallback(() => Date.now() + clockOffsetMsRef.current, [])
   const scheduledStartTimerRef = useRef<number | undefined>(undefined)
   const pendingSeekSecondsRef = useRef<number | undefined>(undefined)
   const itemStartedAtRef = useRef(Date.now())
@@ -114,6 +119,7 @@ export function PlayerPage() {
     let clockSyncTimer: number | undefined
     let reconnectTimer: number | undefined
     let connection: HubConnection
+    let announcementRevision = 0
 
     const acknowledge = (command: PlayerCommand, status: string, detail?: string) => {
       if (!connection || connection.state !== HubConnectionState.Connected) return
@@ -162,9 +168,12 @@ export function PlayerPage() {
       }
     }
 
-    function applyRecovery(recovery: PlaybackRecoveryState | null) {
+    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number) {
       if (!recovery) return
       clearScheduledStart()
+      // A live command received during recovery takes precedence over the older snapshot.
+      if (announcementRevision === recoveredAnnouncementRevision)
+        setAnnouncement(parseAnnouncement(recovery.announcement))
 
       if (recovery.desiredState === 'Blackout') {
         setBlackout(true)
@@ -215,6 +224,22 @@ export function PlayerPage() {
       acknowledge(command, 'received')
 
       switch (command.type) {
+        case 'announcement.show': {
+          const next = parseAnnouncement(command.payload)
+          if (!next) {
+            acknowledge(command, 'error', 'invalid announcement.show payload')
+            break
+          }
+          announcementRevision++
+          setAnnouncement(next)
+          acknowledge(command, 'executed')
+          break
+        }
+        case 'announcement.clear':
+          announcementRevision++
+          setAnnouncement(null)
+          acknowledge(command, 'executed')
+          break
         case 'display.settings': {
           const nextRotation = parseRotation(command.payload?.rotation)
           if (nextRotation === null) {
@@ -398,8 +423,9 @@ export function PlayerPage() {
     async function recoverDesiredPlayback() {
       await refreshDisplaySettings()
       await synchronizeClock(3)
+      const recoveredAnnouncementRevision = announcementRevision
       const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
-      if (!cancelled) applyRecovery(recovery)
+      if (!cancelled) applyRecovery(recovery, recoveredAnnouncementRevision)
     }
 
     async function start() {
@@ -594,6 +620,7 @@ export function PlayerPage() {
           <img key={media.id} className="player-media" src={mediaContentUrl(media.id)} alt="" />
         )}
         {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
+        {announcement && !blackout && <AnnouncementSurface announcement={announcement} getNow={getServerNow} />}
       </div>
     </main>
   )

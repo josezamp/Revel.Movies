@@ -22,7 +22,14 @@ The SignalR hub exposes a generic `command` event rather than one hub method per
 - `media.pause`
 - `media.stop`
 
-`media.play` currently accepts a `payload.url` as a temporary bootstrap mechanism. Media IDs and the Media Library will replace direct URLs in the next slice.
+`media.play` accepts a `payload.mediaId` from the event's Media Library. The server prepares the asset and sends its type and synchronized `startAt` to the player.
+
+## Announcements
+
+- `announcement.show`: show a message or synchronized countdown over the current content.
+- `announcement.clear`: remove the announcement while media playback continues.
+
+See [Announcements and countdowns](announcements.md) for payloads, validation, persistence and blackout behavior.
 
 ## Compatibility rule
 

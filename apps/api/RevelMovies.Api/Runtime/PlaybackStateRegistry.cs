@@ -27,6 +27,22 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
     public Task<DisplayPlaybackState?> GetAsync(Guid displayId, CancellationToken cancellationToken = default) =>
         db.DisplayPlaybackStates.AsNoTracking().FirstOrDefaultAsync(x => x.DisplayId == displayId, cancellationToken);
 
+    public async Task SetAnnouncementAsync(
+        IEnumerable<Guid> displayIds,
+        JsonElement? payload,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var state in await GetOrCreateAsync(displayIds, cancellationToken))
+        {
+            state.AnnouncementJson = payload?.GetRawText();
+            state.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public static JsonElement? ReadAnnouncement(DisplayPlaybackState? state) =>
+        state?.AnnouncementJson is { } json ? JsonSerializer.Deserialize<JsonElement>(json) : null;
+
     public async Task SetMediaPlayingAsync(
         IEnumerable<Guid> displayIds,
         MediaAsset media,
@@ -220,7 +236,8 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             resumePlaylistIndex,
             state.Health,
             state.DriftMs,
-            state.UpdatedAt);
+            state.UpdatedAt,
+            ReadAnnouncement(state));
     }
 
     private async Task<IReadOnlyList<DisplayPlaybackState>> GetOrCreateAsync(
@@ -269,4 +286,5 @@ public sealed record PlaybackRecoveryState(
     int? ResumePlaylistIndex,
     string Health,
     double? DriftMs,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    JsonElement? Announcement);

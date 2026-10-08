@@ -1,3 +1,5 @@
+import type { Announcement } from '../announcements/announcement'
+
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
 export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
 export type MediaType = 'Video' | 'Image' | number
@@ -29,6 +31,7 @@ export interface Display {
   driftMs: number | null
   actualPositionSeconds: number | null
   lastPlaybackReportAt: string | null
+  announcement: Announcement | null
   createdAt: string
 }
 

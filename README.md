@@ -28,6 +28,9 @@ Revel Movies currently supports:
 - Remote playback by `mediaId`
 - Play, pause, stop, blackout, identify and player reload commands
 - Byte-range media responses for browser video seeking/playback
+- Live messages and synchronized countdown announcements for displays or groups, with preview and reconnect recovery
+
+See [Announcements and countdowns](docs/announcements.md) for usage, protocol, deployment and the infrastructure/UX review.
 
 ## Repository structure
 
