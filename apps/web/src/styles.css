@@ -39,10 +39,15 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #71717a; }
 .status-online, .status-1 { background: #22c55e; box-shadow: 0 0 14px #22c55e88; }
 .status-offline, .status-2 { background: #52525b; }
-.display-settings-row { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; }
-.display-settings-row label { display: grid; gap: 6px; flex: 1 1 210px; color: #a1a1aa; font-size: .75rem; }
-.display-settings-row select { width: 100%; min-width: 0; border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 9px 34px 9px 10px; border-radius: 9px; }
-.orientation-badge { display: inline-flex; min-width: 48px; justify-content: center; padding: 8px 10px; border: 1px solid #3f3f46; border-radius: 9px; color: #d4d4d8; font-size: .75rem; font-weight: 800; }
+.display-orientation { display: grid; gap: 9px; padding: 12px; border: 1px solid #27272a; border-radius: 12px; background: #0b0b0d; min-width: 0; }
+.display-orientation-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #a1a1aa; font-size: .78rem; }
+.display-orientation-heading small { color: #c8dcff; }
+.display-settings-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.display-settings-row select { flex: 1 1 0; width: 0; min-width: 0; height: 40px; border: 1px solid #3f3f46; background: #18181b; color: #fff; padding: 8px 24px 8px 8px; border-radius: 9px; font-size: .78rem; }
+.display-settings-row .rotation-step { display: grid; flex: 0 0 36px; place-items: center; width: 36px; height: 40px; padding: 0; border: 1px solid #3f3f46; border-radius: 9px; font-size: 1.45rem; line-height: 1; }
+.display-settings-row .rotation-step:hover:not(:disabled) { border-color: #a1a1aa; background: #27272a; }
+.display-settings-row :is(select, .rotation-step):focus-visible { outline: 2px solid #afcfff; outline-offset: 2px; }
+.orientation-badge { display: inline-flex; flex: 0 0 auto; min-width: 43px; height: 40px; align-items: center; justify-content: center; padding: 0 7px; border: 1px solid #3f3f46; border-radius: 9px; color: #d4d4d8; font-size: .75rem; font-weight: 800; }
 .playback-health-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .playback-health { display: inline-flex; padding: 4px 8px; border-radius: 999px; border: 1px solid #3f3f46; color: #d4d4d8; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
 .health-synchronized { border-color: #166534; color: #86efac; }
