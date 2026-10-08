@@ -61,6 +61,10 @@ export function PlayerPage() {
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
   const [playlistIndex, setPlaylistIndex] = useState(0)
   const [playlistPaused, setPlaylistPaused] = useState(false)
+  const [mediaLoop, setMediaLoop] = useState(false)
+  const [playbackEnded, setPlaybackEnded] = useState(false)
+  const loopRef = useRef(false)
+  const pausedPositionSecondsRef = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
   const connectionRef = useRef<HubConnection | null>(null)
   const clockOffsetMsRef = useRef(0)
@@ -153,6 +157,7 @@ export function PlayerPage() {
       setPlaylist(undefined)
       setPlaylistIndex(0)
       setPlaylistPaused(false)
+      setPlaybackEnded(false)
       setAnnouncement(null)
       setBlackout(false)
       setIdentify(false)
@@ -203,6 +208,7 @@ export function PlayerPage() {
 
       if (recovery.desiredState === 'Stopped') {
         videoRef.current?.pause()
+        setPlaybackEnded(false)
         setPlaylist(undefined)
         setPlaylistIndex(0)
         setPlaylistPaused(false)
@@ -213,6 +219,10 @@ export function PlayerPage() {
 
       const payload = recovery.payload ?? undefined
       const resumePosition = Math.max(0, recovery.resumePositionSeconds ?? 0)
+      loopRef.current = payload?.loop === true
+      setMediaLoop(loopRef.current)
+      setPlaybackEnded(false)
+      pausedPositionSecondsRef.current = resumePosition
       pendingSeekSecondsRef.current = resumePosition
       itemStartedAtRef.current = Date.now() - resumePosition * 1000
       setBlackout(false)
@@ -249,6 +259,30 @@ export function PlayerPage() {
       acknowledge(command, 'received')
 
       switch (command.type) {
+        case 'playback.resume': {
+          const recovery = command.payload
+          if (recovery?.desiredState !== 'Playing' || !recovery.payload ||
+            (recovery.contentType !== 'Media' && recovery.contentType !== 'Playlist')) {
+            acknowledge(command, 'error', 'invalid playback.resume payload')
+            break
+          }
+          // Playback controls leave the independent announcement untouched.
+          applyRecovery(recovery as PlaybackRecoveryState, -1)
+          acknowledge(command, 'executed')
+          break
+        }
+        case 'playback.loop': {
+          const loop = command.payload?.loop
+          if (typeof loop !== 'boolean') {
+            acknowledge(command, 'error', 'invalid playback.loop payload')
+            break
+          }
+          loopRef.current = loop
+          setMediaLoop(loop)
+          setPlaylist(current => current ? { ...current, loop } : current)
+          acknowledge(command, 'executed')
+          break
+        }
         case 'announcement.show': {
           const next = parseAnnouncement(command.payload)
           if (!next) {
@@ -310,6 +344,8 @@ export function PlayerPage() {
             break
           }
 
+          loopRef.current = command.payload?.loop === true
+          setMediaLoop(loopRef.current)
           void prepareMediaAssets([candidate])
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
@@ -318,6 +354,7 @@ export function PlayerPage() {
             setPlaylist(undefined)
             setPlaylistIndex(0)
             setPlaylistPaused(false)
+            setPlaybackEnded(false)
             setBlackout(false)
             setMedia({ id: candidate.mediaId, type: candidate.mediaType })
             acknowledge(command, 'executed')
@@ -325,18 +362,23 @@ export function PlayerPage() {
           break
         }
         case 'media.pause':
+        case 'playlist.pause':
           clearScheduledStart()
+          pausedPositionSecondsRef.current = videoRef.current?.currentTime ?? Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
           videoRef.current?.pause()
           setPlaylistPaused(true)
           acknowledge(command, 'executed')
           break
         case 'media.stop':
+        case 'playlist.stop':
           clearScheduledStart()
           videoRef.current?.pause()
           setPlaylist(undefined)
           setPlaylistIndex(0)
           setPlaylistPaused(false)
+          setPlaybackEnded(false)
           setMedia(undefined)
+          setBlackout(false)
           acknowledge(command, 'executed')
           break
         case 'playlist.play': {
@@ -353,35 +395,23 @@ export function PlayerPage() {
             loop: command.payload?.loop === true,
             items,
           }
+          loopRef.current = nextPlaylist.loop
+          setMediaLoop(false)
 
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
             pendingSeekSecondsRef.current = 0
             itemStartedAtRef.current = Date.now()
-            setPlaylist(nextPlaylist)
+            setPlaylist({ ...nextPlaylist, loop: loopRef.current })
             setPlaylistIndex(0)
             setPlaylistPaused(false)
+            setPlaybackEnded(false)
             setBlackout(false)
             setMedia({ id: items[0].mediaId, type: items[0].mediaType })
             acknowledge(command, 'executed')
           })
           break
         }
-        case 'playlist.pause':
-          clearScheduledStart()
-          videoRef.current?.pause()
-          setPlaylistPaused(true)
-          acknowledge(command, 'executed')
-          break
-        case 'playlist.stop':
-          clearScheduledStart()
-          videoRef.current?.pause()
-          setPlaylist(undefined)
-          setPlaylistIndex(0)
-          setPlaylistPaused(false)
-          setMedia(undefined)
-          acknowledge(command, 'executed')
-          break
         case 'player.reload':
         case 'system.refresh':
           acknowledge(command, 'executed')
@@ -516,9 +546,8 @@ export function PlayerPage() {
     const nextIndex = playlistIndex + 1
     if (nextIndex >= playlist.items.length) {
       if (!playlist.loop) {
-        setPlaylist(undefined)
-        setPlaylistIndex(0)
-        setMedia(undefined)
+        setPlaylistPaused(true)
+        setPlaybackEnded(true)
         return
       }
 
@@ -573,11 +602,11 @@ export function PlayerPage() {
 
       const positionSeconds = media?.type === 'Video'
         ? Math.max(0, videoRef.current?.currentTime ?? 0)
-        : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
+        : playlistPaused ? pausedPositionSecondsRef.current : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
       const durationSeconds = media?.type === 'Video' && Number.isFinite(videoRef.current?.duration)
         ? videoRef.current?.duration ?? null
         : null
-      const actualState = blackout ? 'Blackout' : media ? (playlistPaused ? 'Paused' : 'Playing') : 'Idle'
+      const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : media ? (playlistPaused ? 'Paused' : 'Playing') : 'Idle'
 
       try {
         const result = await connection.invoke<PlaybackReportResult | null>(
@@ -604,7 +633,7 @@ export function PlayerPage() {
     void reportPlayback()
     const timer = window.setInterval(() => void reportPlayback(), playbackReportIntervalMs)
     return () => window.clearInterval(timer)
-  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused])
+  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused, playbackEnded])
 
   if (!deviceToken) {
     return (
@@ -625,8 +654,10 @@ export function PlayerPage() {
             key={media.id}
             ref={videoRef}
             className="player-media"
+            hidden={playbackEnded && !!playlist}
             src={mediaContentUrl(media.id)}
             autoPlay={!playlistPaused}
+            loop={!playlist && mediaLoop}
             muted
             playsInline
             onLoadedMetadata={() => {
@@ -643,11 +674,12 @@ export function PlayerPage() {
             }}
             onEnded={() => {
               if (playlist) advancePlaylist()
+              else setPlaybackEnded(true)
             }}
           />
         )}
         {media?.type === 'Image' && (
-          <img key={media.id} className="player-media" src={mediaContentUrl(media.id)} alt="" />
+          <img key={media.id} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt="" />
         )}
         {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
         {announcement && !blackout && <AnnouncementSurface announcement={announcement} getNow={getServerNow} />}

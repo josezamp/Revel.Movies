@@ -18,6 +18,8 @@ import {
 } from '../api/client'
 import { OrchestrationPanel } from './OrchestrationPanel'
 import { VideoThumbnail } from './VideoThumbnail'
+import { DisplayPlaybackControls } from './DisplayPlaybackControls'
+import { displayPresence } from './displayPresence'
 
 export function AdminPage() {
   const [pending, setPending] = useState<PendingPairing[]>([])
@@ -209,14 +211,18 @@ export function AdminPage() {
       <section>
         <h2>Displays</h2>
         {visibleDisplays.length === 0 && <p className="muted">No displays for this event yet.</p>}
-        <div className="card-grid">
+        <div className="card-grid display-grid">
           {visibleDisplays.map((display) => (
-            <article className="card" key={display.id}>
+            <article className={`card display-card connection-${displayPresence(display.status).kind}`} key={display.id}>
               <div className="display-heading">
-                <span className={`status-dot status-${String(display.status).toLowerCase()}`} />
                 <strong>{display.name}</strong>
+                <span className="display-presence" role="status">
+                  <span className="status-dot" aria-hidden="true" />
+                  {displayPresence(display.status).label}
+                </span>
               </div>
-              <small>{eventName(display.eventId)} · {String(display.status)}</small>
+              <small className="display-event">{eventName(display.eventId)}</small>
+              <DisplayPlaybackControls display={display} media={media} onChanged={refresh} />
               <div className="display-orientation">
                 <div className="display-orientation-heading">
                   <span>Orientation</span>

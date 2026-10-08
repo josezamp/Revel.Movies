@@ -327,6 +327,7 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
     SendCommandRequest request,
     DisplayRegistry displayRegistry,
     MediaRegistry mediaRegistry,
+    PlaybackStateRegistry playbackStateRegistry,
     PlayerCommandDispatcher dispatcher,
     CancellationToken cancellationToken) =>
 {
@@ -342,6 +343,32 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
     var display = await displayRegistry.GetDisplayAsync(displayId, cancellationToken);
     if (display is null)
         return Results.NotFound();
+
+    if (string.Equals(request.Type, "playback.resume", StringComparison.OrdinalIgnoreCase))
+    {
+        var resume = dispatcher.Create("playback.resume");
+        var recovery = await playbackStateRegistry.ResumeAsync(displayId, resume.CommandId, cancellationToken);
+        if (recovery is null)
+            return Results.BadRequest(new { error = "Choose media for this display before playing." });
+
+        resume = resume with { Payload = JsonSerializer.SerializeToElement(recovery, new JsonSerializerOptions(JsonSerializerDefaults.Web)) };
+        await dispatcher.SendAsync([displayId], resume, cancellationToken);
+        return Results.Accepted(value: resume);
+    }
+
+    if (string.Equals(request.Type, "playback.loop", StringComparison.OrdinalIgnoreCase))
+    {
+        if (request.Payload is not { ValueKind: JsonValueKind.Object } loopPayload ||
+            !loopPayload.TryGetProperty("loop", out var loop) || loop.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return Results.BadRequest(new { error = "playback.loop requires a boolean loop value." });
+
+        var repeat = dispatcher.Create("playback.loop", loopPayload);
+        if (!await playbackStateRegistry.SetLoopAsync(displayId, loop.GetBoolean(), repeat.CommandId, cancellationToken))
+            return Results.BadRequest(new { error = "Choose media for this display before enabling repeat." });
+
+        await dispatcher.SendAsync([displayId], repeat, cancellationToken);
+        return Results.Accepted(value: repeat);
+    }
 
     if (string.Equals(request.Type, "media.play", StringComparison.OrdinalIgnoreCase))
     {
@@ -415,6 +442,10 @@ public sealed record DisplayResponse(
     double? DriftMs,
     double? ActualPositionSeconds,
     DateTimeOffset? LastPlaybackReportAt,
+    string? PlaybackContentType,
+    Guid? PlaybackMediaId,
+    Guid? PlaybackPlaylistId,
+    bool PlaybackLoop,
     JsonElement? Announcement,
     DateTimeOffset CreatedAt)
 {
@@ -434,6 +465,10 @@ public sealed record DisplayResponse(
         playback?.DriftMs,
         playback?.ActualPositionSeconds,
         playback?.ActualReportedAt,
+        playback?.ContentType,
+        playback?.MediaAssetId,
+        playback?.PlaylistId,
+        PlaybackStateRegistry.ReadLoop(playback),
         PlaybackStateRegistry.ReadAnnouncement(playback),
         item.CreatedAt);
 }

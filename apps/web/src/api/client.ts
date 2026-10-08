@@ -31,6 +31,10 @@ export interface Display {
   driftMs: number | null
   actualPositionSeconds: number | null
   lastPlaybackReportAt: string | null
+  playbackContentType: string | null
+  playbackMediaId: string | null
+  playbackPlaylistId: string | null
+  playbackLoop: boolean
   announcement: Announcement | null
   createdAt: string
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using RevelMovies.Domain.Media;
 using RevelMovies.Domain.Playback;
@@ -43,6 +44,60 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
     public static JsonElement? ReadAnnouncement(DisplayPlaybackState? state) =>
         state?.AnnouncementJson is { } json ? JsonSerializer.Deserialize<JsonElement>(json) : null;
 
+    public static bool ReadLoop(DisplayPlaybackState? state) =>
+        state?.PayloadJson is { } json &&
+        JsonSerializer.Deserialize<JsonElement>(json) is { ValueKind: JsonValueKind.Object } payload &&
+        payload.TryGetProperty("loop", out var loop) && loop.ValueKind == JsonValueKind.True;
+
+    public async Task<bool> SetLoopAsync(Guid displayId, bool loop, Guid commandId, CancellationToken cancellationToken = default)
+    {
+        var state = await db.DisplayPlaybackStates.FirstOrDefaultAsync(x => x.DisplayId == displayId, cancellationToken);
+        if (state?.PayloadJson is not { } json || JsonNode.Parse(json) is not JsonObject payload)
+            return false;
+
+        // Rebase the clock when toggling a video that has already completed one or more loops.
+        var now = DateTimeOffset.UtcNow;
+        if (state.ContentType == "Media" && state.DesiredState == "Playing" && state.StartedAt <= now)
+            state.StartedAt = now.AddSeconds(-(CalculateExpectedPosition(state, now) ?? 0));
+        payload["loop"] = loop;
+        state.PayloadJson = payload.ToJsonString();
+        state.LastCommandId = commandId;
+        state.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<PlaybackRecoveryState?> ResumeAsync(Guid displayId, Guid commandId, CancellationToken cancellationToken = default)
+    {
+        var state = await db.DisplayPlaybackStates.FirstOrDefaultAsync(x => x.DisplayId == displayId, cancellationToken);
+        if (state?.PayloadJson is null || state.ContentType is not ("Media" or "Playlist"))
+            return null;
+
+        if (state.ContentType == "Media" && !await db.MediaAssets.AnyAsync(x => x.Id == state.MediaAssetId, cancellationToken))
+            return null;
+
+        var now = DateTimeOffset.UtcNow;
+        var restart = state.DesiredState == "Stopped";
+        var position = restart ? 0 : CalculateExpectedPosition(state, now) ?? 0;
+        var index = restart ? 0 : state.ActualPlaylistIndex ?? 0;
+        var payload = JsonNode.Parse(state.PayloadJson)!.AsObject();
+        // Keep a recovery checkpoint until the player reports the resumed playlist.
+        payload["resumePlaylistIndex"] = index;
+        payload["resumePositionSeconds"] = position;
+        state.PayloadJson = payload.ToJsonString();
+        state.DesiredState = "Playing";
+        state.StartedAt = now.AddSeconds(-position);
+        state.PausedPositionSeconds = null;
+        state.LastCommandId = commandId;
+        state.Health = "Starting";
+        state.UpdatedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return new PlaybackRecoveryState("Playing", state.ContentType,
+            JsonSerializer.Deserialize<JsonElement>(state.PayloadJson), position, index,
+            state.Health, null, now, ReadAnnouncement(state));
+    }
+
     public async Task SetMediaPlayingAsync(
         IEnumerable<Guid> displayIds,
         MediaAsset media,
@@ -60,6 +115,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             state.PayloadJson = payload.GetRawText();
             state.StartedAt = startedAt;
             state.PausedPositionSeconds = null;
+            state.ActualDurationSeconds = null;
             state.LastCommandId = commandId;
             state.Health = "Starting";
             state.UpdatedAt = DateTimeOffset.UtcNow;
@@ -115,10 +171,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             else if (normalized.EndsWith(".stop", StringComparison.Ordinal))
             {
                 state.DesiredState = "Stopped";
-                state.ContentType = null;
-                state.MediaAssetId = null;
-                state.PlaylistId = null;
-                state.PayloadJson = null;
+                // Keep the assigned content so Play can start it again from the display card.
                 state.StartedAt = null;
                 state.PausedPositionSeconds = null;
                 state.Health = "Stopped";
@@ -156,6 +209,15 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         state.ActualDurationSeconds = report.DurationSeconds is > 0 ? report.DurationSeconds : null;
         state.ActualReportedAt = now;
 
+        if (state.DesiredState == "Playing" && report.State == "Ended" && state.StartedAt <= now &&
+            ((state.ContentType == "Media" && state.MediaAssetId == report.MediaAssetId) ||
+             (state.ContentType == "Playlist" && state.PlaylistId == report.PlaylistId)))
+        {
+            state.DesiredState = "Stopped";
+            state.StartedAt = null;
+            state.PausedPositionSeconds = null;
+        }
+
         double? correction = null;
         if (state.DesiredState == "Playing" &&
             state.ContentType == "Media" &&
@@ -163,8 +225,13 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             state.MediaAssetId == report.MediaAssetId &&
             state.StartedAt.HasValue)
         {
-            var expected = Math.Max(0, (now - state.StartedAt.Value).TotalSeconds);
+            var expected = CalculateExpectedPosition(state, now) ?? 0;
             var driftMs = (state.ActualPositionSeconds.Value - expected) * 1000d;
+            if (ReadLoop(state) && state.ActualDurationSeconds is > 0)
+            {
+                var durationMs = state.ActualDurationSeconds.Value * 1000d;
+                driftMs = (driftMs + durationMs * 1.5) % durationMs - durationMs / 2;
+            }
             state.DriftMs = driftMs;
             state.Health = Math.Abs(driftMs) > DriftCorrectionThresholdMs ? "Drifted" : "Synchronized";
 
@@ -222,10 +289,18 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         }
         else if (state.DesiredState == "Playing" && state.ContentType == "Playlist")
         {
-            resumePlaylistIndex = state.ActualPlaylistIndex ?? 0;
-            resumePosition = state.ActualPositionSeconds ?? 0;
-            if (state.ActualReportedAt.HasValue && string.Equals(state.ActualState, "Playing", StringComparison.OrdinalIgnoreCase))
-                resumePosition += Math.Max(0, (now - state.ActualReportedAt.Value).TotalSeconds);
+            if (state.Health == "Starting")
+            {
+                resumePlaylistIndex = payload?.TryGetProperty("resumePlaylistIndex", out var index) == true ? index.GetInt32() : 0;
+                resumePosition = payload?.TryGetProperty("resumePositionSeconds", out var position) == true ? position.GetDouble() : 0;
+            }
+            else
+            {
+                resumePlaylistIndex = state.ActualPlaylistIndex ?? 0;
+                resumePosition = state.ActualPositionSeconds ?? 0;
+                if (state.ActualReportedAt.HasValue && string.Equals(state.ActualState, "Playing", StringComparison.OrdinalIgnoreCase))
+                    resumePosition += Math.Max(0, (now - state.ActualReportedAt.Value).TotalSeconds);
+            }
         }
 
         return new PlaybackRecoveryState(
@@ -262,9 +337,14 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
     {
         if (state.DesiredState == "Paused")
             return state.PausedPositionSeconds;
+        if (state.ContentType == "Playlist")
+            return state.ActualPositionSeconds ?? 0;
         if (!state.StartedAt.HasValue)
             return state.ActualPositionSeconds;
-        return Math.Max(0, (now - state.StartedAt.Value).TotalSeconds);
+        var position = Math.Max(0, (now - state.StartedAt.Value).TotalSeconds);
+        if (state.ActualDurationSeconds is > 0)
+            return ReadLoop(state) ? position % state.ActualDurationSeconds.Value : Math.Min(position, state.ActualDurationSeconds.Value);
+        return position;
     }
 }
 
