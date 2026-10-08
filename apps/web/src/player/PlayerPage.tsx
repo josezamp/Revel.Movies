@@ -88,7 +88,7 @@ export function PlayerPage() {
         timer = window.setInterval(async () => {
           try {
             const result = await getPairingResult(session.sessionToken)
-            if (!result.isPaired || !result.deviceToken) return
+            if (cancelled || !result.isPaired || !result.deviceToken) return
 
             localStorage.setItem(tokenKey, result.deviceToken)
             setDeviceToken(result.deviceToken)
@@ -122,7 +122,7 @@ export function PlayerPage() {
     let announcementRevision = 0
 
     const acknowledge = (command: PlayerCommand, status: string, detail?: string) => {
-      if (!connection || connection.state !== HubConnectionState.Connected) return
+      if (cancelled || !connection || connection.state !== HubConnectionState.Connected) return
       void connection.invoke(
         'Acknowledge',
         command.commandId,
@@ -138,6 +138,27 @@ export function PlayerPage() {
         window.clearTimeout(scheduledStartTimerRef.current)
         scheduledStartTimerRef.current = undefined
       }
+    }
+
+    const resetPairing = () => {
+      if (cancelled) return
+      cancelled = true
+      clearScheduledStart()
+      videoRef.current?.pause()
+      pendingSeekSecondsRef.current = undefined
+      clockOffsetMsRef.current = 0
+      localStorage.removeItem(tokenKey)
+      localStorage.removeItem(processedCommandsKey)
+      setMedia(undefined)
+      setPlaylist(undefined)
+      setPlaylistIndex(0)
+      setPlaylistPaused(false)
+      setAnnouncement(null)
+      setBlackout(false)
+      setIdentify(false)
+      setRotation(0)
+      setPairingCode(undefined)
+      setDeviceToken(undefined)
     }
 
     const scheduleAtServerTime = (startAt: unknown, callback: () => void) => {
@@ -220,6 +241,10 @@ export function PlayerPage() {
 
     async function handleCommand(command: PlayerCommand) {
       if (cancelled || wasCommandProcessed(command.commandId)) return
+      if (command.type === 'display.unpaired') {
+        resetPairing()
+        return
+      }
       markCommandProcessed(command.commandId)
       acknowledge(command, 'received')
 
@@ -414,15 +439,20 @@ export function PlayerPage() {
 
     async function refreshDisplaySettings() {
       const identity = await getPlayerIdentity(currentDeviceToken)
-      if (!identity) return false
+      if (cancelled) return false
+      if (!identity) {
+        resetPairing()
+        return false
+      }
 
       setRotation(parseRotation(identity.rotation) ?? 0)
       return true
     }
 
     async function recoverDesiredPlayback() {
-      await refreshDisplaySettings()
+      if (!await refreshDisplaySettings()) return
       await synchronizeClock(3)
+      if (cancelled) return
       const recoveredAnnouncementRevision = announcementRevision
       const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
       if (!cancelled) applyRecovery(recovery, recoveredAnnouncementRevision)
@@ -436,8 +466,7 @@ export function PlayerPage() {
         if (cancelled) return
 
         if (!identity) {
-          localStorage.removeItem(tokenKey)
-          setDeviceToken(undefined)
+          resetPairing()
           return
         }
 
@@ -446,6 +475,7 @@ export function PlayerPage() {
         if (cancelled) return
 
         await recoverDesiredPlayback()
+        if (cancelled) return
 
         if (heartbeatTimer === undefined)
           heartbeatTimer = window.setInterval(() => void heartbeat(), 10000)

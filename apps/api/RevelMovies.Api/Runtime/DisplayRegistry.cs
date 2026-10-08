@@ -127,6 +127,23 @@ public sealed class DisplayRegistry(RevelMoviesDbContext db)
     public Task<Display?> GetDisplayAsync(Guid id, CancellationToken cancellationToken = default) =>
         db.Displays.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (display is null)
+            return false;
+
+        // Memberships restrict deletion, and pairing sessions have no foreign key.
+        db.DisplayGroupMembers.RemoveRange(await db.DisplayGroupMembers
+            .Where(x => x.DisplayId == id).ToListAsync(cancellationToken));
+        db.PairingSessions.RemoveRange(await db.PairingSessions
+            .Where(x => x.DisplayId == id).ToListAsync(cancellationToken));
+        db.Displays.Remove(display);
+        // Save atomically; playback state and acknowledgements cascade in the database.
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<Display?> UpdateSettingsAsync(
         Guid id,
         int rotation,

@@ -153,6 +153,10 @@ export async function getDisplays(eventId?: string): Promise<Display[]> {
   return getJson(`/api/displays${query}`)
 }
 
+export async function deleteDisplay(displayId: string): Promise<void> {
+  await requestVoid(`/api/displays/${displayId}`, { method: 'DELETE' })
+}
+
 export async function updateDisplaySettings(displayId: string, rotation: number): Promise<Display> {
   return requestJson(`/api/displays/${displayId}/settings`, {
     method: 'PUT',

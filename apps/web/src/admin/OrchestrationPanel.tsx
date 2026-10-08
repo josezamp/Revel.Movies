@@ -32,6 +32,7 @@ export function OrchestrationPanel({ eventId, displays, media }: Props) {
   const [target, setTarget] = useState('')
   const [playlistMedia, setPlaylistMedia] = useState<Record<string, string>>({})
   const [groupMedia, setGroupMedia] = useState<Record<string, string>>({})
+  const displayMembershipKey = displays.map((display) => display.id).sort().join(',')
 
   async function refresh() {
     if (!eventId) {
@@ -50,7 +51,7 @@ export function OrchestrationPanel({ eventId, displays, media }: Props) {
 
   useEffect(() => {
     void refresh()
-  }, [eventId])
+  }, [eventId, displayMembershipKey])
 
   const targetOptions = useMemo(() => [
     ...displays.map((display) => ({ value: `display:${display.id}`, label: `Display · ${display.name}` })),

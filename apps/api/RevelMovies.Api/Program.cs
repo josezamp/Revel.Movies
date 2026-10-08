@@ -277,6 +277,30 @@ app.MapGet("/displays", async (
     return Results.Ok(displays.Select(x => DisplayResponse.From(x, playback.GetValueOrDefault(x.Id))));
 });
 
+app.MapDelete("/displays/{displayId:guid}", async (
+    Guid displayId,
+    DisplayRegistry registry,
+    PlayerCommandDispatcher dispatcher,
+    ILoggerFactory loggerFactory,
+    CancellationToken cancellationToken) =>
+{
+    if (!await registry.DeleteAsync(displayId, cancellationToken))
+        return Results.NotFound();
+
+    try
+    {
+        await dispatcher.SendAsync([displayId], dispatcher.Create("display.unpaired"), cancellationToken);
+    }
+    catch (Exception exception)
+    {
+        // Deletion is already committed. Reconnect/heartbeat also detects revocation.
+        loggerFactory.CreateLogger("DisplayDeletion").LogWarning(exception,
+            "Could not notify deleted display {DisplayId} of unpairing", displayId);
+    }
+
+    return Results.NoContent();
+});
+
 app.MapPut("/displays/{displayId:guid}/settings", async (
     Guid displayId,
     UpdateDisplaySettingsRequest request,

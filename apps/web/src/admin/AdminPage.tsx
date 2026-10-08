@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createEvent,
+  deleteDisplay,
   deleteMedia,
   getDisplays,
   getEvents,
@@ -16,6 +17,7 @@ import {
   type PendingPairing,
 } from '../api/client'
 import { OrchestrationPanel } from './OrchestrationPanel'
+import { VideoThumbnail } from './VideoThumbnail'
 
 export function AdminPage() {
   const [pending, setPending] = useState<PendingPairing[]>([])
@@ -26,6 +28,7 @@ export function AdminPage() {
   const [targetDisplayId, setTargetDisplayId] = useState('')
   const [selectedFile, setSelectedFile] = useState<File>()
   const [uploading, setUploading] = useState(false)
+  const [removingDisplayId, setRemovingDisplayId] = useState<string>()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   async function refresh() {
@@ -92,6 +95,22 @@ export function AdminPage() {
     if (!name) return
     await pairDisplay(item.code, name, selectedEventId)
     await refresh()
+  }
+
+  async function removeDisplay(display: Display) {
+    if (removingDisplayId || !window.confirm(
+      `Delete display "${display.name}"? It will be removed from its groups and must be paired again to reconnect.`,
+    )) return
+
+    try {
+      setRemovingDisplayId(display.id)
+      await deleteDisplay(display.id)
+      setDisplays((current) => current.filter((item) => item.id !== display.id))
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Could not delete display.')
+    } finally {
+      setRemovingDisplayId(undefined)
+    }
   }
 
   async function changeDisplayRotation(displayId: string, rotation: number) {
@@ -212,6 +231,13 @@ export function AdminPage() {
                 <button onClick={() => void sendCommand(display.id, 'display.identify')}>Identify</button>
                 <button onClick={() => void sendCommand(display.id, 'display.blackout')}>Blackout</button>
                 <button onClick={() => void sendCommand(display.id, 'player.reload')}>Reload</button>
+                <button
+                  className="danger-button"
+                  disabled={removingDisplayId !== undefined}
+                  onClick={() => void removeDisplay(display)}
+                >
+                  {removingDisplayId === display.id ? 'Deleting…' : 'Delete display'}
+                </button>
               </div>
             </article>
           ))}
@@ -259,6 +285,7 @@ export function AdminPage() {
           {media.map((item) => (
             <article className="card media-card" key={item.id}>
               {item.type === 'Image' && <img className="media-preview" src={item.contentUrl} alt="" />}
+              {item.type === 'Video' && <VideoThumbnail key={item.contentUrl} src={item.contentUrl} />}
               <div className="media-card-heading">
                 <span className="media-type">{String(item.type)}</span>
                 <strong>{item.name}</strong>

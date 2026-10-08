@@ -38,7 +38,7 @@ public sealed class PlayerHub(
 
     public async Task Heartbeat()
     {
-        if (TryGetDisplayId(out var displayId))
+        if (await GetDisplayIdAsync() is { } displayId)
             await registry.HeartbeatAsync(displayId, Context.ConnectionAborted);
     }
 
@@ -46,13 +46,13 @@ public sealed class PlayerHub(
 
     public async Task ReportClockSample(double clockOffsetMs, double roundTripMs)
     {
-        if (TryGetDisplayId(out var displayId))
+        if (await GetDisplayIdAsync() is { } displayId)
             await registry.UpdateClockSampleAsync(displayId, clockOffsetMs, roundTripMs, Context.ConnectionAborted);
     }
 
     public async Task<PlaybackRecoveryState?> GetDesiredPlaybackState()
     {
-        if (!TryGetDisplayId(out var displayId))
+        if (await GetDisplayIdAsync() is not { } displayId)
             return null;
 
         return await playbackStateRegistry.GetRecoveryAsync(displayId, Context.ConnectionAborted);
@@ -66,7 +66,7 @@ public sealed class PlayerHub(
         double positionSeconds,
         double? durationSeconds)
     {
-        if (!TryGetDisplayId(out var displayId))
+        if (await GetDisplayIdAsync() is not { } displayId)
             return null;
 
         return await playbackStateRegistry.ReportAsync(
@@ -82,7 +82,7 @@ public sealed class PlayerHub(
         string? detail,
         long? clientUnixTimeMs)
     {
-        if (!TryGetDisplayId(out var displayId) || commandId == Guid.Empty || string.IsNullOrWhiteSpace(status))
+        if (await GetDisplayIdAsync() is not { } displayId || commandId == Guid.Empty || string.IsNullOrWhiteSpace(status))
             return;
 
         DateTimeOffset? clientTimestamp = null;
@@ -108,16 +108,15 @@ public sealed class PlayerHub(
             Context.ConnectionAborted);
     }
 
-    private bool TryGetDisplayId(out Guid displayId)
+    private async Task<Guid?> GetDisplayIdAsync()
     {
-        if (Context.Items.TryGetValue(DisplayIdItemKey, out var value) && value is Guid id)
-        {
-            displayId = id;
-            return true;
-        }
+        if (Context.Items.TryGetValue(DisplayIdItemKey, out var value) && value is Guid id &&
+            await registry.GetDisplayAsync(id, Context.ConnectionAborted) is not null)
+            return id;
 
-        displayId = Guid.Empty;
-        return false;
+        // A connection may outlive its pairing. Do not accept further telemetry.
+        Context.Abort();
+        return null;
     }
 
     public static string GroupName(Guid displayId) => $"display:{displayId:N}";
