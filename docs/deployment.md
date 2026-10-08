@@ -54,7 +54,7 @@ Deploy the contents of these folders:
 
 The frontend output includes `index.html`, `assets`, `sw.js`, and `web.config`. Copy its `web.config` to the website root. It sets `index.html` as the default document and rewrites browser routes such as `/admin` and `/player` to it, while excluding `/api`, existing files, and existing directories. Its settings are not inherited by child applications. The IIS URL Rewrite module must be installed for this configuration to load.
 
-The backend must be an IIS **application**, with its own application pool set to **No Managed Code**. Keep the backend's generated `web.config` in the API publish directory; it is separate from the frontend's `web.config`.
+The backend must be an IIS **application**, with its own application pool set to **No Managed Code**. Deploy the backend's published `web.config` alongside its binaries; it is based on the checked-in API configuration and includes the upload limit. It is separate from the frontend's `web.config`.
 
 IIS supplies `/api` as the backend's `PathBase`, so backend endpoint patterns are relative to it (`/events`, `/media`, etc.). When running directly on Kestrel, `UsePathBase("/api")` extracts the same prefix before routing. Public REST URLs therefore remain `/api/events`, `/api/media/{id}/content`, and so on in IIS, development, and Docker. SignalR uses `/api/hubs/player`; both the Vite and nginx proxies support WebSocket upgrades on `/api`.
 
@@ -84,19 +84,23 @@ MediaStorage__MaxUploadBytes=1073741824
 
 The IIS Application Pool identity must have read/write/delete permission on that directory.
 
-Revel Movies accepts files up to 1 GB by default, but IIS request filtering has its own upload limit. Configure `maxAllowedContentLength` to the same value (bytes) in the deployed site's `web.config` or IIS Request Filtering settings:
+Revel Movies accepts files up to 1 GiB (1,073,741,824 bytes) by default. Kestrel and the in-process ASP.NET Core IIS server allow an additional 1 MiB for multipart boundaries, headers and form fields. The per-file limit remains `MediaStorage:MaxUploadBytes`.
+
+IIS request filtering also has its own limit. The API's checked-in `web.config` includes the matching request limit and is preserved by `dotnet publish`:
 
 ```xml
 <system.webServer>
   <security>
     <requestFiltering>
-      <requestLimits maxAllowedContentLength="1073741824" />
+      <requestLimits maxAllowedContentLength="1074790400" />
     </requestFiltering>
   </security>
 </system.webServer>
 ```
 
-Keep that value aligned with `MediaStorage:MaxUploadBytes`.
+If you change `MediaStorage:MaxUploadBytes`, update `maxAllowedContentLength` in the API application's `web.config` to that value plus 1,048,576 bytes. For Docker, update `client_max_body_size` in `docker/nginx.conf` to match (the default is `1025m`) and rebuild the web container.
+
+A `413 Request Entity Too Large` from IIS can indicate that the in-process server still has its default 30,000,000-byte request limit. Raising only Kestrel's limit does not affect IIS in-process hosting. Deploy both the updated API binaries and its `web.config`; changing the frontend's configuration alone is insufficient. See [ASP.NET Core upload limits](https://learn.microsoft.com/aspnet/core/mvc/models/file-uploads#iis).
 
 ## Local development
 

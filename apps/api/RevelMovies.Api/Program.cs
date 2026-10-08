@@ -19,12 +19,15 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("RevelMovies")
     ?? throw new InvalidOperationException("Connection string 'RevelMovies' is required.");
 var maxMediaUploadBytes = builder.Configuration.GetValue<long>("MediaStorage:MaxUploadBytes", 1073741824);
+// The request includes multipart boundaries, headers and optional form fields.
+var maxMediaRequestBytes = checked(maxMediaUploadBytes + 1024 * 1024);
 var configuredMediaRoot = builder.Configuration["MediaStorage:RootPath"] ?? "media";
 var mediaRoot = Path.IsPathRooted(configuredMediaRoot)
     ? configuredMediaRoot
     : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, configuredMediaRoot));
 
-builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxMediaUploadBytes);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxMediaRequestBytes);
+builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = maxMediaRequestBytes);
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxMediaUploadBytes);
 builder.Services.AddRevelMoviesInfrastructure(connectionString);
 builder.Services.AddSingleton<IMediaStorage>(_ => new LocalMediaStorage(mediaRoot));

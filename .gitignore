@@ -7,6 +7,8 @@
 # Node
 **/node_modules/
 **/dist/
+*.tsbuildinfo
+/apps/web/.vite/
 *.local
 
 # IDE
@@ -19,6 +21,7 @@
 Thumbs.db
 
 # Local data
+/deploy-backups/
 media/
 *.db
 *.db-shm
@@ -26,4 +29,3 @@ media/
 .env
 .env.*
 !.env.example
-/apps/web/.vite/deps
