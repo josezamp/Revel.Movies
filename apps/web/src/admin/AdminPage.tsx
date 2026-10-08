@@ -220,7 +220,7 @@ export function AdminPage() {
               <div className="display-orientation">
                 <div className="display-orientation-heading">
                   <span>Orientation</span>
-                  {Object.hasOwn(savingRotations, display.id) && (
+                  {Object.prototype.hasOwnProperty.call(savingRotations, display.id) && (
                     <small role="status" aria-live="polite">Saving…</small>
                   )}
                 </div>
@@ -230,7 +230,7 @@ export function AdminPage() {
                     className="rotation-step"
                     title="Rotate 90° left"
                     aria-label={`Rotate ${display.name} 90° left`}
-                    disabled={Object.hasOwn(savingRotations, display.id)}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
                     onClick={() => void changeDisplayRotation(display.id, display.rotation - 90)}
                   >
                     ↶
@@ -238,7 +238,7 @@ export function AdminPage() {
                   <select
                     aria-label={`Orientation for ${display.name}`}
                     value={savingRotations[display.id] ?? display.rotation}
-                    disabled={Object.hasOwn(savingRotations, display.id)}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
                     onChange={(event) => void changeDisplayRotation(display.id, Number(event.target.value))}
                   >
                     <option value={0}>0° · Landscape</option>
@@ -251,7 +251,7 @@ export function AdminPage() {
                     className="rotation-step"
                     title="Rotate 90° right"
                     aria-label={`Rotate ${display.name} 90° right`}
-                    disabled={Object.hasOwn(savingRotations, display.id)}
+                    disabled={Object.prototype.hasOwnProperty.call(savingRotations, display.id)}
                     onClick={() => void changeDisplayRotation(display.id, display.rotation + 90)}
                   >
                     ↷
