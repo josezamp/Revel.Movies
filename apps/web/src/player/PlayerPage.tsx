@@ -8,6 +8,11 @@ import { parseAnnouncement, type Announcement } from '../announcements/announcem
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
 import { needsVideoCanvas } from './videoCanvas'
+import {
+  configurePromotions, finishPlaylistItem, parsePromotionPolicy, parsePromotionProgress,
+  playlistCheckpointKey, preferLocalCheckpoint, readPlaylistCheckpoint, startPromotionProgress,
+  type PlaybackItem, type PromotionPolicy, type PromotionProgress,
+} from './promotionalBreaks'
 
 const tokenKey = 'revel-movies.device-token'
 const processedCommandsKey = 'revel-movies.processed-command-ids'
@@ -20,23 +25,22 @@ type DisplayRotation = 0 | 90 | 180 | 270
 type ActiveMedia = {
   id: string
   type: 'Video' | 'Image'
+  instance?: number
 }
 
-type PlaylistPlaybackItem = {
-  mediaId: string
-  mediaType: 'Video' | 'Image'
-  fileSize: number | null
-  durationSeconds: number | null
-}
+type PlaylistPlaybackItem = PlaybackItem
 
 type ActivePlaylist = {
   id: string
+  playbackId: string
   loop: boolean
   items: PlaylistPlaybackItem[]
 }
 
 type PlaybackRecoveryState = {
   announcement: unknown
+  promotionPolicy: unknown
+  promotionProgress: unknown
   desiredState: string
   contentType: string | null
   payload: Record<string, unknown> | null
@@ -62,6 +66,22 @@ export function PlayerPage() {
   const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
   const [media, setMedia] = useState<ActiveMedia>()
+  const mediaRef = useRef<ActiveMedia | undefined>(undefined)
+  const mediaInstanceRef = useRef(0)
+  const setCurrentMedia = useCallback((next: ActiveMedia | undefined) => {
+    const current = next ? { ...next, instance: ++mediaInstanceRef.current } : undefined
+    mediaRef.current = current
+    setMedia(current)
+  }, [])
+  const [promotionPolicy, setPromotionPolicy] = useState<PromotionPolicy | null>(null)
+  const promotionPolicyRef = useRef<PromotionPolicy | null>(null)
+  const promotionProgressRef = useRef<PromotionProgress | null>(null)
+  const playbackControlRevisionRef = useRef(0)
+  const recoveryPendingRef = useRef(true)
+  const clearPromotionProgress = useCallback(() => {
+    promotionProgressRef.current = null
+    try { localStorage.removeItem(playlistCheckpointKey) } catch { /* Storage is optional. */ }
+  }, [])
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
   const [playlistIndex, setPlaylistIndex] = useState(0)
   const [playlistPaused, setPlaylistPaused] = useState(false)
@@ -127,8 +147,18 @@ export function PlayerPage() {
     let heartbeatTimer: number | undefined
     let clockSyncTimer: number | undefined
     let reconnectTimer: number | undefined
+    let recoveryRetryTimer: number | undefined
     let connection: HubConnection
     let announcementRevision = 0
+    let promotionRevision = 0
+
+    function applyPromotionPolicy(policy: PromotionPolicy | null) {
+      promotionPolicyRef.current = policy
+      setPromotionPolicy(policy)
+      if (promotionProgressRef.current)
+        promotionProgressRef.current = configurePromotions(promotionProgressRef.current, policy)
+      if (policy?.enabled) void prepareMediaAssets(policy.items).catch(error => console.error('Promotion preparation failed:', error))
+    }
 
     const acknowledge = (command: PlayerCommand, status: string, detail?: string) => {
       if (cancelled || !connection || connection.state !== HubConnectionState.Connected) return
@@ -158,7 +188,9 @@ export function PlayerPage() {
       clockOffsetMsRef.current = 0
       localStorage.removeItem(tokenKey)
       localStorage.removeItem(processedCommandsKey)
-      setMedia(undefined)
+      clearPromotionProgress()
+      applyPromotionPolicy(null)
+      setCurrentMedia(undefined)
       setPlaylist(undefined)
       setPlaylistIndex(0)
       setPlaylistPaused(false)
@@ -199,12 +231,14 @@ export function PlayerPage() {
       }
     }
 
-    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number) {
+    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number, recoveredPromotionRevision: number) {
       if (!recovery) return
       clearScheduledStart()
       // A live command received during recovery takes precedence over the older snapshot.
       if (announcementRevision === recoveredAnnouncementRevision)
         setAnnouncement(parseAnnouncement(recovery.announcement))
+      if (promotionRevision === recoveredPromotionRevision)
+        applyPromotionPolicy(parsePromotionPolicy(recovery.promotionPolicy))
 
       if (recovery.desiredState === 'Blackout') {
         setBlackout(true)
@@ -212,12 +246,13 @@ export function PlayerPage() {
       }
 
       if (recovery.desiredState === 'Stopped') {
+        clearPromotionProgress()
         videoRef.current?.pause()
         setPlaybackEnded(false)
         setPlaylist(undefined)
         setPlaylistIndex(0)
         setPlaylistPaused(false)
-        setMedia(undefined)
+        setCurrentMedia(undefined)
         setBlackout(false)
         return
       }
@@ -236,9 +271,10 @@ export function PlayerPage() {
       if (recovery.contentType === 'Media') {
         const candidate = parseMediaCandidate(payload)
         if (!candidate) return
+        clearPromotionProgress()
         setPlaylist(undefined)
         setPlaylistIndex(0)
-        setMedia({ id: candidate.mediaId, type: candidate.mediaType })
+        setCurrentMedia({ id: candidate.mediaId, type: candidate.mediaType })
         return
       }
 
@@ -247,10 +283,26 @@ export function PlayerPage() {
         const items = parsePlaylistItems(payload?.items)
         if (typeof playlistId !== 'string' || items.length === 0) return
 
-        const index = Math.min(Math.max(0, recovery.resumePlaylistIndex ?? 0), items.length - 1)
-        setPlaylist({ id: playlistId, loop: payload?.loop === true, items })
+        const playbackId = typeof payload?.playbackId === 'string' ? payload.playbackId : playlistId
+        let index = Math.min(Math.max(0, recovery.resumePlaylistIndex ?? 0), items.length - 1)
+        let progress = parsePromotionProgress(recovery.promotionProgress)
+        if (progress?.playbackId !== playbackId) progress = null
+        const local = readPlaylistCheckpoint(localStorage)
+        if (preferLocalCheckpoint(local, playbackId, progress, Date.parse(recovery.updatedAt), items.length)) {
+          progress = local.progress
+          index = local.playlistIndex
+          pendingSeekSecondsRef.current = local.positionSeconds
+          pausedPositionSecondsRef.current = local.positionSeconds
+          itemStartedAtRef.current = Date.now() - local.positionSeconds * 1000
+          setPlaybackEnded(local.ended)
+          if (local.ended) setPlaylistPaused(true)
+        }
+        progress = configurePromotions(progress ?? startPromotionProgress(playbackId, promotionPolicyRef.current), promotionPolicyRef.current)
+        promotionProgressRef.current = progress
+        setPlaylist({ id: playlistId, playbackId, loop: payload?.loop === true, items })
         setPlaylistIndex(index)
-        setMedia({ id: items[index].mediaId, type: items[index].mediaType })
+        setCurrentMedia(progress.activeMediaId ? { id: progress.activeMediaId, type: 'Video' }
+          : { id: items[index].mediaId, type: items[index].mediaType })
       }
     }
 
@@ -262,6 +314,8 @@ export function PlayerPage() {
       }
       markCommandProcessed(command.commandId)
       acknowledge(command, 'received')
+      if (['playback.resume', 'playback.loop', 'media.play', 'playlist.play', 'media.pause', 'playlist.pause',
+        'media.stop', 'playlist.stop', 'display.blackout'].includes(command.type)) playbackControlRevisionRef.current++
 
       switch (command.type) {
         case 'playback.resume': {
@@ -272,7 +326,7 @@ export function PlayerPage() {
             break
           }
           // Playback controls leave the independent announcement untouched.
-          applyRecovery(recovery as PlaybackRecoveryState, -1)
+          applyRecovery(recovery as PlaybackRecoveryState, -1, promotionRevision)
           acknowledge(command, 'executed')
           break
         }
@@ -304,6 +358,17 @@ export function PlayerPage() {
           setAnnouncement(null)
           acknowledge(command, 'executed')
           break
+        case 'promotions.configure': {
+          const policy = parsePromotionPolicy(command.payload)
+          if (!policy) {
+            acknowledge(command, 'error', 'invalid promotions.configure payload')
+            break
+          }
+          promotionRevision++
+          applyPromotionPolicy(policy)
+          acknowledge(command, 'executed')
+          break
+        }
         case 'display.settings': {
           const nextRotation = parseRotation(command.payload?.rotation)
           if (nextRotation === null) {
@@ -353,6 +418,7 @@ export function PlayerPage() {
           setMediaLoop(loopRef.current)
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
+            clearPromotionProgress()
             pendingSeekSecondsRef.current = 0
             itemStartedAtRef.current = Date.now()
             setPlaylist(undefined)
@@ -360,7 +426,7 @@ export function PlayerPage() {
             setPlaylistPaused(false)
             setPlaybackEnded(false)
             setBlackout(false)
-            setMedia({ id: candidate.mediaId, type: candidate.mediaType })
+            setCurrentMedia({ id: candidate.mediaId, type: candidate.mediaType })
             acknowledge(command, 'executed')
           })
           break
@@ -375,13 +441,14 @@ export function PlayerPage() {
           break
         case 'media.stop':
         case 'playlist.stop':
+          clearPromotionProgress()
           clearScheduledStart()
           videoRef.current?.pause()
           setPlaylist(undefined)
           setPlaylistIndex(0)
           setPlaylistPaused(false)
           setPlaybackEnded(false)
-          setMedia(undefined)
+          setCurrentMedia(undefined)
           setBlackout(false)
           acknowledge(command, 'executed')
           break
@@ -395,6 +462,7 @@ export function PlayerPage() {
 
           const nextPlaylist: ActivePlaylist = {
             id: playlistId,
+            playbackId: typeof command.payload?.playbackId === 'string' ? command.payload.playbackId : playlistId,
             loop: command.payload?.loop === true,
             items,
           }
@@ -403,6 +471,8 @@ export function PlayerPage() {
 
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
           scheduleAtServerTime(command.payload?.startAt, () => {
+            clearPromotionProgress()
+            promotionProgressRef.current = startPromotionProgress(nextPlaylist.playbackId, promotionPolicyRef.current)
             pendingSeekSecondsRef.current = 0
             itemStartedAtRef.current = Date.now()
             setPlaylist({ ...nextPlaylist, loop: loopRef.current })
@@ -410,7 +480,7 @@ export function PlayerPage() {
             setPlaylistPaused(false)
             setPlaybackEnded(false)
             setBlackout(false)
-            setMedia({ id: items[0].mediaId, type: items[0].mediaType })
+            setCurrentMedia({ id: items[0].mediaId, type: items[0].mediaType })
             acknowledge(command, 'executed')
           })
           break
@@ -483,12 +553,36 @@ export function PlayerPage() {
     }
 
     async function recoverDesiredPlayback() {
-      if (!await refreshDisplaySettings()) return
-      await synchronizeClock(3)
-      if (cancelled) return
-      const recoveredAnnouncementRevision = announcementRevision
-      const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
-      if (!cancelled) applyRecovery(recovery, recoveredAnnouncementRevision)
+      if (recoveryRetryTimer !== undefined) window.clearTimeout(recoveryRetryTimer)
+      recoveryRetryTimer = undefined
+      recoveryPendingRef.current = true
+      try {
+        if (!await refreshDisplaySettings()) return
+        await synchronizeClock(3)
+        if (cancelled) return
+        const recoveredAnnouncementRevision = announcementRevision
+        const recoveredPromotionRevision = promotionRevision
+        const recoveredPlaybackRevision = playbackControlRevisionRef.current
+        const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
+        if (cancelled) return
+        if (recoveredPlaybackRevision === playbackControlRevisionRef.current)
+          applyRecovery(recovery, recoveredAnnouncementRevision, recoveredPromotionRevision)
+        else if (recovery) {
+          // A newer play command does not invalidate independently saved settings.
+          if (announcementRevision === recoveredAnnouncementRevision) setAnnouncement(parseAnnouncement(recovery.announcement))
+          if (promotionRevision === recoveredPromotionRevision) applyPromotionPolicy(parsePromotionPolicy(recovery.promotionPolicy))
+        }
+        recoveryPendingRef.current = false
+      } catch (error) {
+        // Do not publish an empty/old cursor when recovery failed.
+        if (!cancelled) {
+          console.error('Playback recovery failed; retrying:', error)
+          recoveryRetryTimer = window.setTimeout(() => {
+            recoveryRetryTimer = undefined
+            if (connection.state === HubConnectionState.Connected) void recoverDesiredPlayback()
+          }, reconnectDelayMs)
+        }
+      }
     }
 
     async function start() {
@@ -536,6 +630,7 @@ export function PlayerPage() {
       window.clearTimeout(startTimer)
       clearScheduledStart()
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
+      if (recoveryRetryTimer !== undefined) window.clearTimeout(recoveryRetryTimer)
       if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
       if (clockSyncTimer !== undefined) window.clearInterval(clockSyncTimer)
       connectionRef.current = null
@@ -544,30 +639,44 @@ export function PlayerPage() {
   }, [deviceToken])
 
   const advancePlaylist = useCallback(() => {
-    if (!playlist || playlistPaused || playlist.items.length === 0) return
-
-    const nextIndex = playlistIndex + 1
-    if (nextIndex >= playlist.items.length) {
-      if (!playlist.loop) {
-        setPlaylistPaused(true)
-        setPlaybackEnded(true)
-        return
-      }
-
-      const first = playlist.items[0]
+    if (!playlist || playlistPaused || playlist.items.length === 0 || mediaRef.current !== media) return
+    const next = finishPlaylistItem(
+      promotionProgressRef.current ?? startPromotionProgress(playlist.playbackId, promotionPolicyRef.current),
+      promotionPolicyRef.current, playlist, playlistIndex,
+    )
+    promotionProgressRef.current = next.progress
+    if (next.ended) {
+      // Leave a checkpoint for the final main item, including after a final promotion.
       pendingSeekSecondsRef.current = 0
-      itemStartedAtRef.current = Date.now()
-      setPlaylistIndex(0)
-      setMedia({ id: first.mediaId, type: first.mediaType })
+      pausedPositionSecondsRef.current = 0
+      setCurrentMedia({ id: next.mediaId, type: next.mediaType })
+      setPlaylistPaused(true)
+      setPlaybackEnded(true)
       return
     }
-
-    const next = playlist.items[nextIndex]
     pendingSeekSecondsRef.current = 0
     itemStartedAtRef.current = Date.now()
-    setPlaylistIndex(nextIndex)
-    setMedia({ id: next.mediaId, type: next.mediaType })
-  }, [playlist, playlistIndex, playlistPaused])
+    setPlaylistIndex(next.playlistIndex)
+    setCurrentMedia({ id: next.mediaId, type: next.mediaType })
+  }, [playlist, playlistIndex, playlistPaused, media, setCurrentMedia])
+
+  useEffect(() => {
+    if (!media || promotionProgressRef.current?.activeMediaId !== media.id || playlistPaused) return
+    let lastPosition = videoRef.current?.currentTime ?? 0
+    let lastProgressAt = Date.now()
+    const timer = window.setInterval(() => {
+      const video = videoRef.current
+      if (video && video.currentTime !== lastPosition) {
+        lastPosition = video.currentTime
+        lastProgressAt = Date.now()
+      }
+      if (Date.now() - lastProgressAt >= 30_000) {
+        console.warn('Skipping promotion after 30 seconds without playback progress:', media.id)
+        advancePlaylist()
+      }
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [media, playlistPaused, advancePlaylist])
 
   useEffect(() => {
     bufferingRef.current = false
@@ -613,12 +722,11 @@ export function PlayerPage() {
     let cancelled = false
 
     async function reportPlayback() {
-      const connection = connectionRef.current
-      if (!connection || connection.state !== HubConnectionState.Connected) return
+      if (mediaRef.current !== media && !playbackEnded) return
       const video = videoRef.current
 
       const positionSeconds = media?.type === 'Video'
-        ? Math.max(0, videoRef.current?.currentTime ?? 0)
+        ? Math.max(0, pendingSeekSecondsRef.current ?? videoRef.current?.currentTime ?? 0)
         : playlistPaused ? pausedPositionSecondsRef.current : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
       const durationSeconds = media?.type === 'Video' && Number.isFinite(videoRef.current?.duration)
         ? videoRef.current?.duration ?? null
@@ -628,8 +736,27 @@ export function PlayerPage() {
       const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : !media ? 'Idle'
         : playlistPaused ? 'Paused' : buffering ? 'Buffering' : 'Playing'
 
+      const progress = playlist && promotionProgressRef.current
+        ? { ...promotionProgressRef.current, sequence: promotionProgressRef.current.sequence + 1 } : null
+      if (progress) {
+        promotionProgressRef.current = progress
+        try {
+          localStorage.setItem(playlistCheckpointKey, JSON.stringify({
+            progress, playlistIndex, positionSeconds, capturedAt: getServerNow(), ended: playbackEnded,
+          }))
+        } catch { /* SQL recovery remains available when browser storage is full or disabled. */ }
+      }
+
+      const connection = connectionRef.current
+      if (!connection || connection.state !== HubConnectionState.Connected || recoveryPendingRef.current) return
+
       try {
-        const result = await connection.invoke<PlaybackReportResult | null>(
+        const result = progress ? await connection.invoke<PlaybackReportResult | null>(
+          'ReportPlaylistPlayback', {
+            state: actualState, mediaAssetId: media?.id ?? null, playlistId: playlist?.id ?? null,
+            playlistIndex, positionSeconds, durationSeconds,
+          }, progress,
+        ) : await connection.invoke<PlaybackReportResult | null>(
           'ReportPlayback',
           actualState,
           media?.id ?? null,
@@ -658,7 +785,7 @@ export function PlayerPage() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused, playbackEnded])
+  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused, playbackEnded, promotionPolicy, getServerNow])
 
   if (!deviceToken) {
     return (
@@ -676,7 +803,7 @@ export function PlayerPage() {
       <div className={`player-viewport rotation-${rotation}`}>
         {media?.type === 'Video' && (
           <video
-            key={media.id}
+            key={media.instance}
             ref={videoRef}
             className="player-media"
             hidden={playbackEnded && !!playlist}
@@ -689,10 +816,13 @@ export function PlayerPage() {
               if (playlist) advancePlaylist()
               else setPlaybackEnded(true)
             }}
+            onError={() => {
+              if (promotionProgressRef.current?.activeMediaId === media.id) advancePlaylist()
+            }}
           />
         )}
         {useVideoCanvas && rotation !== 0 && media?.type === 'Video' && !blackout && !(playbackEnded && playlist) && (
-          <VideoRotationCanvas key={`rotation-${media.id}`} videoRef={videoRef} />
+          <VideoRotationCanvas key={`rotation-${media.instance}`} videoRef={videoRef} />
         )}
         {media?.type === 'Image' && (
           <img key={media.id} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt="" />

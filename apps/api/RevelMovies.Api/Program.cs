@@ -65,6 +65,7 @@ app.UseCors("web");
 app.MapHealthChecks("/health");
 app.MapHub<PlayerHub>("/hubs/player");
 app.MapOrchestrationEndpoints();
+app.MapPromotionalBreakEndpoints();
 
 app.MapGet("/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {
@@ -334,6 +335,9 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
     PlayerCommandDispatcher dispatcher,
     CancellationToken cancellationToken) =>
 {
+    if (string.IsNullOrWhiteSpace(request.Type)) return Results.BadRequest(new { error = "Command type is required." });
+    if (request.Type.StartsWith("promotions.", StringComparison.OrdinalIgnoreCase))
+        return Results.BadRequest(new { error = "Use the event promotional-breaks endpoint to configure promotions." });
     if (AnnouncementCommand.IsShow(request.Type))
     {
         var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);
@@ -450,6 +454,7 @@ public sealed record DisplayResponse(
     Guid? PlaybackPlaylistId,
     bool PlaybackLoop,
     JsonElement? Announcement,
+    PromotionPolicy? PromotionPolicy,
     DateTimeOffset CreatedAt)
 {
     public static DisplayResponse From(Display item, DisplayPlaybackState? playback = null) => new(
@@ -473,6 +478,7 @@ public sealed record DisplayResponse(
         playback?.PlaylistId,
         PlaybackStateRegistry.ReadLoop(playback),
         PlaybackStateRegistry.ReadAnnouncement(playback),
+        PromotionalBreaks.ReadPolicy(playback),
         item.CreatedAt);
 }
 

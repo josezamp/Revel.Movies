@@ -3,6 +3,7 @@ import { getPlaylists, type Display, type DisplayGroup, type MediaAsset, type Pl
 import { MediaLibrary } from './MediaLibrary'
 import { PlaylistsPanel } from './PlaylistsPanel'
 import { PlaylistModal } from './PlaylistModal'
+import { PromotionalBreaksPanel } from './PromotionalBreaksPanel'
 
 export function MediaWorkspace({ eventId, displays, groups, media, onMediaChanged }: {
   eventId: string; displays: Display[]; groups: DisplayGroup[]; media: MediaAsset[]; onMediaChanged: () => Promise<void>
@@ -62,6 +63,7 @@ export function MediaWorkspace({ eventId, displays, groups, media, onMediaChange
       <PlaylistsPanel eventId={eventId} playlists={playlists} media={media} displays={displays} groups={groups}
         activeId={activeId} onActiveId={setActiveId} loading={loading} loadError={loadError} onRefresh={refresh}
         onCreate={() => setModal('create')} onAddContent={startSelection} feedback={feedback} />
+      <PromotionalBreaksPanel eventId={eventId} displays={displays} groups={groups} playlists={playlists} loading={loading || !!loadError} />
       <MediaLibrary libraryRef={libraryRef} eventId={eventId} media={media} displays={displays} onMediaChanged={async () => { await onMediaChanged(); await refresh() }}
         selecting={selecting} selectedIds={selectedIds} onSelectedIds={setSelectedIds} onStartSelection={() => startSelection()}
         onCancelSelection={() => { setSelecting(false); setSelectedIds([]); setPreferredPlaylistId(undefined) }}

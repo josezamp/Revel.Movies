@@ -96,6 +96,7 @@ public sealed class PlayerCommandDispatcher(
         var playPayload = JsonSerializer.SerializeToElement(new
         {
             playlistId,
+            playbackId = Guid.NewGuid(),
             loop,
             items = serializedItems,
             startAt

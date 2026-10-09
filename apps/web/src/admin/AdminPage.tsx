@@ -149,6 +149,7 @@ export function AdminPage() {
           </label>
           <button onClick={() => void createNewEvent()}>New event</button>
           <a className="announcement-shortcut" href="#anuncios">Crear anuncio</a>
+          <a className="announcement-shortcut" href="#cortes-promocionales">Cortes promocionales</a>
         </div>
       </header>
 

@@ -65,6 +65,9 @@ public static class OrchestrationEndpoints
             PlayerCommandDispatcher dispatcher,
             CancellationToken cancellationToken) =>
         {
+            if (string.IsNullOrWhiteSpace(request.Type)) return Results.BadRequest(new { error = "Command type is required." });
+            if (request.Type.StartsWith("promotions.", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new { error = "Use the event promotional-breaks endpoint to configure promotions." });
             if (AnnouncementCommand.IsShow(request.Type))
             {
                 var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);

@@ -75,6 +75,12 @@ public sealed class PlayerHub(
             Context.ConnectionAborted);
     }
 
+    public async Task<PlaybackReportResult?> ReportPlaylistPlayback(PlaybackTelemetryReport report, PromotionProgress progress)
+    {
+        if (await GetDisplayIdAsync() is not { } displayId) return null;
+        return await playbackStateRegistry.ReportPlaylistAsync(displayId, report, progress, Context.ConnectionAborted);
+    }
+
     public async Task Acknowledge(
         Guid commandId,
         string commandType,

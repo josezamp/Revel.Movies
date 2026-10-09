@@ -173,6 +173,8 @@ partial class RevelMoviesDbContextModelSnapshot : ModelSnapshot
             b.Property<double?>("PausedPositionSeconds").HasColumnType("float").HasColumnName("paused_position_seconds");
             b.Property<string>("PayloadJson").HasColumnType("nvarchar(max)").HasColumnName("payload_json");
             b.Property<string>("AnnouncementJson").HasColumnType("nvarchar(max)").HasColumnName("announcement_json");
+            b.Property<string>("PromotionPolicyJson").HasColumnType("nvarchar(max)").HasColumnName("promotion_policy_json");
+            b.Property<string>("PromotionProgressJson").HasColumnType("nvarchar(max)").HasColumnName("promotion_progress_json");
             b.Property<Guid?>("PlaylistId").HasColumnType("uniqueidentifier").HasColumnName("playlist_id");
             b.Property<DateTimeOffset?>("StartedAt").HasColumnType("datetimeoffset").HasColumnName("started_at");
             b.Property<DateTimeOffset>("UpdatedAt").HasColumnType("datetimeoffset").HasColumnName("updated_at");

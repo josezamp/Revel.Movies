@@ -44,6 +44,55 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
     public static JsonElement? ReadAnnouncement(DisplayPlaybackState? state) =>
         state?.AnnouncementJson is { } json ? JsonSerializer.Deserialize<JsonElement>(json) : null;
 
+    public async Task SetPromotionPolicyAsync(IEnumerable<Guid> displayIds, PromotionPolicy policy,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var state in await GetOrCreateAsync(displayIds, cancellationToken))
+        {
+            state.PromotionPolicyJson = JsonSerializer.Serialize(policy, PromotionalBreaks.JsonOptions);
+            // Keep the current clip checkpoint: replacing/disabling must let it finish.
+            state.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<PlaybackReportResult> ReportPlaylistAsync(Guid displayId, PlaybackTelemetryReport report,
+        PromotionProgress progress, CancellationToken cancellationToken = default)
+    {
+        var state = await db.DisplayPlaybackStates.FirstOrDefaultAsync(x => x.DisplayId == displayId, cancellationToken);
+        var policy = PromotionalBreaks.ReadPolicy(state);
+        var previous = PromotionalBreaks.ReadProgress(state);
+        var ignored = new PlaybackReportResult(null, null, state?.Health ?? "Unknown");
+        // A delayed report must never restore an old session, policy or completed promotion.
+        if (state is null || progress is null || report is null || state.ContentType != "Playlist" ||
+            string.IsNullOrWhiteSpace(progress.PlaybackId) || state.DesiredState == "Stopped" ||
+            (state.DesiredState == "Paused" && report.State != "Paused") ||
+            progress.PlaybackId != PromotionalBreaks.PlaybackId(state) || report.PlaylistId != state.PlaylistId ||
+            progress.PolicyId != policy?.Id || progress.Sequence < 0 ||
+            (previous is not null && progress.Sequence <= previous.Sequence) ||
+            progress.CompletedVideos < 0 || progress.CompletedVideos >= (policy?.EveryVideos ?? 100) ||
+            progress.NextPromotionIndex < 0 || progress.NextPromotionIndex >= Math.Max(1, policy?.Items.Count ?? 0) ||
+            !double.IsFinite(report.PositionSeconds) || report.PositionSeconds < 0 ||
+            (report.DurationSeconds.HasValue && (!double.IsFinite(report.DurationSeconds.Value) || report.DurationSeconds <= 0)))
+            return ignored;
+
+        using var payload = JsonDocument.Parse(state.PayloadJson!);
+        if (!payload.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array ||
+            report.PlaylistIndex is not { } index || index < 0 || index >= items.GetArrayLength()) return ignored;
+        if (progress.ActiveMediaId is { } active)
+        {
+            if (report.MediaAssetId != active || !await (
+                from media in db.MediaAssets
+                join display in db.Displays on media.EventId equals display.EventId
+                where display.Id == displayId && media.Id == active && media.Type == MediaType.Video
+                select media.Id).AnyAsync(cancellationToken)) return ignored;
+        }
+        else if (items[index].GetProperty("mediaId").GetGuid() != report.MediaAssetId) return ignored;
+
+        state.PromotionProgressJson = JsonSerializer.Serialize(progress, PromotionalBreaks.JsonOptions);
+        return await ReportAsync(displayId, report, cancellationToken);
+    }
+
     public static bool ReadLoop(DisplayPlaybackState? state) =>
         state?.PayloadJson is { } json &&
         JsonSerializer.Deserialize<JsonElement>(json) is { ValueKind: JsonValueKind.Object } payload &&
@@ -81,6 +130,11 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         var position = restart ? 0 : CalculateExpectedPosition(state, now) ?? 0;
         var index = restart ? 0 : state.ActualPlaylistIndex ?? 0;
         var payload = JsonNode.Parse(state.PayloadJson)!.AsObject();
+        if (restart)
+        {
+            state.PromotionProgressJson = null;
+            if (state.ContentType == "Playlist") payload["playbackId"] = Guid.NewGuid().ToString();
+        }
         // Keep a recovery checkpoint until the player reports the resumed playlist.
         payload["resumePlaylistIndex"] = index;
         payload["resumePositionSeconds"] = position;
@@ -95,7 +149,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
 
         return new PlaybackRecoveryState("Playing", state.ContentType,
             JsonSerializer.Deserialize<JsonElement>(state.PayloadJson), position, index,
-            state.Health, null, now, ReadAnnouncement(state));
+            state.Health, null, now, ReadAnnouncement(state), PromotionalBreaks.ReadPolicy(state), PromotionalBreaks.ReadProgress(state));
     }
 
     public async Task SetMediaPlayingAsync(
@@ -110,6 +164,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         {
             state.DesiredState = "Playing";
             state.ContentType = "Media";
+            state.PromotionProgressJson = null;
             state.MediaAssetId = media.Id;
             state.PlaylistId = null;
             state.PayloadJson = payload.GetRawText();
@@ -136,6 +191,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         {
             state.DesiredState = "Playing";
             state.ContentType = "Playlist";
+            state.PromotionProgressJson = null;
             state.MediaAssetId = null;
             state.PlaylistId = playlistId;
             state.PayloadJson = payload.GetRawText();
@@ -171,6 +227,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             else if (normalized.EndsWith(".stop", StringComparison.Ordinal))
             {
                 state.DesiredState = "Stopped";
+                state.PromotionProgressJson = null;
                 // Keep the assigned content so Play can start it again from the display card.
                 state.StartedAt = null;
                 state.PausedPositionSeconds = null;
@@ -303,7 +360,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             {
                 resumePlaylistIndex = state.ActualPlaylistIndex ?? 0;
                 resumePosition = state.ActualPositionSeconds ?? 0;
-                if (state.ActualReportedAt.HasValue && string.Equals(state.ActualState, "Playing", StringComparison.OrdinalIgnoreCase))
+                if (PromotionalBreaks.ReadProgress(state) is null && state.ActualReportedAt.HasValue && string.Equals(state.ActualState, "Playing", StringComparison.OrdinalIgnoreCase))
                     resumePosition += Math.Max(0, (now - state.ActualReportedAt.Value).TotalSeconds);
             }
         }
@@ -317,7 +374,9 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             state.Health,
             state.DriftMs,
             state.UpdatedAt,
-            ReadAnnouncement(state));
+            ReadAnnouncement(state),
+            PromotionalBreaks.ReadPolicy(state),
+            PromotionalBreaks.ReadProgress(state));
     }
 
     private async Task<IReadOnlyList<DisplayPlaybackState>> GetOrCreateAsync(
@@ -372,4 +431,6 @@ public sealed record PlaybackRecoveryState(
     string Health,
     double? DriftMs,
     DateTimeOffset UpdatedAt,
-    JsonElement? Announcement);
+    JsonElement? Announcement,
+    PromotionPolicy? PromotionPolicy = null,
+    PromotionProgress? PromotionProgress = null);

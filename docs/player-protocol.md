@@ -36,6 +36,13 @@ After deletion, `display.unpaired` tells connected players to stop playback, cle
 
 See [Announcements and countdowns](announcements.md) for payloads, validation, persistence and blackout behavior.
 
+## Promotional breaks
+
+- `promotions.configure`: apply a per-display rule for inserting promotion videos between completed playlist videos.
+- `ReportPlaylistPlayback`: report playlist position and promotion progress together for recovery.
+
+Configure through the event promotional-breaks endpoint, not the generic commands endpoint. See [Promotional breaks](promotional-breaks.md) for targeting, frequency, recovery and deployment.
+
 ## Compatibility rule
 
 Players must ignore command types they do not understand. The protocol version exists from the first release because Players may remain deployed without being upgraded for long periods.

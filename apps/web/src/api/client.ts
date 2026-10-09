@@ -1,4 +1,5 @@
 import type { Announcement } from '../announcements/announcement'
+import type { PromotionPolicy } from '../player/promotionalBreaks'
 
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
 export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
@@ -36,6 +37,7 @@ export interface Display {
   playbackPlaylistId: string | null
   playbackLoop: boolean
   announcement: Announcement | null
+  promotionPolicy: PromotionPolicy | null
   createdAt: string
 }
 
@@ -124,6 +126,14 @@ export interface PlayerDiagnostics {
 }
 
 export type PlaybackTargetType = 'display' | 'group'
+
+export async function configurePromotionalBreaks(eventId: string, configuration: {
+  targetType: PlaybackTargetType; targetId: string; enabled: boolean; playlistId?: string; everyVideos?: number
+}): Promise<void> {
+  await requestVoid(`/api/events/${eventId}/promotional-breaks`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration),
+  })
+}
 
 export async function getEvents(): Promise<EventSummary[]> {
   return getJson('/api/events')
