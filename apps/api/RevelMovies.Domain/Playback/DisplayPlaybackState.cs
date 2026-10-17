@@ -8,6 +8,7 @@ public sealed class DisplayPlaybackState
     public Guid? MediaAssetId { get; set; }
     public Guid? PlaylistId { get; set; }
     public string? PayloadJson { get; set; }
+    public string? WebPageJson { get; set; }
     public string? AnnouncementJson { get; set; }
     public string? PromotionPolicyJson { get; set; }
     public string? PromotionProgressJson { get; set; }

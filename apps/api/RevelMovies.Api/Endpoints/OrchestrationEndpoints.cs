@@ -68,6 +68,15 @@ public static class OrchestrationEndpoints
             if (string.IsNullOrWhiteSpace(request.Type)) return Results.BadRequest(new { error = "Command type is required." });
             if (request.Type.StartsWith("promotions.", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest(new { error = "Use the event promotional-breaks endpoint to configure promotions." });
+            if (WebPageCommand.IsShow(request.Type))
+            {
+                var error = WebPageCommand.Validate(request.Payload, out var normalizedPage);
+                if (error is not null) return Results.BadRequest(new { error });
+                request = request with { Type = "webpage.show", Payload = normalizedPage };
+            }
+            else if (WebPageCommand.IsClear(request.Type))
+                request = request with { Type = "webpage.clear", Payload = null };
+
             if (AnnouncementCommand.IsShow(request.Type))
             {
                 var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);

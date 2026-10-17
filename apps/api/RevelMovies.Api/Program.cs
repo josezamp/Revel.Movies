@@ -338,6 +338,15 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
     if (string.IsNullOrWhiteSpace(request.Type)) return Results.BadRequest(new { error = "Command type is required." });
     if (request.Type.StartsWith("promotions.", StringComparison.OrdinalIgnoreCase))
         return Results.BadRequest(new { error = "Use the event promotional-breaks endpoint to configure promotions." });
+    if (WebPageCommand.IsShow(request.Type))
+    {
+        var error = WebPageCommand.Validate(request.Payload, out var normalizedPage);
+        if (error is not null) return Results.BadRequest(new { error });
+        request = request with { Type = "webpage.show", Payload = normalizedPage };
+    }
+    else if (WebPageCommand.IsClear(request.Type))
+        request = request with { Type = "webpage.clear", Payload = null };
+
     if (AnnouncementCommand.IsShow(request.Type))
     {
         var error = AnnouncementCommand.Validate(request.Payload, DateTimeOffset.UtcNow, out var normalized);
@@ -453,6 +462,7 @@ public sealed record DisplayResponse(
     Guid? PlaybackMediaId,
     Guid? PlaybackPlaylistId,
     bool PlaybackLoop,
+    JsonElement? WebPage,
     JsonElement? Announcement,
     PromotionPolicy? PromotionPolicy,
     DateTimeOffset CreatedAt)
@@ -477,6 +487,7 @@ public sealed record DisplayResponse(
         playback?.MediaAssetId,
         playback?.PlaylistId,
         PlaybackStateRegistry.ReadLoop(playback),
+        PlaybackStateRegistry.ReadWebPage(playback),
         PlaybackStateRegistry.ReadAnnouncement(playback),
         PromotionalBreaks.ReadPolicy(playback),
         item.CreatedAt);

@@ -6,6 +6,8 @@ import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './m
 import { bufferVideoPlayback, canCorrectPlayback } from './videoBuffer'
 import { parseAnnouncement, type Announcement } from '../announcements/announcement'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
+import { parseWebPage, type WebPage } from '../webpages/webPage'
+import { WebPageSurface } from '../webpages/WebPageSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
 import { needsVideoCanvas } from './videoCanvas'
 import {
@@ -38,6 +40,7 @@ type ActivePlaylist = {
 }
 
 type PlaybackRecoveryState = {
+  webPage: unknown
   announcement: unknown
   promotionPolicy: unknown
   promotionProgress: unknown
@@ -62,6 +65,7 @@ export function PlayerPage() {
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
+  const [webPage, setWebPage] = useState<WebPage | null>(null)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
@@ -149,6 +153,7 @@ export function PlayerPage() {
     let reconnectTimer: number | undefined
     let recoveryRetryTimer: number | undefined
     let connection: HubConnection
+    let webPageRevision = 0
     let announcementRevision = 0
     let promotionRevision = 0
 
@@ -196,6 +201,7 @@ export function PlayerPage() {
       setPlaylistPaused(false)
       setPlaybackEnded(false)
       setAnnouncement(null)
+      setWebPage(null)
       setBlackout(false)
       setIdentify(false)
       setRotation(0)
@@ -231,10 +237,12 @@ export function PlayerPage() {
       }
     }
 
-    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number, recoveredPromotionRevision: number) {
+    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number, recoveredPromotionRevision: number, recoveredWebPageRevision = -1) {
       if (!recovery) return
       clearScheduledStart()
       // A live command received during recovery takes precedence over the older snapshot.
+      if (webPageRevision === recoveredWebPageRevision)
+        setWebPage(parseWebPage(recovery.webPage, window.location.href))
       if (announcementRevision === recoveredAnnouncementRevision)
         setAnnouncement(parseAnnouncement(recovery.announcement))
       if (promotionRevision === recoveredPromotionRevision)
@@ -342,6 +350,22 @@ export function PlayerPage() {
           acknowledge(command, 'executed')
           break
         }
+        case 'webpage.show': {
+          const next = parseWebPage(command.payload, window.location.href)
+          if (!next) {
+            acknowledge(command, 'error', 'invalid or unsafe webpage URL for this player origin')
+            break
+          }
+          webPageRevision++
+          setWebPage(next)
+          acknowledge(command, 'executed', 'iframe assigned; remote loading is controlled by the website')
+          break
+        }
+        case 'webpage.clear':
+          webPageRevision++
+          setWebPage(null)
+          acknowledge(command, 'executed')
+          break
         case 'announcement.show': {
           const next = parseAnnouncement(command.payload)
           if (!next) {
@@ -560,15 +584,17 @@ export function PlayerPage() {
         if (!await refreshDisplaySettings()) return
         await synchronizeClock(3)
         if (cancelled) return
+        const recoveredWebPageRevision = webPageRevision
         const recoveredAnnouncementRevision = announcementRevision
         const recoveredPromotionRevision = promotionRevision
         const recoveredPlaybackRevision = playbackControlRevisionRef.current
         const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
         if (cancelled) return
         if (recoveredPlaybackRevision === playbackControlRevisionRef.current)
-          applyRecovery(recovery, recoveredAnnouncementRevision, recoveredPromotionRevision)
+          applyRecovery(recovery, recoveredAnnouncementRevision, recoveredPromotionRevision, recoveredWebPageRevision)
         else if (recovery) {
           // A newer play command does not invalidate independently saved settings.
+          if (webPageRevision === recoveredWebPageRevision) setWebPage(parseWebPage(recovery.webPage, window.location.href))
           if (announcementRevision === recoveredAnnouncementRevision) setAnnouncement(parseAnnouncement(recovery.announcement))
           if (promotionRevision === recoveredPromotionRevision) applyPromotionPolicy(parsePromotionPolicy(recovery.promotionPolicy))
         }
@@ -827,6 +853,7 @@ export function PlayerPage() {
         {media?.type === 'Image' && (
           <img key={media.id} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt="" />
         )}
+        {webPage && <WebPageSurface key={webPage.url} page={webPage} hidden={blackout} />}
         {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
         {announcement && !blackout && <AnnouncementSurface announcement={announcement} getNow={getServerNow} />}
       </div>

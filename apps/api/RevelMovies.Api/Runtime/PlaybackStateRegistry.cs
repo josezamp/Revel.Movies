@@ -28,6 +28,20 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
     public Task<DisplayPlaybackState?> GetAsync(Guid displayId, CancellationToken cancellationToken = default) =>
         db.DisplayPlaybackStates.AsNoTracking().FirstOrDefaultAsync(x => x.DisplayId == displayId, cancellationToken);
 
+    public async Task SetWebPageAsync(IEnumerable<Guid> displayIds, JsonElement? payload,
+        CancellationToken cancellationToken = default)
+    {
+        foreach (var state in await GetOrCreateAsync(displayIds, cancellationToken))
+        {
+            state.WebPageJson = payload?.GetRawText();
+            state.UpdatedAt = DateTimeOffset.UtcNow;
+        }
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public static JsonElement? ReadWebPage(DisplayPlaybackState? state) =>
+        state?.WebPageJson is { } json ? JsonSerializer.Deserialize<JsonElement>(json) : null;
+
     public async Task SetAnnouncementAsync(
         IEnumerable<Guid> displayIds,
         JsonElement? payload,
@@ -149,7 +163,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
 
         return new PlaybackRecoveryState("Playing", state.ContentType,
             JsonSerializer.Deserialize<JsonElement>(state.PayloadJson), position, index,
-            state.Health, null, now, ReadAnnouncement(state), PromotionalBreaks.ReadPolicy(state), PromotionalBreaks.ReadProgress(state));
+            state.Health, null, now, ReadAnnouncement(state), PromotionalBreaks.ReadPolicy(state), PromotionalBreaks.ReadProgress(state), ReadWebPage(state));
     }
 
     public async Task SetMediaPlayingAsync(
@@ -376,7 +390,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
             state.UpdatedAt,
             ReadAnnouncement(state),
             PromotionalBreaks.ReadPolicy(state),
-            PromotionalBreaks.ReadProgress(state));
+            PromotionalBreaks.ReadProgress(state), ReadWebPage(state));
     }
 
     private async Task<IReadOnlyList<DisplayPlaybackState>> GetOrCreateAsync(
@@ -433,4 +447,5 @@ public sealed record PlaybackRecoveryState(
     DateTimeOffset UpdatedAt,
     JsonElement? Announcement,
     PromotionPolicy? PromotionPolicy = null,
-    PromotionProgress? PromotionProgress = null);
+    PromotionProgress? PromotionProgress = null,
+    JsonElement? WebPage = null);

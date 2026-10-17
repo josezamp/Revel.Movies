@@ -223,6 +223,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.MediaAssetId).HasColumnName("media_asset_id");
             builder.Property(x => x.PlaylistId).HasColumnName("playlist_id");
             builder.Property(x => x.PayloadJson).HasColumnName("payload_json");
+            builder.Property(x => x.WebPageJson).HasColumnName("web_page_json");
             builder.Property(x => x.AnnouncementJson).HasColumnName("announcement_json");
             builder.Property(x => x.PromotionPolicyJson).HasColumnName("promotion_policy_json");
             builder.Property(x => x.PromotionProgressJson).HasColumnName("promotion_progress_json");

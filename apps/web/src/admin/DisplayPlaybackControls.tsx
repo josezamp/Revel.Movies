@@ -65,10 +65,10 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
         </button>
         <button
           type="button"
-          disabled={disabled || !hasContent || display.desiredPlaybackState === 'Stopped'}
+          disabled={disabled || (display.desiredPlaybackState !== 'Blackout' && (!hasContent || display.desiredPlaybackState === 'Stopped'))}
           onClick={() => void command('media.stop')}
         >
-          <span aria-hidden="true">■</span> Detener
+          <span aria-hidden="true">■</span> {display.desiredPlaybackState === 'Blackout' ? 'Salir de blackout' : 'Detener'}
         </button>
         <button
           type="button"

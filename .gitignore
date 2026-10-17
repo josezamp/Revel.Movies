@@ -29,3 +29,7 @@ media/
 .env
 .env.*
 !.env.example
+
+# Browser test output
+**/test-results/
+**/playwright-report/

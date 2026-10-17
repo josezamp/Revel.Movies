@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { WebPagePanel } from './WebPagePanel'
 import { AnnouncementsPanel } from './AnnouncementsPanel'
 import {
   createDisplayGroup,
@@ -69,6 +70,7 @@ export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged }
 
   return (
     <>
+      <WebPagePanel eventId={eventId} displays={displays} groups={groups} />
       <AnnouncementsPanel eventId={eventId} displays={displays} groups={groups} />
       <section>
         <div className="section-heading">

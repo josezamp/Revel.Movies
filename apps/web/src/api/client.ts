@@ -1,3 +1,4 @@
+import type { WebPage } from '../webpages/webPage'
 import type { Announcement } from '../announcements/announcement'
 import type { PromotionPolicy } from '../player/promotionalBreaks'
 
@@ -36,6 +37,7 @@ export interface Display {
   playbackMediaId: string | null
   playbackPlaylistId: string | null
   playbackLoop: boolean
+  webPage: WebPage | null
   announcement: Announcement | null
   promotionPolicy: PromotionPolicy | null
   createdAt: string
