@@ -32,10 +32,26 @@ export interface Display {
   playbackHealth: string | null
   driftMs: number | null
   actualPositionSeconds: number | null
+  actualMediaAssetId?: string | null
+  actualPlaylistId?: string | null
+  actualPlaylistIndex?: number | null
+  actualDurationSeconds?: number | null
+  actualCommandId?: string | null
+  lastCommandId?: string | null
+  actualWebPage?: WebPage | null
+  actualAnnouncement?: Announcement | null
+  actualBlackout?: boolean | null
+  actualLoop?: boolean | null
+  actualPromotion?: string | null
+  actualWebPageStatus?: string | null
+  blackout?: boolean
+  revision?: number
   lastPlaybackReportAt: string | null
   playbackContentType: string | null
   playbackMediaId: string | null
   playbackPlaylistId: string | null
+  playbackPlaylistUpdatedAt?: string | null
+  playbackPlaylistItemCount?: number | null
   playbackLoop: boolean
   webPage: WebPage | null
   announcement: Announcement | null
@@ -131,8 +147,8 @@ export type PlaybackTargetType = 'display' | 'group'
 
 export async function configurePromotionalBreaks(eventId: string, configuration: {
   targetType: PlaybackTargetType; targetId: string; enabled: boolean; playlistId?: string; everyVideos?: number
-}): Promise<void> {
-  await requestVoid(`/api/events/${eventId}/promotional-breaks`, {
+}): Promise<{ command: { commandId: string }; targets: number }> {
+  return requestJson(`/api/events/${eventId}/promotional-breaks`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration),
   })
 }
@@ -171,6 +187,12 @@ export async function getDisplays(eventId?: string): Promise<Display[]> {
 
 export async function deleteDisplay(displayId: string): Promise<void> {
   await requestVoid(`/api/displays/${displayId}`, { method: 'DELETE' })
+}
+
+export async function renameDisplay(displayId: string, name: string): Promise<Display> {
+  return requestJson(`/api/displays/${displayId}/settings`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  })
 }
 
 export async function updateDisplaySettings(displayId: string, rotation: number): Promise<Display> {
@@ -326,7 +348,11 @@ export async function getPairingResult(sessionToken: string): Promise<{ isPaired
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  return requestJson(url)
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 15000)
+  try { return await requestJson(url, { signal: controller.signal }) }
+  catch (cause) { if (controller.signal.aborted) throw new Error('El servidor tardó demasiado en responder. Reintentando la actualización.'); throw cause }
+  finally { window.clearTimeout(timer) }
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {

@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { sendCommand, sendGroupCommand, type Display, type DisplayGroup } from '../api/client'
 import { webPageUrlError } from '../webpages/webPage'
 
@@ -14,9 +14,10 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
     ...displays.map(display => ({ value: `display:${display.id}`, label: display.name, ids: [display.id] })),
     ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
   ]
-  const target = targets.find(item => item.value === selectedTarget) ?? targets[0]
+  const target = targets.find(item => item.value === selectedTarget)
+  useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
-  const blackedOut = targetDisplays.filter(display => display.desiredPlaybackState === 'Blackout').length
+  const blackedOut = targetDisplays.filter(display => display.blackout ?? display.desiredPlaybackState === 'Blackout').length
 
   async function dispatch(type: 'webpage.show' | 'webpage.clear') {
     if (!target?.ids.length || sending.current) return
@@ -56,14 +57,14 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
           </label>
           <label>Proyectar en
             <select value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required>
-              {!targets.length && <option value="">Primero vinculá una pantalla</option>}
+              <option value="">Elegí una pantalla o un grupo</option>
               {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
             </select>
           </label>
           {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para proyectar.</p>}
-          {blackedOut > 0 && <p className="announcement-notice">{blackedOut} en blackout. Usá «Salir de blackout» en la tarjeta de la pantalla para ver la página; esto detiene la multimedia de fondo.</p>}
-          <div className="button-row">
-            <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : 'Mostrar página'}</button>
+          {blackedOut > 0 && <p className="announcement-notice">{blackedOut} con la imagen oscurecida. Usá «Restaurar imagen» en la tarjeta de la pantalla para volver a mostrar su contenido.</p>}
+          <p className="content-target-names">{targetDisplays.map(display => display.name).join(', ')}</p><div className="button-row">
+            <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : target ? `Mostrar página en ${target.label}` : 'Mostrar página · elegí destino'}</button>
             <button type="button" disabled={!target?.ids.length} onClick={() => void dispatch('webpage.clear')}>Retirar página</button>
           </div>
         </fieldset>

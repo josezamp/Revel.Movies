@@ -7,7 +7,7 @@ export function PlaylistModal({ eventId, playlists, media, preferredPlaylistId, 
   onSaved: (playlist: Playlist) => void; onClose: () => void
 }) {
   const [mode, setMode] = useState<'existing' | 'new'>(createOnly || !playlists.length ? 'new' : 'existing')
-  const [playlistId, setPlaylistId] = useState(preferredPlaylistId ?? playlists[0]?.id ?? '')
+  const [playlistId, setPlaylistId] = useState(preferredPlaylistId ?? '')
   const [name, setName] = useState('')
   const [loop, setLoop] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -48,6 +48,7 @@ export function PlaylistModal({ eventId, playlists, media, preferredPlaylistId, 
           {mode === 'existing' ? <label className="workspace-field">
             Playlist de destino
             <select autoFocus value={playlistId} onChange={event => setPlaylistId(event.target.value)} required>
+              <option value="">Elegí una playlist</option>
               {playlists.map(item => <option key={item.id} value={item.id}>{item.name} ({item.items.length} archivos)</option>)}
             </select>
             <small>Los archivos se agregan al final, en el orden de selección.</small>
@@ -62,7 +63,7 @@ export function PlaylistModal({ eventId, playlists, media, preferredPlaylistId, 
             <strong>{media.length} {media.length === 1 ? 'archivo seleccionado' : 'archivos seleccionados'}</strong>
             <ol>{media.map(item => <li key={item.id}><span>{item.name}</span><small>{item.type === 'Image' ? 'Imagen · 10 s' : 'Video completo'}</small></li>)}</ol>
             {media.some(item => item.type === 'Image') && <p>Podés ajustar la duración de las imágenes en la playlist.</p>}
-          </div> : <p className="workspace-help">Después de crearla, elegí sus archivos desde Media Library.</p>}
+          </div> : <p className="workspace-help">Después de crearla, elegí sus archivos desde la Biblioteca.</p>}
         </fieldset>
         {error && <p className="workspace-error" role="alert">{error}</p>}
         <div className="playlist-dialog-footer">

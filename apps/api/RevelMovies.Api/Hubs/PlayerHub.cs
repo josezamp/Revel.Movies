@@ -6,7 +6,8 @@ namespace RevelMovies.Api.Hubs;
 public sealed class PlayerHub(
     DisplayRegistry registry,
     CommandAcknowledgementRegistry acknowledgementRegistry,
-    PlaybackStateRegistry playbackStateRegistry) : Hub
+    PlaybackStateRegistry playbackStateRegistry,
+    SceneRegistry? scenes = null) : Hub
 {
     private const string DisplayIdItemKey = "display-id";
 
@@ -23,6 +24,7 @@ public sealed class PlayerHub(
 
         Context.Items[DisplayIdItemKey] = display.Id;
         await registry.SetOnlineAsync(display.Id, Context.ConnectionAborted);
+        if (scenes is not null) await scenes.InvalidatePreparation(display.Id, Context.ConnectionAborted);
 
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupName(display.Id), Context.ConnectionAborted);
         await base.OnConnectedAsync();
@@ -55,6 +57,7 @@ public sealed class PlayerHub(
         if (await GetDisplayIdAsync() is not { } displayId)
             return null;
 
+        if (scenes is not null) await scenes.Expire(Context.ConnectionAborted);
         return await playbackStateRegistry.GetRecoveryAsync(displayId, Context.ConnectionAborted);
     }
 
@@ -73,6 +76,12 @@ public sealed class PlayerHub(
             displayId,
             new PlaybackTelemetryReport(state, mediaAssetId, playlistId, playlistIndex, positionSeconds, durationSeconds),
             Context.ConnectionAborted);
+    }
+
+    public async Task<PlaybackReportResult?> ReportPlaybackV2(PlaybackTelemetryReport report)
+    {
+        if (await GetDisplayIdAsync() is not { } displayId) return null;
+        return await playbackStateRegistry.ReportAsync(displayId, report, Context.ConnectionAborted);
     }
 
     public async Task<PlaybackReportResult?> ReportPlaylistPlayback(PlaybackTelemetryReport report, PromotionProgress progress)

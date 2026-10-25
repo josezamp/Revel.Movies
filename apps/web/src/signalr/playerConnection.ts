@@ -5,6 +5,7 @@ export interface PlayerCommand {
   commandId: string
   type: string
   issuedAt: string
+  revision?: number
   payload?: Record<string, unknown>
 }
 

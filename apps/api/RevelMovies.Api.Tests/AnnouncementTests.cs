@@ -133,7 +133,7 @@ public sealed class AnnouncementTests
         using var scope = factory.Services.CreateScope();
         var recovery = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(ids[0]);
         Assert.NotNull(recovery?.Announcement);
-        if (command == "display.blackout") Assert.Equal("Blackout", recovery.DesiredState);
+        if (command == "display.blackout") { Assert.True(recovery.Blackout); Assert.Equal("Playing", recovery.DesiredState); }
     }
 
     [Theory]

@@ -1,4 +1,5 @@
 const MEDIA_CACHE = 'revel-movies-media-v1'
+const MAX_CACHE_ASSET_BYTES = 256 * 1024 * 1024
 const MEDIA_PATH = /^\/api\/media\/[0-9a-f-]+\/content$/i
 const pendingPreparations = new Map()
 
@@ -37,6 +38,12 @@ function prepareMedia(url) {
     if (await cache.match(request)) return
     const response = await fetch(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const declaredLength = response.headers.get('Content-Length')
+    const length = declaredLength === null ? NaN : Number(declaredLength)
+    if (!Number.isFinite(length) || length < 0 || length > MAX_CACHE_ASSET_BYTES) {
+      await response.body?.cancel()
+      throw new Error('Tamaño desconocido o superior al límite de caché; requiere reproducción por red')
+    }
     // Cache consumes the response directly; an unread clone can retain a large video in memory.
     await cache.put(request, response)
   })().finally(() => pendingPreparations.delete(request.url))

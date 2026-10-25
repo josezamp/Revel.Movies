@@ -7,6 +7,7 @@ public sealed record PlayerCommand(
     Guid CommandId,
     string Type,
     DateTimeOffset IssuedAt,
-    JsonElement? Payload);
+    JsonElement? Payload,
+    long? Revision = null);
 
 public sealed record SendCommandRequest(string Type, JsonElement? Payload);

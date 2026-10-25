@@ -96,7 +96,7 @@ public sealed class WebPageTests
     }
 
     [Fact]
-    public async Task Empty_group_rejects_show_and_blackout_preserves_page_until_stop_reveals_it()
+    public async Task Empty_group_rejects_show_and_blackout_preserves_page_and_background_state()
     {
         await using var factory = new WebPageApiFactory();
         using var client = factory.CreateClient();
@@ -110,7 +110,8 @@ public sealed class WebPageTests
             using var scope = factory.Services.CreateScope();
             var recovery = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(ids[0]);
             Assert.Equal(Url, recovery?.WebPage?.GetProperty("url").GetString());
-            Assert.Equal(type == "display.blackout" ? "Blackout" : type == "media.stop" ? "Stopped" : "Playing", recovery?.DesiredState);
+            Assert.Equal(type == "media.stop" ? "Stopped" : "Playing", recovery?.DesiredState);
+            Assert.Equal(type is "display.blackout" or "media.stop", recovery?.Blackout);
         }
     }
 

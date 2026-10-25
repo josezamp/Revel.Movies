@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { sendCommand, sendGroupCommand, type Display, type DisplayGroup } from '../api/client'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import type { Announcement } from '../announcements/announcement'
@@ -18,16 +18,18 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
   const [portrait, setPortrait] = useState(false)
   const [showCompleted, setShowCompleted] = useState(false)
   const [pending, setPending] = useState(false)
+  const sending = useRef(false)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
 
   const targets = [
     ...displays.map(display => ({ value: `display:${display.id}`, label: display.name, ids: [display.id] })),
     ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
   ]
-  const target = targets.find(item => item.value === selectedTarget) ?? targets[0]
+  const target = targets.find(item => item.value === selectedTarget)
+  useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
   const offlineCount = targetDisplays.filter(display => display.status === 'Offline' || display.status === 2 || display.status === 'Unknown' || display.status === 0).length
-  const blackoutCount = targetDisplays.filter(display => display.desiredPlaybackState === 'Blackout').length
+  const blackoutCount = targetDisplays.filter(display => display.blackout ?? display.desiredPlaybackState === 'Blackout').length
   const seconds = Math.round(Number(minutes) * 60)
   const deadlineMs = Date.parse(deadline)
   const previewEnd = useMemo(() => {
@@ -42,7 +44,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
 
   async function publish(event: FormEvent) {
     event.preventDefault()
-    if (!target || pending) return
+    if (!target?.ids.length || sending.current) return
     if (kind === 'countdown' && timing === 'deadline' && (!Number.isFinite(deadlineMs) || deadlineMs <= Date.now() || deadlineMs > Date.now() + 604800000)) {
       setFeedback({ error: true, text: 'Elegí una fecha futura dentro de los próximos 7 días.' })
       return
@@ -62,7 +64,8 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
   }
 
   async function dispatch(type: string, payload?: unknown) {
-    if (!target || pending) return
+    if (!target?.ids.length || sending.current) return
+    sending.current = true
     const [targetType, targetId] = target.value.split(':')
     setPending(true)
     setFeedback(null)
@@ -75,7 +78,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
     } catch (error) {
       setFeedback({ error: true, text: error instanceof Error ? error.message : 'No se pudo enviar. Revisá la conexión e intentá de nuevo.' })
     } finally {
-      setPending(false)
+      sending.current = false; setPending(false)
     }
   }
 
@@ -135,16 +138,16 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
             <label>
               Enviar a
               <select value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required>
-                {!targets.length && <option value="">Primero vinculá una pantalla</option>}
+                <option value="">Elegí una pantalla o un grupo</option>
                 {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
               </select>
             </label>
             {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para enviar anuncios.</p>}
             {offlineCount > 0 && <p className="announcement-notice">{offlineCount} sin conexión. Recibirán el anuncio al reconectarse; la cuenta no se reinicia.</p>}
-            {blackoutCount > 0 && <p className="announcement-notice">{blackoutCount} en blackout. El anuncio quedará oculto hasta volver a reproducir contenido.</p>}
-            <p className="announcement-help">El contenido sigue reproduciéndose debajo. Un nuevo anuncio reemplaza al anterior.</p>
+            {blackoutCount > 0 && <p className="announcement-notice">{blackoutCount} con la imagen oscurecida. El anuncio quedará oculto hasta usar «Restaurar imagen».</p>}
+            <p className="content-target-names">{targetDisplays.map(display => display.name).join(', ')}</p><p className="announcement-help">El contenido sigue reproduciéndose debajo. Un nuevo anuncio reemplaza al anterior.</p>
             <div className="button-row">
-              <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : 'Mostrar anuncio'}</button>
+              <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : target ? `Mostrar anuncio en ${target.label} · ${target.ids.length} pantallas` : 'Mostrar anuncio · elegí destino'}</button>
               <button type="button" disabled={!target?.ids.length} onClick={() => void dispatch('announcement.clear')}>Retirar anuncio</button>
             </div>
           </fieldset>

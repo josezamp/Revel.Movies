@@ -18,6 +18,8 @@ jobs:
         run: dotnet restore apps/api/RevelMovies.sln
       - name: Build
         run: dotnet build apps/api/RevelMovies.sln --configuration Release --no-restore
+      - name: Test behavior and persistence
+        run: dotnet test apps/api/RevelMovies.Api.Tests/RevelMovies.Api.Tests.csproj --configuration Release --no-build
 
   frontend:
     name: Frontend
@@ -35,3 +37,6 @@ jobs:
       - name: Build
         working-directory: apps/web
         run: npm run build
+      - name: Test player and operation behavior
+        working-directory: apps/web
+        run: npm test

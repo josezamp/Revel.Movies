@@ -6,6 +6,7 @@ using RevelMovies.Domain.Media;
 using RevelMovies.Domain.Pairing;
 using RevelMovies.Domain.Playback;
 using RevelMovies.Domain.Playlists;
+using RevelMovies.Domain.Scenes;
 using RevelEvent = RevelMovies.Domain.Events.Event;
 
 namespace RevelMovies.Infrastructure.Persistence;
@@ -22,6 +23,9 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<PlaylistItem> PlaylistItems => Set<PlaylistItem>();
     public DbSet<CommandAcknowledgement> CommandAcknowledgements => Set<CommandAcknowledgement>();
     public DbSet<DisplayPlaybackState> DisplayPlaybackStates => Set<DisplayPlaybackState>();
+
+    public DbSet<Scene> Scenes => Set<Scene>();
+    public DbSet<SceneSession> SceneSessions => Set<SceneSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -213,6 +217,28 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
                 .HasConstraintName("fk_command_ack_displays_display_id");
         });
 
+        modelBuilder.Entity<Scene>(builder =>
+        {
+            builder.ToTable("scenes");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Name).HasMaxLength(200);
+            builder.Property(x => x.Version).IsConcurrencyToken();
+            builder.HasIndex(x => x.EventId);
+            builder.HasOne<RevelEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<SceneSession>(builder =>
+        {
+            builder.ToTable("scene_sessions");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.Kind).HasMaxLength(20);
+            builder.Property(x => x.Status).HasMaxLength(40);
+            builder.Property(x => x.Fingerprint).HasMaxLength(64);
+            builder.Property(x => x.TargetsJson).IsConcurrencyToken();
+            builder.HasIndex(x => new { x.EventId, x.SceneId, x.CreatedAt });
+            // History remains usable for restoration after deleting or editing a scene.
+        });
         modelBuilder.Entity<DisplayPlaybackState>(builder =>
         {
             builder.ToTable("display_playback_states");
@@ -230,6 +256,12 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.StartedAt).HasColumnName("started_at");
             builder.Property(x => x.PausedPositionSeconds).HasColumnName("paused_position_seconds");
             builder.Property(x => x.LastCommandId).HasColumnName("last_command_id");
+            builder.Property(x => x.Revision).HasColumnName("revision").IsConcurrencyToken();
+            builder.Property(x => x.Blackout).HasColumnName("blackout");
+            builder.Property(x => x.ActualCommandId).HasColumnName("actual_command_id");
+            builder.Property(x => x.ActualVisibleJson).HasColumnName("actual_visible_json");
+            builder.Property(x => x.SceneSessionId).HasColumnName("scene_session_id");
+            builder.Property(x => x.SceneExpiresAt).HasColumnName("scene_expires_at");
             builder.Property(x => x.ActualState).HasColumnName("actual_state").HasMaxLength(40).IsRequired();
             builder.Property(x => x.ActualMediaAssetId).HasColumnName("actual_media_asset_id");
             builder.Property(x => x.ActualPlaylistId).HasColumnName("actual_playlist_id");

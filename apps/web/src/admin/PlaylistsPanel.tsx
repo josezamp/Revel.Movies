@@ -3,6 +3,7 @@ import { deletePlaylist, playPlaylist, replacePlaylistItems, sendCommand, sendGr
   type Display, type DisplayGroup, type MediaAsset, type Playlist, type PlaylistItem } from '../api/client'
 import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
+import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
 
 export function PlaylistsPanel({ eventId, playlists, media, displays, groups, activeId, onActiveId, loading, loadError, onRefresh, onCreate, onAddContent, feedback }: {
   eventId: string; playlists: Playlist[]; media: MediaAsset[]; displays: Display[]; groups: DisplayGroup[]; activeId: string
@@ -17,12 +18,42 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
   const [rename, setRename] = useState<Playlist>()
   const [name, setName] = useState('')
   const [removing, setRemoving] = useState<Playlist>()
+  const [application, setApplication] = useState<{ playlistId: string; version: string; deliveries: ContentDelivery[] }>()
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 5000); return () => window.clearInterval(timer) }, [])
   const sending = useRef(false)
   useEffect(() => { setNotice(''); setError('') }, [feedback])
   const targets = [...displays.map(item => ({ value: `display:${item.id}`, label: item.name })),
     ...groups.filter(item => item.displayIds.length > 0).map(item => ({ value: `group:${item.id}`, label: `Grupo: ${item.name}` }))]
   const targetKey = targets.map(item => item.value).join(',')
-  useEffect(() => { setTarget(current => targets.some(item => item.value === current) ? current : targets[0]?.value ?? '') }, [targetKey])
+  useEffect(() => { setTarget(current => targets.some(item => item.value === current) ? current : '') }, [targetKey])
+  const targetLabel = targets.find(item => item.value === target)?.label ?? ''
+  const [targetKind, targetId] = target.split(':')
+  const targetDisplays = displays.filter(item => targetKind === 'display' ? item.id === targetId : groups.find(group => group.id === targetId)?.displayIds.includes(item.id))
+  const assignedDisplays = displays.filter(item => item.playbackPlaylistId === active?.id)
+  const outdatedDisplays = assignedDisplays.filter(item => item.playbackPlaylistUpdatedAt && item.playbackPlaylistUpdatedAt !== active?.updatedAt)
+
+  async function applyPlaylist(retryIds?: string[]) {
+    if (!active || sending.current || !targetDisplays.length) return
+    const destinations = targetDisplays.filter(item => !retryIds || retryIds.includes(item.id))
+    if (!destinations.length) return
+    sending.current = true; setBusy(true); setError(''); setNotice('')
+    const playlist = active
+    try {
+      const deliveries = await Promise.all(destinations.map(async display => {
+        const sentAt = Date.now()
+        try {
+          const response = await playPlaylist(playlist.id, 'display', display.id)
+          return { displayId: display.id, name: display.name, sentAt, commandId: playbackCommandId(response), previousCommandId: display.lastCommandId }
+        } catch (cause) {
+          return { displayId: display.id, name: display.name, sentAt, error: cause instanceof Error ? cause.message : 'No se pudo enviar' }
+        }
+      }))
+      setApplication(previous => ({ playlistId: playlist.id, version: playlist.updatedAt, deliveries: retryIds && previous?.playlistId === playlist.id && previous.version === playlist.updatedAt
+        ? [...previous.deliveries.filter(item => !retryIds.includes(item.displayId)), ...deliveries] : deliveries }))
+      setNotice('Envío terminado. Revisá el resultado de cada pantalla; la recepción de la API no confirma la reproducción.')
+    } finally { sending.current = false; setBusy(false) }
+  }
 
   async function run(action: () => Promise<unknown>, message: string, refresh = true) {
     if (sending.current) return
@@ -59,7 +90,7 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
       {loadError && <div className="workspace-error" role="alert">{loadError} <button onClick={() => void onRefresh()}>Reintentar</button></div>}
       {(notice || feedback) && <p className="workspace-feedback" role="status">{notice || feedback}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
-      {!loading && !loadError && !playlists.length && <div className="workspace-empty playlist-empty"><span aria-hidden="true">☷</span><strong>Dale una secuencia a tu evento</strong><p>Seleccioná videos e imágenes en Media Library o creá tu primera playlist.</p><button disabled={!eventId} onClick={onCreate}>Crear primera playlist</button></div>}
+      {!loading && !loadError && !playlists.length && <div className="workspace-empty playlist-empty"><span aria-hidden="true">☷</span><strong>Dale una secuencia a tu evento</strong><p>Seleccioná videos e imágenes en la Biblioteca o creá tu primera playlist.</p><button disabled={!eventId} onClick={onCreate}>Crear primera playlist</button></div>}
       {active && <div className="playlist-workbench">
         <nav className="playlist-browser" aria-label="Tus playlists"><div className="playlist-browser-heading">Tus playlists <span>{playlists.length}</span></div>
           {playlists.map(item => <button type="button" key={item.id} disabled={busy} aria-current={active.id === item.id ? 'true' : undefined}
@@ -76,7 +107,7 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
             onChange={event => void run(() => updatePlaylist(active.id, active.name, event.target.checked), 'Repetición guardada.')} /> Repetir en bucle</label>
             <button disabled={busy} onClick={() => onAddContent(active.id)}>+ Agregar contenido</button>
           </div>
-          {!active.items.length && <div className="workspace-empty"><p>Esta playlist todavía no tiene contenido.</p><button onClick={() => onAddContent(active.id)}>Seleccionar en Media Library</button></div>}
+          {!active.items.length && <div className="workspace-empty"><p>Esta playlist todavía no tiene contenido.</p><button onClick={() => onAddContent(active.id)}>Seleccionar en la Biblioteca</button></div>}
           <ol className="playlist-sequence">
             {active.items.map((item, index) => {
               const asset = media.find(candidate => candidate.id === item.mediaAssetId)
@@ -97,13 +128,27 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
           </ol>
           <div className="playlist-playback-strip"><label className="workspace-field">Reproducir en
             <select aria-label="Destino de la playlist" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}>
-              {!targets.length && <option value="">Sin pantallas o grupos</option>}{targets.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+              <option value="">Elegí una pantalla o un grupo</option>{targets.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
             </select></label>
-            <div className="button-row"><button className="workspace-primary" disabled={busy || !target || !active.items.length} onClick={() => {
-              const [kind, id] = target.split(':'); void run(() => playPlaylist(active.id, kind as 'display' | 'group', id), `Reproducción enviada a ${targets.find(item => item.value === target)?.label}.`, false)
-            }}>▶ Reproducir playlist</button><button disabled={busy || !target} onClick={() => control('playlist.pause')}>Pausar</button><button disabled={busy || !target} onClick={() => control('playlist.stop')}>Detener</button></div>
+            <div className="button-row"><button className="workspace-primary" disabled={busy || !target || !active.items.length} onClick={() => void applyPlaylist()}>{targetLabel ? `Reproducir en ${targetLabel}` : 'Reproducir · elegí destino'}</button><button disabled={busy || !target} onClick={() => control('playlist.pause')}>Pausar</button><button disabled={busy || !target} onClick={() => control('playlist.stop')}>Detener</button></div>
           </div>
-          <p className="playlist-edit-note">Volvé a reproducir la playlist para enviar los cambios a las pantallas.</p>
+          <div className="content-application">
+            <h4>Cambios guardados</h4>
+            <p>Guardar conserva la playlist. Aplicar cambios la reinicia desde el primer archivo en los destinos indicados.</p>
+            {outdatedDisplays.length > 0 && <p className="announcement-notice">Cambios pendientes de aplicar en {outdatedDisplays.map(item => item.name).join(', ')}. Estas pantallas tienen solicitada una versión anterior.</p>}
+            {assignedDisplays.length > 0 && <details><summary>Versión solicitada por pantalla</summary><ul className="content-results">{assignedDisplays.map(display => <li key={display.id}><strong>{display.name}</strong><span>{!display.playbackPlaylistUpdatedAt ? 'Versión solicitada sin identificar' : display.playbackPlaylistUpdatedAt === active.updatedAt ? 'Última versión guardada solicitada' : 'Versión anterior · cambios pendientes'}</span></li>)}</ul><small>Este registro persiste al recargar el panel. La confirmación de reproducción aparece en En vivo.</small></details>}
+            <p className="content-target-names">{targetDisplays.length ? `Destinos: ${targetDisplays.map(item => item.name).join(', ')}` : 'Elegí un destino para aplicar.'}</p>
+            <button className="workspace-primary" disabled={busy || !targetDisplays.length || !active.items.length} onClick={() => void applyPlaylist()}>{busy ? 'Enviando…' : `Aplicar cambios${targetLabel ? ` en ${targetLabel}` : ''}`}</button>
+            {application?.playlistId === active.id && <>
+              <p>{application.version === active.updatedAt ? 'Último envío de la versión guardada.' : 'Cambios guardados pendientes de aplicar.'}</p>
+              <ul className="content-results">{application.deliveries.map(delivery => {
+                const display = displays.find(item => item.id === delivery.displayId)
+                const state = deliveryState(delivery, display, now)
+                const retry = delivery.error || state.startsWith('Sin confirmación') || state.startsWith('Confirmación desactualizada') || state.includes('informó un error')
+                return <li key={delivery.displayId}><strong>{display?.name ?? delivery.name}</strong><span className={retry ? 'content-result-error' : ''}>{state}</span>{retry && <button disabled={busy || application.version !== active.updatedAt || !display} onClick={() => void applyPlaylist([delivery.displayId])}>Reintentar desde el inicio</button>}</li>
+              })}</ul>
+            </>}
+          </div>
         </div>
       </div>}
       {rename && <Dialog title="Renombrar playlist" busy={busy} onClose={() => setRename(undefined)}><form onSubmit={(event: FormEvent) => {
@@ -112,7 +157,7 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
       }}><label className="workspace-field">Nombre de la playlist<input autoFocus required maxLength={200} value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>
         {error && <p role="alert" className="workspace-error">{error}</p>}<div className="playlist-dialog-footer"><button type="button" disabled={busy} onClick={() => setRename(undefined)}>Cancelar</button><button className="workspace-primary" disabled={busy || !name.trim()}>{busy ? 'Guardando…' : 'Guardar nombre'}</button></div>
       </form></Dialog>}
-      {removing && <Dialog title="Eliminar playlist" busy={busy} onClose={() => setRemoving(undefined)}><p>¿Eliminar «{removing.name}»? Sus archivos seguirán en Media Library.</p>
+      {removing && <Dialog title="Eliminar playlist" busy={busy} onClose={() => setRemoving(undefined)}><p>¿Eliminar «{removing.name}»? Sus archivos seguirán en la Biblioteca.</p>
         {error && <p role="alert" className="workspace-error">{error}</p>}<div className="playlist-dialog-footer"><button disabled={busy} onClick={() => setRemoving(undefined)}>Cancelar</button><button className="danger-button" disabled={busy}
           onClick={() => void run(async () => { await deletePlaylist(removing.id); setRemoving(undefined) }, 'Playlist eliminada.')}>{busy ? 'Eliminando…' : 'Eliminar playlist'}</button></div>
       </Dialog>}

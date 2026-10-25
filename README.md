@@ -30,6 +30,11 @@ Revel Movies currently supports:
 - Byte-range media responses for browser video seeking/playback
 - Web pages by URL on paired displays or groups, with persisted reconnect recovery
 - Live messages and synchronized countdown announcements for displays or groups, with preview and reconnect recovery
+- Live display cards with correlated playback reports, layered content, stale-state indicators and offline-safe renaming
+- Event scenes with persisted versions, per-screen preparation and activation, explicit layer policies and guarded temporary restoration
+- Mobile operation navigation, explicit destinations, playlist publishing and multiple-file upload queues with local previews
+
+See the [operator guide (Spanish)](docs/operator-guide.md) for the live / scenes / content / configuration workflow and the [scene protocol](docs/scenes.md) for persistence, preparation and recovery semantics.
 
 See [Announcements and countdowns](docs/announcements.md) for usage, protocol, deployment and the infrastructure/UX review.
 
@@ -46,4 +51,4 @@ docs/
 docker-compose.yml
 ```
 
-The next milestones build on this base with display groups, playlists, diagnostics, cache and synchronized playback.
+Display groups, playlists, diagnostics, cache, synchronized starts and reusable scenes are integrated with the API and Player.

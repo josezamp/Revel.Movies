@@ -167,6 +167,45 @@ public sealed class PlaylistSelectionTests
         Assert.Equal(before.GetProperty("items")[0].GetProperty("id").GetGuid(), item.GetProperty("id").GetGuid());
     }
 
+    [Fact]
+    public async Task Display_playlist_count_and_version_describe_the_playing_snapshot_after_the_library_is_edited()
+    {
+        await using var f = new PlaylistApiFactory(); using var client = f.CreateClient();
+        var (eventId, media, _) = await SeedAsync(f);
+        var displayEntity = new RevelMovies.Domain.Displays.Display { EventId = eventId, Name = "Patio" };
+        using (var setupScope = f.Services.CreateScope())
+        {
+            var db = setupScope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+            db.Displays.Add(displayEntity); await db.SaveChangesAsync();
+        }
+        var seed = new { EventId = eventId, MediaId = media[0], A = displayEntity.Id };
+        using var created = await client.PostAsJsonAsync($"/api/events/{seed.EventId}/playlists", new
+        { name = "Cinco elementos", isLoop = true, items = Enumerable.Range(0, 5).Select(_ => new { mediaAssetId = seed.MediaId }).ToArray() });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var playlist = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var playlistId = playlist.GetProperty("id").GetGuid();
+        var appliedVersion = playlist.GetProperty("updatedAt").GetDateTimeOffset();
+        using var played = await client.PostAsJsonAsync($"/api/playlists/{playlistId}/play", new { targetType = "display", targetId = seed.A });
+        Assert.Equal(HttpStatusCode.Accepted, played.StatusCode);
+        using (var scope = f.Services.CreateScope())
+        {
+            var playback = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+            var state = await playback.GetAsync(seed.A);
+            await playback.ReportAsync(seed.A, new("Playing", seed.MediaId, playlistId, 3, 4, 20, state!.LastCommandId, state.Revision));
+        }
+        using var edited = await client.PutAsJsonAsync($"/api/playlists/{playlistId}/items", new
+        { items = Enumerable.Range(0, 2).Select(_ => new { mediaAssetId = seed.MediaId }).ToArray() });
+        Assert.Equal(HttpStatusCode.NoContent, edited.StatusCode);
+        var displays = await client.GetFromJsonAsync<JsonElement>("/api/displays");
+        var display = displays.EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == seed.A);
+        Assert.Equal(5, display.GetProperty("playbackPlaylistItemCount").GetInt32());
+        Assert.Equal(3, display.GetProperty("actualPlaylistIndex").GetInt32());
+        Assert.Equal(appliedVersion, display.GetProperty("playbackPlaylistUpdatedAt").GetDateTimeOffset());
+        Assert.Equal(display.GetProperty("lastCommandId").GetGuid(), display.GetProperty("actualCommandId").GetGuid());
+        var library = await client.GetFromJsonAsync<JsonElement>($"/api/events/{seed.EventId}/playlists");
+        Assert.Equal(2, library.EnumerateArray().Single().GetProperty("items").GetArrayLength());
+    }
+
     private static async Task<(Guid EventId, Guid[] MediaIds, Guid ForeignMediaId)> SeedAsync(PlaylistApiFactory factory)
     {
         using var scope = factory.Services.CreateScope();

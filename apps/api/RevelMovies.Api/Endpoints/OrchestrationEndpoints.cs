@@ -241,7 +241,7 @@ public static class OrchestrationEndpoints
                 playlist.Playlist.Id,
                 playlist.Playlist.IsLoop,
                 items,
-                cancellationToken);
+                cancellationToken, playlist.Playlist.UpdatedAt);
 
             return Results.Accepted(value: dispatch);
         });

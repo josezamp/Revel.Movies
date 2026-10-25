@@ -1,6 +1,7 @@
-import { useRef, useState, type FormEvent } from 'react'
-import { configurePromotionalBreaks, type Display, type DisplayGroup, type Playlist, type PlaybackTargetType } from '../api/client'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { configurePromotionalBreaks, type Display, type DisplayGroup, type Playlist } from '../api/client'
 import { displayPresence } from './displayPresence'
+import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
 
 export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, loading }: {
   eventId: string; displays: Display[]; groups: DisplayGroup[]; playlists: Playlist[]; loading: boolean
@@ -9,6 +10,11 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
   const [playlistId, setPlaylistId] = useState('')
   const [everyVideos, setEveryVideos] = useState('5')
   const [pending, setPending] = useState(false)
+  const [deliveries, setDeliveries] = useState<ContentDelivery[]>([])
+  const [sentSignature, setSentSignature] = useState('')
+  const [lastEnabled, setLastEnabled] = useState(true)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 5000); return () => window.clearInterval(timer) }, [])
   const sending = useRef(false)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
   const targets = [
@@ -16,28 +22,37 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
     ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
   ]
   const target = targets.find(item => item.value === selectedTarget)
+  useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const selectedDisplays = displays.filter(display => target?.ids.includes(display.id))
   const availablePlaylists = playlists.filter(playlist => playlist.items.length > 0 &&
     playlist.items.every(item => item.mediaType === 'Video' || item.mediaType === 1))
   const selectedPlaylist = availablePlaylists.find(playlist => playlist.id === playlistId)
   const offlineCount = selectedDisplays.filter(display => displayPresence(display.status).kind !== 'online').length
+  const signature = JSON.stringify({ selectedTarget, ids: target?.ids.slice().sort(), playlistId, everyVideos, version: selectedPlaylist?.updatedAt })
 
-  async function apply(enabled: boolean) {
+  async function apply(enabled: boolean, retryIds?: string[]) {
     if (!target?.ids.length || sending.current) return
     const frequency = Number(everyVideos)
     if (enabled && (!selectedPlaylist || !Number.isInteger(frequency) || frequency < 1 || frequency > 100)) {
       setFeedback({ error: true, text: 'Elegí una playlist de videos y una frecuencia entre 1 y 100.' })
       return
     }
-    const [targetType, targetId] = target.value.split(':') as [PlaybackTargetType, string]
     sending.current = true
     setPending(true)
     setFeedback(null)
     try {
-      await configurePromotionalBreaks(eventId, { targetType, targetId, enabled, playlistId: enabled ? playlistId : undefined, everyVideos: frequency || 5 })
-      setFeedback({ error: false, text: enabled
-        ? `Configuración guardada para ${target.label}. El contador comienza al recibirla, sin reiniciar el video actual.`
-        : `Desactivación guardada para ${target.label}. Si hay una promoción reproduciéndose, terminará antes de volver a la playlist.` })
+      const results = await Promise.all(selectedDisplays.filter(display => !retryIds || retryIds.includes(display.id)).map(async display => {
+        const sentAt = Date.now()
+        try {
+          const response = await configurePromotionalBreaks(eventId, { targetType: 'display', targetId: display.id, enabled, playlistId: enabled ? playlistId : undefined, everyVideos: frequency || 5 })
+          return { displayId: display.id, name: display.name, sentAt, commandId: playbackCommandId(response), previousCommandId: display.lastCommandId, expected: 'configuration' as const }
+        } catch (cause) { return { displayId: display.id, name: display.name, sentAt, error: cause instanceof Error ? cause.message : 'No se pudo aplicar.' } }
+      }))
+      setDeliveries(previous => retryIds ? [...previous.filter(item => !retryIds.includes(item.displayId)), ...results] : results)
+      setSentSignature(signature); setLastEnabled(enabled)
+      setFeedback({ error: results.some(result => result.error), text: enabled
+        ? `Configuración guardada y enviada a los destinos aceptados de ${target.label}. El contador se reinicia al recibirla, sin reiniciar el video actual.`
+        : `Desactivación guardada en los destinos aceptados de ${target.label}. Una promoción en curso termina antes de volver a la playlist.` })
     } catch (error) {
       setFeedback({ error: true, text: error instanceof Error ? error.message : 'No se pudo guardar la configuración. Volvé a intentar.' })
     } finally {
@@ -59,7 +74,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
           <fieldset disabled={pending}>
             <legend className="visually-hidden">Configurar cortes promocionales</legend>
             <label>Dónde aparecen
-              <select required value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }}>
+              <select required value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null); setDeliveries([]) }}>
                 <option value="">Elegí una pantalla o un grupo</option>
                 {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
               </select>
@@ -78,14 +93,17 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
               <small>Cuenta videos completos del contenido principal. Las imágenes y las promociones no suman.</small>
             </label>
             {offlineCount > 0 && <p className="announcement-notice">{offlineCount} sin conexión. Recibirán la configuración al reconectarse.</p>}
+            <p className="content-target-names">{selectedDisplays.length ? `Destinos: ${selectedDisplays.map(display => display.name).join(', ')}` : 'No hay destino elegido.'}</p>
+            <p className="content-saved-label">{pending ? 'Aplicación en curso…' : sentSignature === signature ? 'Cambios enviados. Revisá la confirmación por pantalla.' : 'Cambios pendientes de aplicar. La configuración de las pantallas sigue igual.'}</p>
             <div className="button-row">
               <button type="submit" className="announcement-publish" disabled={!eventId || !target?.ids.length || !selectedPlaylist || loading}>
-                {pending ? 'Guardando…' : 'Aplicar cortes'}
+                {pending ? 'Aplicando…' : `Aplicar cambios${target ? ` en ${target.label}` : ''}`}
               </button>
               <button type="button" disabled={!eventId || !target?.ids.length} onClick={() => void apply(false)}>Desactivar cortes</button>
             </div>
           </fieldset>
           {feedback && <p className={feedback.error ? 'diagnostics-error' : 'announcement-feedback'} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
+          {deliveries.length > 0 && <ul className="content-results">{deliveries.map(delivery => <li key={delivery.displayId}><strong>{displays.find(display => display.id === delivery.displayId)?.name ?? delivery.name}</strong><span className={delivery.error ? 'content-result-error' : ''}>{deliveryState(delivery, displays.find(display => display.id === delivery.displayId), now)}</span>{delivery.error && <button disabled={pending || sentSignature !== signature} onClick={() => void apply(lastEnabled, [delivery.displayId])}>Reintentar</button>}</li>)}</ul>}
         </form>
         <div className="promotion-summary">
           <h3>La playlist sigue donde corresponde</h3>

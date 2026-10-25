@@ -1,0 +1,61 @@
+# Operar un evento en Revel Movies
+
+El evento activo permanece en la cabecera. El panel separa cuatro tareas: **En vivo**, **Escenas**, **Contenido** y **Configuración**. Los destinos de reproducción se eligen explícitamente; si desaparecen, el panel pide elegirlos otra vez.
+
+## En vivo
+
+Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios, página web y multimedia de fondo. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
+
+La miniatura es una referencia del archivo, no una captura en vivo. El progreso corresponde a la última posición reportada, sin avance estimado. Después de 15 segundos sin reportes, el estado queda marcado como desactualizado. La conexión con la TV es independiente: una TV desconectada puede seguir reproduciendo localmente. Si falla la conexión del panel con la API, se conserva la información y se muestra el aviso de actualización pendiente.
+
+Las acciones de reproducción quedan esperando confirmación. La aceptación HTTP y el ACK de recepción no prueban que haya comenzado la reproducción; la confirmación usa el identificador de comando y la revisión reportados por el Player. Una acción anterior no confirma una nueva.
+
+- **Pausar / Reanudar:** cambia el estado del contenido actual.
+- **Detener contenido:** detiene la multimedia; las capas independientes conservan su configuración.
+- **Oscurecer pantalla / Restaurar imagen:** oculta o revela las capas sin detener el fondo.
+- **Retirar anuncio / Retirar página:** elimina esa capa y revela lo que seguía debajo.
+- **Renombrar:** conserva la identidad, vinculación, evento, grupos, referencias y reproducción; funciona con la TV desconectada.
+- **Identificar:** muestra nombre e identificador breve durante unos segundos, con la orientación física de la pantalla.
+
+En **Detalles** se encuentran orientación, diagnóstico, recarga y desvinculación. La recarga interrumpe brevemente el reproductor; desvincular requiere confirmación y una nueva vinculación para volver a usarlo.
+
+## Escenas: guardar, preparar y activar
+
+1. Crear una escena y agregar asignaciones. Cada asignación puede apuntar a pantallas o grupos. El editor muestra los destinos concretos y detecta composiciones incompatibles por grupos superpuestos.
+2. Para multimedia, página y anuncio, elegir **Mantener**, **Reemplazar** o **Retirar**. Pantalla negra tiene su política independiente. Los cortes promocionales pueden mantenerse o suspenderse: la suspensión evita próximos cortes y deja terminar uno ya iniciado.
+3. **Guardar borrador** persiste una versión sin tocar las pantallas. Se puede guardar sin asignaciones y completarlo después. Editar, duplicar y renombrar son operaciones de configuración.
+4. **Preparar recursos** verifica los medios mientras continúa la emisión. El resultado se muestra por pantalla: lista en caché, disponible por red, parcial, error, sin conexión o vencida. No se publican porcentajes estimados.
+5. Elegir entre esperar todas las pantallas o activar solo las disponibles, dejando visibles las excluidas. **Activar [nombre] en N pantallas** aplica una versión concreta. Cada destino pasa de pendiente a aplicado únicamente con telemetría correlacionada.
+
+Cambiar la escena, los recursos de una playlist o los integrantes de un grupo invalida la preparación. Una reconexión exige verificar de nuevo. La preparación vence a los 15 minutos. La caché depende del soporte del navegador y de un contexto seguro (HTTPS o localhost); en HTTP de una LAN puede ser necesario reproducir por red. El límite de caché por archivo es 256 MiB. No se promete disponibilidad offline de webs, archivos fuera del límite ni recursos que no se pudieron almacenar.
+
+Las cuentas regresivas por duración comienzan al activar; guardar y preparar no inician el reloj. Una hora fija se vuelve a validar al activar. El inicio coordinado reduce diferencias entre destinos, sin garantía de sincronización cuadro a cuadro.
+
+**Guardar configuración actual** captura las pantallas elegidas y sus capas solicitadas. El nombre de la pantalla nunca es su identificador de destino. Una captura conserva el estado y posición del fondo cuando corresponde. La vista previa describe una configuración futura; no representa la emisión actual.
+
+## Retorno y escenas temporales
+
+Cada activación conserva el estado anterior de sus destinos. **Volver a la configuración anterior** usa ese estado:
+
+- Cuando la escena mantuvo el fondo, retirar sus capas revela el contenido que siguió avanzando.
+- Cuando lo reemplazó, restaura la posición guardada y el estado de pausa. No es equivalente a reiniciar desde el primer archivo.
+- El retorno afecta únicamente a los destinos de esa activación. El historial permite volver sobre activaciones parciales anteriores.
+- Una decisión manual posterior tiene prioridad: el retorno automático no la sobrescribe.
+
+La duración temporal se cuenta desde la activación coordinada. El servidor conserva la fecha de vencimiento y restaura el estado vigente incluso si la TV está desconectada. Una escena vencida no se reproduce tardíamente al reconectar. El Player también retira localmente una escena temporal si pierde la conexión. La UI distingue retorno enviado de retorno confirmado.
+
+## Contenido y publicación de cambios
+
+Biblioteca, Playlists y Promociones tienen pestañas dentro de Contenido. Para agregar archivos a una playlist se abre la biblioteca como selector y, al terminar, se regresa al editor.
+
+La biblioteca permite vista previa local, búsqueda, filtros, selección ordenada y varias subidas. Cada archivo conserva su resultado, bytes enviados, error, cancelación o posibilidad de reintento. Que se hayan enviado todos los bytes no significa que el servidor haya terminado de procesarlo. **Agregar subidos a una playlist** usa los éxitos en el orden seleccionado y conserva los fallidos para reintentar.
+
+Editar una playlist guarda cambios sin publicarlos. **Aplicar cambios** muestra los destinos e inicia la versión guardada desde el primer archivo. Los resultados se muestran por pantalla. Para promociones, aplicar guarda la política y la envía, reiniciando el contador sin reiniciar el video actual. Una promoción en curso puede terminar antes de volver al fondo.
+
+## Despliegue y comprobaciones
+
+Publicar frontend y API juntos. La migración `20261025222149_AddScenesAndPlaybackConfirmation` agrega escenas, intentos y campos de correlación/visibilidad. Se aplica con el mecanismo EF existente: automáticamente si `Database:ApplyMigrationsOnStartup` está habilitado, o mediante el procedimiento de migraciones del despliegue. No se requiere un servicio externo adicional; el retorno temporal usa un servicio alojado en la API y persistencia SQL.
+
+Ver [escenas y protocolo](scenes.md), [despliegue IIS](deployment.md) y [protocolo del Player](player-protocol.md).
+
+Las pruebas de navegador usan la API y SignalR reales con SQLite efímero. SQL Server/IIS de producción, desconexión física de una TV, codecs específicos, límites reales de almacenamiento y navegadores de TVs requieren una comprobación en el entorno del evento.

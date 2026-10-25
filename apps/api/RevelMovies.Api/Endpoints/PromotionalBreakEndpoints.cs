@@ -44,8 +44,8 @@ public static class PromotionalBreakEndpoints
             }
             else policy = new(Guid.NewGuid(), false, null, "", 5, []);
 
-            await playback.SetPromotionPolicyAsync(targets, policy, cancellationToken);
             var command = dispatcher.Create("promotions.configure", JsonSerializer.SerializeToElement(policy, PromotionalBreaks.JsonOptions));
+            await playback.SetPromotionPolicyAsync(targets, policy, cancellationToken, command.CommandId);
             await dispatcher.SendAsync(targets, command, cancellationToken);
             return Results.Accepted(value: new { command, targets = targets.Count });
         });

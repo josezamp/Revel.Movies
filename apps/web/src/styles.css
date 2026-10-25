@@ -269,8 +269,8 @@ h1 { font-size: clamp(2.5rem, 7vw, 5.5rem); line-height: .95; margin: 12px 0 24p
 .player-video-canvas-source { opacity: 0; }
 .player-rotation-error { position: absolute; bottom: 0; left: 0; right: 0; margin: 0; padding: 16px; background: #280909; color: #fecaca; text-align: center; }
 .is-blackout .player-media { display: none; }
-.identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; font-size: 8vw; font-weight: 900; z-index: 10; }
-.identify-overlay small { font-size: 2vw; letter-spacing: .18em; }
+.identify-overlay { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; background: #fff; color: #000; padding: 5vmin; overflow-wrap: anywhere; line-height: 1.15; font-size: clamp(1.5rem, 7vmin, 6rem); font-weight: 900; z-index: 10; }
+.identify-overlay small { font-size: clamp(.8rem, 2.5vmin, 2rem); letter-spacing: .18em; }
 
 .diagnostics-shell { max-width: 1200px; margin: 0 auto; }
 .diagnostics-shell h1 { font-size: clamp(2.2rem, 6vw, 4rem); }

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { sendCommand, type Display, type MediaAsset } from '../api/client'
 import { displayPresence } from './displayPresence'
+import { playbackConfirmed } from './liveState'
 
 type Props = { display: Display; media: MediaAsset[]; onChanged: () => Promise<void> }
 
@@ -9,6 +10,9 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
+  const [commandId, setCommandId] = useState<string>()
+  const [sentAt, setSentAt] = useState<number>()
+  const previousCommandId = useRef<string | null | undefined>(undefined)
   const sending = useRef(false)
   const connected = displayPresence(display.status).connected
   const assigned = display.playbackContentType === 'Playlist'
@@ -26,10 +30,14 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
     setBusy(true)
     setError('')
     setFeedback('Enviando…')
+    setSentAt(Date.now())
+    previousCommandId.current = display.lastCommandId
+    setCommandId(undefined)
     try {
-      await sendCommand(display.id, type, payload)
+      const result = await sendCommand(display.id, type, payload) as { commandId?: string; playCommand?: { commandId: string } }
+      setCommandId(result.playCommand?.commandId ?? result.commandId)
       if (type === 'media.play') setSelectedMediaId('')
-      setFeedback('Comando enviado')
+      setFeedback('Esperando confirmación del reproductor')
       await onChanged()
     } catch (cause) {
       setFeedback('')
@@ -39,6 +47,14 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
       setBusy(false)
     }
   }
+
+  let status = feedback || (hasContent ? `Destino: ${display.name}` : 'Elegí un archivo para comenzar.')
+  if (commandId && display.actualCommandId === commandId && playbackConfirmed(display, Date.now()))
+    status = display.actualPlaybackState === 'Error' ? 'El reproductor informó un error'
+      : ['Buffering', 'Loading'].includes(display.actualPlaybackState ?? '') ? 'Cargando en la TV…' : 'Acción confirmada por el reproductor'
+  else if (commandId && display.lastCommandId && display.lastCommandId !== commandId && display.lastCommandId !== previousCommandId.current) status = 'Hay una acción posterior en esta pantalla'
+  else if (sentAt && Date.now() - sentAt > 30000) status = 'Sin confirmación reciente. Revisá el estado de la TV.'
+  if (!connected) status = 'TV sin conexión. Puede continuar reproduciendo contenido local.'
 
   return (
     <div className="display-playback" role="group" aria-label={`Multimedia de ${display.name}`} aria-busy={busy}>
@@ -61,14 +77,14 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
           disabled={disabled || (!selected && !hasContent)}
           onClick={() => void command(selected ? 'media.play' : pause ? 'media.pause' : 'playback.resume', selected ? { mediaId: selected.id } : undefined)}
         >
-          <span aria-hidden="true">{pause ? 'Ⅱ' : '▶'}</span> {pause ? 'Pausar' : 'Reproducir'}
+          <span aria-hidden="true">{pause ? 'Ⅱ' : '▶'}</span> {selected ? `Reproducir en ${display.name}` : pause ? 'Pausar' : 'Reanudar'}
         </button>
         <button
           type="button"
-          disabled={disabled || (display.desiredPlaybackState !== 'Blackout' && (!hasContent || display.desiredPlaybackState === 'Stopped'))}
+          disabled={disabled || !hasContent || display.desiredPlaybackState === 'Stopped'}
           onClick={() => void command('media.stop')}
         >
-          <span aria-hidden="true">■</span> {display.desiredPlaybackState === 'Blackout' ? 'Salir de blackout' : 'Detener'}
+          <span aria-hidden="true">■</span> Detener contenido
         </button>
         <button
           type="button"
@@ -83,7 +99,7 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
         </button>
       </div>
       <p className="display-playback-help" role="status">
-        {!connected ? 'TV sin conexión. Controles no disponibles.' : feedback || (hasContent ? 'Controlá el contenido de esta TV.' : 'Elegí un archivo para comenzar.')}
+        {status}
       </p>
       {error && <p className="display-playback-error" role="alert">{error}</p>}
     </div>

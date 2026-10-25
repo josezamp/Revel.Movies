@@ -39,6 +39,8 @@ builder.Services.AddScoped<PlaylistRegistry>();
 builder.Services.AddScoped<CommandAcknowledgementRegistry>();
 builder.Services.AddScoped<PlaybackStateRegistry>();
 builder.Services.AddScoped<PlayerCommandDispatcher>();
+builder.Services.AddScoped<SceneRegistry>();
+builder.Services.AddHostedService<SceneExpiryService>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -66,6 +68,7 @@ app.MapHealthChecks("/health");
 app.MapHub<PlayerHub>("/hubs/player");
 app.MapOrchestrationEndpoints();
 app.MapPromotionalBreakEndpoints();
+app.MapSceneEndpoints();
 
 app.MapGet("/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {
@@ -308,22 +311,25 @@ app.MapDelete("/displays/{displayId:guid}", async (
 app.MapPut("/displays/{displayId:guid}/settings", async (
     Guid displayId,
     UpdateDisplaySettingsRequest request,
+    PlaybackStateRegistry playbackStateRegistry,
     DisplayRegistry displayRegistry,
     PlayerCommandDispatcher dispatcher,
     CancellationToken cancellationToken) =>
 {
-    if (request.Rotation is not (0 or 90 or 180 or 270))
+    if (request.Rotation.HasValue && request.Rotation is not (0 or 90 or 180 or 270))
         return Results.BadRequest(new { error = "Rotation must be 0, 90, 180 or 270 degrees." });
 
-    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken);
+    if (request.Name is not null && (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200))
+        return Results.BadRequest(new { error = "El nombre debe tener entre 1 y 200 caracteres." });
+    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken, request.Name);
     if (display is null)
         return Results.NotFound();
 
-    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation });
+    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation, name = display.Name });
     var command = dispatcher.Create("display.settings", payload);
     await dispatcher.SendAsync([display.Id], command, cancellationToken);
 
-    return Results.Ok(DisplayResponse.From(display));
+    return Results.Ok(DisplayResponse.From(display, await playbackStateRegistry.GetAsync(display.Id, cancellationToken)));
 });
 
 app.MapPost("/displays/{displayId:guid}/commands", async (
@@ -405,6 +411,8 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
         return Results.Accepted(value: dispatch);
     }
 
+    if (request.Type == "display.identify")
+        request = request with { Payload = JsonSerializer.SerializeToElement(new { name = display.Name, shortId = display.Id.ToString("N")[..6].ToUpperInvariant(), durationSeconds = 8 }) };
     var command = dispatcher.Create(request.Type, request.Payload);
     await dispatcher.SendAsync([display.Id], command, cancellationToken);
     return Results.Accepted(value: command);
@@ -419,7 +427,7 @@ public sealed record CreateEventRequest(
     DateTimeOffset? EndsAt);
 
 public sealed record PairDisplayRequest(string Code, string Name, Guid EventId);
-public sealed record UpdateDisplaySettingsRequest(int Rotation);
+public sealed record UpdateDisplaySettingsRequest(int? Rotation = null, string? Name = null);
 
 public sealed record EventResponse(
     Guid Id,
@@ -465,7 +473,11 @@ public sealed record DisplayResponse(
     JsonElement? WebPage,
     JsonElement? Announcement,
     PromotionPolicy? PromotionPolicy,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    Guid? ActualMediaAssetId, Guid? ActualPlaylistId, int? ActualPlaylistIndex, double? ActualDurationSeconds,
+    Guid? ActualCommandId, Guid? LastCommandId, long Revision, bool Blackout,
+    JsonElement? ActualWebPage, JsonElement? ActualAnnouncement, bool? ActualBlackout, bool? ActualLoop,
+    JsonElement? ActualPromotion, string? ActualWebPageStatus, DateTimeOffset? PlaybackPlaylistUpdatedAt, int? PlaybackPlaylistItemCount)
 {
     public static DisplayResponse From(Display item, DisplayPlaybackState? playback = null) => new(
         item.Id,
@@ -490,7 +502,13 @@ public sealed record DisplayResponse(
         PlaybackStateRegistry.ReadWebPage(playback),
         PlaybackStateRegistry.ReadAnnouncement(playback),
         PromotionalBreaks.ReadPolicy(playback),
-        item.CreatedAt);
+        item.CreatedAt, playback?.ActualMediaAssetId, playback?.ActualPlaylistId, playback?.ActualPlaylistIndex,
+        playback?.ActualDurationSeconds, playback?.ActualCommandId, playback?.LastCommandId, playback?.Revision ?? 0,
+        playback?.Blackout ?? false, PlaybackStateRegistry.ReadVisible(playback)?.WebPage,
+        PlaybackStateRegistry.ReadVisible(playback)?.Announcement, PlaybackStateRegistry.ReadVisible(playback)?.Blackout,
+        PlaybackStateRegistry.ReadVisible(playback)?.Loop, PlaybackStateRegistry.ReadVisible(playback)?.Promotion,
+        PlaybackStateRegistry.ReadVisible(playback)?.WebPageStatus, PlaybackStateRegistry.ReadPlaylistUpdatedAt(playback),
+        PlaybackStateRegistry.ReadPlaylistItemCount(playback));
 }
 
 public sealed record MediaResponse(

@@ -31,14 +31,15 @@ public sealed class PlayerCommandDispatcher(
         var targets = displayIds.Distinct().ToArray();
         if (AnnouncementCommand.IsShow(command.Type) || AnnouncementCommand.IsClear(command.Type))
             await playbackStateRegistry.SetAnnouncementAsync(targets,
-                AnnouncementCommand.IsShow(command.Type) ? command.Payload : null, cancellationToken);
+                AnnouncementCommand.IsShow(command.Type) ? command.Payload : null, cancellationToken, command.CommandId);
         if (WebPageCommand.IsShow(command.Type) || WebPageCommand.IsClear(command.Type))
             await playbackStateRegistry.SetWebPageAsync(targets,
-                WebPageCommand.IsShow(command.Type) ? command.Payload : null, cancellationToken);
+                WebPageCommand.IsShow(command.Type) ? command.Payload : null, cancellationToken, command.CommandId);
         await playbackStateRegistry.ApplyControlAsync(targets, command.Type, command.CommandId, cancellationToken);
 
-        foreach (var displayId in targets)
-            await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
+        if (IsPlaybackMutation(command.Type))
+            await playbackStateRegistry.MarkCommandAsync(targets, command.CommandId, cancellationToken);
+        await SendRawAsync(targets, command, cancellationToken);
     }
 
     public async Task<SynchronizedDispatch> SendMediaPlayAsync(
@@ -77,7 +78,7 @@ public sealed class PlayerCommandDispatcher(
         Guid playlistId,
         bool loop,
         IReadOnlyList<PlaylistDispatchItem> items,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, DateTimeOffset? playlistUpdatedAt = null)
     {
         var targets = displayIds.Distinct().ToArray();
         var startAt = DateTimeOffset.UtcNow.AddMilliseconds(syncLeadTimeMs);
@@ -99,6 +100,7 @@ public sealed class PlayerCommandDispatcher(
         var playPayload = JsonSerializer.SerializeToElement(new
         {
             playlistId,
+            playlistUpdatedAt,
             playbackId = Guid.NewGuid(),
             loop,
             items = serializedItems,
@@ -114,13 +116,20 @@ public sealed class PlayerCommandDispatcher(
         return new SynchronizedDispatch(prepare, play, startAt, targets.Length);
     }
 
-    private async Task SendRawAsync(
+    private static bool IsPlaybackMutation(string type) =>
+        type is "announcement.show" or "announcement.clear" or "webpage.show" or "webpage.clear" or "promotions.configure";
+
+    public async Task SendRawAsync(
         IEnumerable<Guid> displayIds,
         PlayerCommand command,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         foreach (var displayId in displayIds.Distinct())
-            await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", command, cancellationToken);
+        {
+            var state = await playbackStateRegistry.GetAsync(displayId, cancellationToken);
+            var outgoing = command with { Revision = state?.LastCommandId == command.CommandId ? state.Revision : null };
+            await hub.Clients.Group(PlayerHub.GroupName(displayId)).SendAsync("command", outgoing, cancellationToken);
+        }
     }
 }
 

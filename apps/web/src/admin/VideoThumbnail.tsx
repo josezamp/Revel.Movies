@@ -29,7 +29,7 @@ export function VideoThumbnail({ src }: { src: string }) {
       )}
       {status !== 'ready' && (
         <span className="media-preview-placeholder">
-          {status === 'error' ? 'Video preview unavailable' : 'Loading preview…'}
+          {status === 'error' ? 'Miniatura no disponible' : 'Cargando miniatura…'}
         </span>
       )}
     </div>

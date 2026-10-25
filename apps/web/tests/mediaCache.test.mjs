@@ -48,7 +48,7 @@ test('overlapping preparations share one download and subsequent requests use ca
   let downloading
   let downloads = 0
   const fetched = new Promise(resolve => { downloading = resolve })
-  const response = new Response('0123456789', { headers: { 'Content-Type': 'video/mp4' } })
+  const response = new Response('0123456789', { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '10' } })
   // The old implementation retained this unread clone while caching a large video.
   response.clone = () => { throw new Error('Do not tee the download') }
   const sw = worker(() => {
@@ -77,9 +77,16 @@ test('failed preparations release the shared download so retry can succeed', asy
   let downloads = 0
   const sw = worker(async () => {
     downloads++
-    return downloads === 1 ? new Response(null, { status: 503 }) : new Response('video')
+    return downloads === 1 ? new Response(null, { status: 503 }) : new Response('video', { headers: { 'Content-Length': '5' } })
   })
   assert.deepEqual(await sw.prepare(), { prepared: 0, failed: 1 })
   assert.deepEqual(await sw.prepare(), { prepared: 1, failed: 0 })
   assert.equal(downloads, 2)
+})
+
+test('unknown and oversized assets are not reported as offline ready', async () => {
+  const unknown = worker(async () => new Response('stream'))
+  assert.deepEqual(await unknown.prepare(), { prepared: 0, failed: 1 })
+  const oversized = worker(async () => new Response('stream', { headers: { 'Content-Length': String(257 * 1024 * 1024) } }))
+  assert.deepEqual(await oversized.prepare(), { prepared: 0, failed: 1 })
 })

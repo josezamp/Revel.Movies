@@ -10,6 +10,7 @@ import { parseWebPage, type WebPage } from '../webpages/webPage'
 import { WebPageSurface } from '../webpages/WebPageSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
 import { needsVideoCanvas } from './videoCanvas'
+import { isSceneExpired, PlayerOperationGuard, resolveSceneReturn, type SceneComposition } from './preparationStatus'
 import {
   configurePromotions, finishPlaylistItem, parsePromotionPolicy, parsePromotionProgress,
   playlistCheckpointKey, preferLocalCheckpoint, readPlaylistCheckpoint, startPromotionProgress,
@@ -40,6 +41,13 @@ type ActivePlaylist = {
 }
 
 type PlaybackRecoveryState = {
+  commandId?: string | null
+  revision?: number
+  blackout?: boolean
+  sceneExpiresAt?: string | null
+  sceneSessionId?: string | null
+  scenePrevious?: PlaybackRecoveryState | null
+  sceneComposition?: SceneComposition | null
   webPage: unknown
   announcement: unknown
   promotionPolicy: unknown
@@ -65,16 +73,19 @@ export function PlayerPage() {
   const [deviceToken, setDeviceToken] = useState(() => localStorage.getItem(tokenKey) ?? undefined)
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
+  const [displayIdentity, setDisplayIdentity] = useState({ id: '', name: 'Pantalla Revel' })
   const [webPage, setWebPage] = useState<WebPage | null>(null)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
   const [media, setMedia] = useState<ActiveMedia>()
+  const [mediaLoadStatus, setMediaLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const mediaRef = useRef<ActiveMedia | undefined>(undefined)
   const mediaInstanceRef = useRef(0)
   const setCurrentMedia = useCallback((next: ActiveMedia | undefined) => {
     const current = next ? { ...next, instance: ++mediaInstanceRef.current } : undefined
     mediaRef.current = current
+    setMediaLoadStatus('loading')
     setMedia(current)
   }, [])
   const [promotionPolicy, setPromotionPolicy] = useState<PromotionPolicy | null>(null)
@@ -101,6 +112,20 @@ export function PlayerPage() {
   const scheduledStartTimerRef = useRef<number | undefined>(undefined)
   const pendingSeekSecondsRef = useRef<number | undefined>(undefined)
   const itemStartedAtRef = useRef(Date.now())
+  const appliedCommandRef = useRef<{ commandId: string | null; revision: number | null }>({ commandId: null, revision: null })
+  const operationGuardRef = useRef(new PlayerOperationGuard())
+  const activeSceneRecoveryRef = useRef<Pick<PlaybackRecoveryState, 'sceneSessionId' | 'sceneExpiresAt' | 'scenePrevious' | 'sceneComposition'> | null>(null)
+  const currentSnapshotRef = useRef<PlaybackRecoveryState | null>(null)
+  currentSnapshotRef.current = {
+    commandId: appliedCommandRef.current.commandId, revision: appliedCommandRef.current.revision ?? undefined,
+    blackout, webPage, announcement, promotionPolicy, promotionProgress: promotionProgressRef.current,
+    desiredState: playbackEnded ? 'Stopped' : playlistPaused ? 'Paused' : media ? 'Playing' : 'Stopped',
+    contentType: playlist ? 'Playlist' : media ? 'Media' : null,
+    payload: playlist ? { playlistId: playlist.id, playbackId: playlist.playbackId, items: playlist.items, loop: playlist.loop }
+      : media ? { mediaId: media.id, mediaType: media.type, loop: mediaLoop } : null,
+    resumePositionSeconds: 0, resumePlaylistIndex: playlist ? playlistIndex : null,
+    health: 'Unknown', driftMs: null, updatedAt: new Date(getServerNow()).toISOString(),
+  }
 
   useEffect(() => {
     void registerMediaCache()
@@ -152,10 +177,15 @@ export function PlayerPage() {
     let clockSyncTimer: number | undefined
     let reconnectTimer: number | undefined
     let recoveryRetryTimer: number | undefined
+    let identifyTimer: number | undefined
+    let sceneExpiryTimer: number | undefined
     let connection: HubConnection
     let webPageRevision = 0
     let announcementRevision = 0
     let promotionRevision = 0
+    let reconcileAfterScheduled = false
+    let scheduledSceneSessionId: string | null = null
+    const guard = operationGuardRef.current
 
     function applyPromotionPolicy(policy: PromotionPolicy | null) {
       promotionPolicyRef.current = policy
@@ -166,6 +196,11 @@ export function PlayerPage() {
     }
 
     const acknowledge = (command: PlayerCommand, status: string, detail?: string) => {
+      if ((status === 'executed' || status === 'applied') && isVisualCommand(command.type)) {
+        const recovery = command.payload?.recovery as PlaybackRecoveryState | undefined
+        appliedCommandRef.current = { commandId: command.commandId,
+          revision: command.revision ?? recovery?.revision ?? (typeof command.payload?.revision === 'number' ? command.payload.revision : null) }
+      }
       if (cancelled || !connection || connection.state !== HubConnectionState.Connected) return
       void connection.invoke(
         'Acknowledge',
@@ -178,6 +213,7 @@ export function PlayerPage() {
     }
 
     const clearScheduledStart = () => {
+      scheduledSceneSessionId = null
       if (scheduledStartTimerRef.current !== undefined) {
         window.clearTimeout(scheduledStartTimerRef.current)
         scheduledStartTimerRef.current = undefined
@@ -191,6 +227,9 @@ export function PlayerPage() {
       videoRef.current?.pause()
       pendingSeekSecondsRef.current = undefined
       clockOffsetMsRef.current = 0
+      appliedCommandRef.current = { commandId: null, revision: null }
+      operationGuardRef.current = new PlayerOperationGuard()
+      activeSceneRecoveryRef.current = null
       localStorage.removeItem(tokenKey)
       localStorage.removeItem(processedCommandsKey)
       clearPromotionProgress()
@@ -209,11 +248,14 @@ export function PlayerPage() {
       setDeviceToken(undefined)
     }
 
-    const scheduleAtServerTime = (startAt: unknown, callback: () => void) => {
+    const scheduleAtServerTime = (startAt: unknown, callback: () => void, sceneSessionId?: string) => {
       clearScheduledStart()
+      scheduledSceneSessionId = sceneSessionId ?? null
       const startAtMs = typeof startAt === 'string' ? Date.parse(startAt) : Number.NaN
       if (!Number.isFinite(startAtMs)) {
+        scheduledSceneSessionId = null
         callback()
+        flushPendingReconciliation()
         return
       }
 
@@ -221,25 +263,61 @@ export function PlayerPage() {
       const delayMs = Math.max(0, localTargetMs - Date.now())
       scheduledStartTimerRef.current = window.setTimeout(() => {
         scheduledStartTimerRef.current = undefined
+        scheduledSceneSessionId = null
         callback()
+        flushPendingReconciliation()
       }, delayMs)
     }
 
-    async function prepareCandidates(command: PlayerCommand, candidates: CacheCandidate[]) {
+    function flushPendingReconciliation() {
+      if (!reconcileAfterScheduled || scheduledStartTimerRef.current !== undefined) return
+      reconcileAfterScheduled = false
+      if (!cancelled && connection.state === HubConnectionState.Connected) void recoverDesiredPlayback(true)
+    }
+
+    async function prepareCandidates(command: PlayerCommand, candidates: CacheCandidate[], networkRequired = false) {
+      const generation = guard.beginPreparation()
       try {
-        const result = await prepareMediaAssets(candidates)
-        const detail = result.supported
-          ? `cache ${result.prepared}/${result.requested}; skipped ${result.skipped}`
-          : 'cache unavailable; network fallback'
-        acknowledge(command, 'ready', detail)
+        const result = await prepareMediaAssets(candidates, networkRequired)
+        if (!guard.isCurrentPreparation(generation) || cancelled) return
+        acknowledge(command, result.status, result.detail)
       } catch (error) {
+        if (!guard.isCurrentPreparation(generation) || cancelled) return
         acknowledge(command, 'error', error instanceof Error ? error.message : 'media preparation failed')
       }
     }
 
-    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number, recoveredPromotionRevision: number, recoveredWebPageRevision = -1) {
+    function applyRecovery(recovery: PlaybackRecoveryState | null, recoveredAnnouncementRevision: number, recoveredPromotionRevision: number, recoveredWebPageRevision = -1, keepMedia = false) {
       if (!recovery) return
+      if (isSceneExpired(recovery.sceneExpiresAt, getServerNow())) return
       clearScheduledStart()
+      if (sceneExpiryTimer !== undefined) window.clearTimeout(sceneExpiryTimer)
+      sceneExpiryTimer = undefined
+      appliedCommandRef.current = { commandId: recovery.commandId ?? null, revision: recovery.revision ?? null }
+      activeSceneRecoveryRef.current = recovery.sceneSessionId ? {
+        sceneSessionId: recovery.sceneSessionId, sceneExpiresAt: recovery.sceneExpiresAt,
+        scenePrevious: recovery.scenePrevious, sceneComposition: recovery.sceneComposition,
+      } : null
+      if (recovery.sceneSessionId) {
+        const sessionId = recovery.sceneSessionId
+        guard.activateSession(sessionId)
+        if (recovery.sceneExpiresAt) {
+          sceneExpiryTimer = window.setTimeout(() => {
+            sceneExpiryTimer = undefined
+            if (cancelled || !guard.isActiveSession(sessionId)) return
+            const previous = resolveSceneReturn(recovery, getServerNow())
+            if (previous) {
+              applyRecovery(previous.recovery,
+                previous.composition.announcement === 'keep' ? -1 : announcementRevision,
+                previous.composition.promotions === 'keep' ? -1 : promotionRevision,
+                previous.composition.webPage === 'keep' ? -1 : webPageRevision,
+                previous.composition.media === 'keep')
+              appliedCommandRef.current = { commandId: null, revision: null }
+            }
+            if (connection.state === HubConnectionState.Connected) void recoverDesiredPlayback()
+          }, Math.max(0, Math.min(Date.parse(recovery.sceneExpiresAt) - getServerNow(), 2_147_483_647)))
+        }
+      } else guard.clearActiveSession()
       // A live command received during recovery takes precedence over the older snapshot.
       if (webPageRevision === recoveredWebPageRevision)
         setWebPage(parseWebPage(recovery.webPage, window.location.href))
@@ -248,10 +326,8 @@ export function PlayerPage() {
       if (promotionRevision === recoveredPromotionRevision)
         applyPromotionPolicy(parsePromotionPolicy(recovery.promotionPolicy))
 
-      if (recovery.desiredState === 'Blackout') {
-        setBlackout(true)
-        return
-      }
+      setBlackout(recovery.blackout === true || recovery.desiredState === 'Blackout')
+      if (keepMedia) return
 
       if (recovery.desiredState === 'Stopped') {
         clearPromotionProgress()
@@ -261,7 +337,6 @@ export function PlayerPage() {
         setPlaylistIndex(0)
         setPlaylistPaused(false)
         setCurrentMedia(undefined)
-        setBlackout(false)
         return
       }
 
@@ -273,7 +348,6 @@ export function PlayerPage() {
       pausedPositionSecondsRef.current = resumePosition
       pendingSeekSecondsRef.current = resumePosition
       itemStartedAtRef.current = Date.now() - resumePosition * 1000
-      setBlackout(false)
       setPlaylistPaused(recovery.desiredState === 'Paused')
 
       if (recovery.contentType === 'Media') {
@@ -320,12 +394,97 @@ export function PlayerPage() {
         resetPairing()
         return
       }
+      // Restore belongs to the activation that captured the previous state. A later
+      // manual decision must never be replaced by its delayed automatic return.
+      if (command.type === 'scene.restore' && typeof command.payload?.sessionId === 'string' &&
+        !guard.isActiveSession(command.payload.sessionId) && scheduledSceneSessionId !== command.payload.sessionId) {
+        acknowledge(command, 'superseded', 'Una acción posterior reemplazó esta escena')
+        return
+      }
+      let decision: number | null = null
+      if (isVisualCommand(command.type)) {
+        decision = guard.nextDecision(command.revision)
+        if (decision === null) {
+          acknowledge(command, 'superseded', 'Versión anterior a la decisión vigente')
+          return
+        }
+        // The API composes desired layers immediately. If a newer control arrives
+        // before a scheduled scene, recover that current composition after the new
+        // decision; never run the canceled scene payload over the newer command.
+        if (scheduledStartTimerRef.current !== undefined) reconcileAfterScheduled = true
+        clearScheduledStart()
+        if (sceneExpiryTimer !== undefined) window.clearTimeout(sceneExpiryTimer)
+        sceneExpiryTimer = undefined
+        if (command.type !== 'scene.apply') activeSceneRecoveryRef.current = null
+        playbackControlRevisionRef.current++
+      }
       markCommandProcessed(command.commandId)
       acknowledge(command, 'received')
-      if (['playback.resume', 'playback.loop', 'media.play', 'playlist.play', 'media.pause', 'playlist.pause',
-        'media.stop', 'playlist.stop', 'display.blackout'].includes(command.type)) playbackControlRevisionRef.current++
 
       switch (command.type) {
+        case 'scene.prepare': {
+          const resources = command.payload?.resources
+          if (!Array.isArray(resources) || typeof command.payload?.sessionId !== 'string') {
+            acknowledge(command, 'error', 'La preparación no tiene recursos o sesión válida')
+            break
+          }
+          const candidates = resources.map(item => parseMediaCandidate(item as Record<string, unknown>)).filter(item => item !== null)
+          if (candidates.length !== resources.length) {
+            acknowledge(command, 'error', 'Hay recursos inválidos en la escena')
+            break
+          }
+          await prepareCandidates(command, candidates, command.payload?.networkRequired === true)
+          break
+        }
+        case 'scene.apply':
+        case 'scene.restore': {
+          const recovery = command.payload?.recovery as PlaybackRecoveryState | undefined
+          const composition = parseSceneComposition(command.payload?.composition)
+          const sessionId = command.payload?.sessionId
+          const expiresAt = command.payload?.expiresAt
+          if (!recovery || !composition || typeof sessionId !== 'string' || decision === null) {
+            acknowledge(command, 'error', 'Configuración de escena inválida')
+            break
+          }
+          if (command.type === 'scene.apply' && isSceneExpired(expiresAt, getServerNow())) {
+            acknowledge(command, 'expired', 'La escena temporal venció antes de llegar a esta pantalla')
+            void recoverDesiredPlayback()
+            break
+          }
+          const generation = decision
+          scheduleAtServerTime(command.payload?.startAt, () => {
+            if (cancelled || !guard.isCurrentDecision(generation)) return
+            if (command.type === 'scene.apply' && isSceneExpired(expiresAt, getServerNow())) {
+              acknowledge(command, 'expired', 'La escena temporal ya venció')
+              void recoverDesiredPlayback()
+              return
+            }
+            let appliedRecovery = recovery
+            if (command.type === 'scene.apply') {
+              const snapshot = currentSnapshotRef.current
+              const previous = snapshot ? { ...snapshot, ...activeSceneRecoveryRef.current, promotionProgress: promotionProgressRef.current,
+                resumePositionSeconds: snapshot.desiredState === 'Paused' ? pausedPositionSecondsRef.current
+                  : mediaRef.current?.type === 'Video' ? videoRef.current?.currentTime ?? 0
+                    : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000),
+              } : null
+              appliedRecovery = { ...recovery, sceneSessionId: sessionId,
+                sceneExpiresAt: typeof expiresAt === 'string' ? expiresAt : null,
+                scenePrevious: previous ?? recovery.scenePrevious, sceneComposition: composition }
+            }
+            // The recovery payload already contains the resolved keep/replace/remove
+            // layers. Keeping media avoids remounting the video under an overlay.
+            if (composition.webPage !== 'keep') webPageRevision++
+            if (composition.announcement !== 'keep') announcementRevision++
+            if (composition.promotions !== 'keep') promotionRevision++
+            applyRecovery(appliedRecovery,
+              composition.announcement === 'keep' ? -1 : announcementRevision,
+              composition.promotions === 'keep' ? -1 : promotionRevision,
+              composition.webPage === 'keep' ? -1 : webPageRevision,
+              composition.media === 'keep')
+            acknowledge(command, 'applied', 'Capas aplicadas; la reproducción se confirma por telemetría')
+          }, command.type === 'scene.apply' ? sessionId : undefined)
+          break
+        }
         case 'playback.resume': {
           const recovery = command.payload
           if (recovery?.desiredState !== 'Playing' || !recovery.payload ||
@@ -395,11 +554,12 @@ export function PlayerPage() {
         }
         case 'display.settings': {
           const nextRotation = parseRotation(command.payload?.rotation)
-          if (nextRotation === null) {
+          if (nextRotation === null && typeof command.payload?.name !== 'string') {
             acknowledge(command, 'error', 'invalid display.settings rotation')
             break
           }
-          setRotation(nextRotation)
+          if (nextRotation !== null) setRotation(nextRotation)
+          if (typeof command.payload?.name === 'string') setDisplayIdentity(current => ({ ...current, name: command.payload!.name as string }))
           acknowledge(command, 'executed')
           break
         }
@@ -408,11 +568,21 @@ export function PlayerPage() {
           setBlackout(true)
           acknowledge(command, 'executed')
           break
-        case 'display.identify':
+        case 'display.restore':
+          setBlackout(false)
+          acknowledge(command, 'executed', 'Imagen restaurada; el contenido de fondo continúa')
+          break
+        case 'display.identify': {
+          const name = command.payload?.name
+          const id = command.payload?.displayId
+          if (typeof name === 'string' || typeof id === 'string')
+            setDisplayIdentity(current => ({ name: typeof name === 'string' ? name : current.name, id: typeof id === 'string' ? id : current.id }))
           setIdentify(true)
-          window.setTimeout(() => setIdentify(false), 5000)
+          if (identifyTimer !== undefined) window.clearTimeout(identifyTimer)
+          identifyTimer = window.setTimeout(() => { setIdentify(false); identifyTimer = undefined }, 5000)
           acknowledge(command, 'executed')
           break
+        }
         case 'media.prepare': {
           const candidate = parseMediaCandidate(command.payload)
           if (!candidate) {
@@ -518,6 +688,7 @@ export function PlayerPage() {
           acknowledge(command, 'error', 'unsupported command')
           break
       }
+      flushPendingReconciliation()
     }
 
     connection = createPlayerConnection(currentDeviceToken, command => void handleCommand(command))
@@ -573,10 +744,11 @@ export function PlayerPage() {
       }
 
       setRotation(parseRotation(identity.rotation) ?? 0)
+      setDisplayIdentity({ id: identity.id, name: identity.name })
       return true
     }
 
-    async function recoverDesiredPlayback() {
+    async function recoverDesiredPlayback(preserveMatchingBackground = false) {
       if (recoveryRetryTimer !== undefined) window.clearTimeout(recoveryRetryTimer)
       recoveryRetryTimer = undefined
       recoveryPendingRef.current = true
@@ -590,8 +762,12 @@ export function PlayerPage() {
         const recoveredPlaybackRevision = playbackControlRevisionRef.current
         const recovery = await connection.invoke<PlaybackRecoveryState | null>('GetDesiredPlaybackState')
         if (cancelled) return
-        if (recoveredPlaybackRevision === playbackControlRevisionRef.current)
-          applyRecovery(recovery, recoveredAnnouncementRevision, recoveredPromotionRevision, recoveredWebPageRevision)
+        if (recoveredPlaybackRevision === playbackControlRevisionRef.current) {
+          const unchanged = recovery?.commandId === appliedCommandRef.current.commandId
+          const accepted = unchanged || recovery?.revision === undefined || guard.nextDecision(recovery.revision) !== null
+          if (accepted) applyRecovery(recovery, recoveredAnnouncementRevision, recoveredPromotionRevision, recoveredWebPageRevision,
+            preserveMatchingBackground && hasSameBackground(recovery, currentSnapshotRef.current))
+        }
         else if (recovery) {
           // A newer play command does not invalidate independently saved settings.
           if (webPageRevision === recoveredWebPageRevision) setWebPage(parseWebPage(recovery.webPage, window.location.href))
@@ -624,6 +800,7 @@ export function PlayerPage() {
         }
 
         setRotation(parseRotation(identity.rotation) ?? 0)
+        setDisplayIdentity({ id: identity.id, name: identity.name })
         await connection.start()
         if (cancelled) return
 
@@ -642,6 +819,11 @@ export function PlayerPage() {
       }
     }
 
+    connection.onreconnecting(() => {
+      guard.invalidatePreparation()
+      clearScheduledStart()
+      recoveryPendingRef.current = true
+    })
     connection.onreconnected(() => {
       void recoverDesiredPlayback().catch(error => {
         if (!cancelled) console.error('Player recovery after reconnect failed:', error)
@@ -655,6 +837,9 @@ export function PlayerPage() {
       cancelled = true
       window.clearTimeout(startTimer)
       clearScheduledStart()
+      guard.invalidatePreparation()
+      if (identifyTimer !== undefined) window.clearTimeout(identifyTimer)
+      if (sceneExpiryTimer !== undefined) window.clearTimeout(sceneExpiryTimer)
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer)
       if (recoveryRetryTimer !== undefined) window.clearTimeout(recoveryRetryTimer)
       if (heartbeatTimer !== undefined) window.clearInterval(heartbeatTimer)
@@ -756,11 +941,12 @@ export function PlayerPage() {
         : playlistPaused ? pausedPositionSecondsRef.current : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
       const durationSeconds = media?.type === 'Video' && Number.isFinite(videoRef.current?.duration)
         ? videoRef.current?.duration ?? null
-        : null
+        : playlist?.items[playlistIndex]?.durationSeconds ?? null
       const buffering = media?.type === 'Video' &&
         (bufferingRef.current || !video || video.paused || video.seeking || video.readyState < 3)
       const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : !media ? 'Idle'
-        : playlistPaused ? 'Paused' : buffering ? 'Buffering' : 'Playing'
+        : mediaLoadStatus === 'error' ? 'Error' : playlistPaused ? 'Paused'
+          : buffering || (media.type === 'Image' && mediaLoadStatus !== 'loaded') ? 'Buffering' : 'Playing'
 
       const progress = playlist && promotionProgressRef.current
         ? { ...promotionProgressRef.current, sequence: promotionProgressRef.current.sequence + 1 } : null
@@ -777,19 +963,17 @@ export function PlayerPage() {
       if (!connection || connection.state !== HubConnectionState.Connected || recoveryPendingRef.current) return
 
       try {
+        const report = {
+          state: actualState, mediaAssetId: media?.id ?? null, playlistId: playlist?.id ?? null,
+          playlistIndex: playlist ? playlistIndex : null, positionSeconds, durationSeconds,
+          ...appliedCommandRef.current,
+          visible: { blackout, announcement, webPage, webPageStatus: webPage ? 'assigned' : null,
+            loop: playlist?.loop ?? mediaLoop, promotion: progress?.activeMediaId ?? null },
+        }
         const result = progress ? await connection.invoke<PlaybackReportResult | null>(
-          'ReportPlaylistPlayback', {
-            state: actualState, mediaAssetId: media?.id ?? null, playlistId: playlist?.id ?? null,
-            playlistIndex, positionSeconds, durationSeconds,
-          }, progress,
+          'ReportPlaylistPlayback', report, progress,
         ) : await connection.invoke<PlaybackReportResult | null>(
-          'ReportPlayback',
-          actualState,
-          media?.id ?? null,
-          playlist?.id ?? null,
-          playlist ? playlistIndex : null,
-          positionSeconds,
-          durationSeconds,
+          'ReportPlaybackV2', report,
         )
 
         if (!cancelled && result?.seekToSeconds !== null && result?.seekToSeconds !== undefined &&
@@ -811,7 +995,7 @@ export function PlayerPage() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [blackout, deviceToken, media, playlist, playlistIndex, playlistPaused, playbackEnded, promotionPolicy, getServerNow])
+  }, [blackout, deviceToken, media, mediaLoadStatus, mediaLoop, playlist, playlistIndex, playlistPaused, playbackEnded, promotionPolicy, announcement, webPage, getServerNow])
 
   if (!deviceToken) {
     return (
@@ -843,6 +1027,7 @@ export function PlayerPage() {
               else setPlaybackEnded(true)
             }}
             onError={() => {
+              setMediaLoadStatus('error')
               if (promotionProgressRef.current?.activeMediaId === media.id) advancePlaylist()
             }}
           />
@@ -851,10 +1036,11 @@ export function PlayerPage() {
           <VideoRotationCanvas key={`rotation-${media.instance}`} videoRef={videoRef} />
         )}
         {media?.type === 'Image' && (
-          <img key={media.id} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt="" />
+          <img key={media.instance} className="player-media" hidden={playbackEnded && !!playlist} src={mediaContentUrl(media.id)} alt=""
+            onLoad={() => setMediaLoadStatus('loaded')} onError={() => setMediaLoadStatus('error')} />
         )}
         {webPage && <WebPageSurface key={webPage.url} page={webPage} hidden={blackout} />}
-        {identify && <div className="identify-overlay">REVEL MOVIES<br /><small>DISPLAY IDENTIFY</small></div>}
+        {identify && <div className="identify-overlay"><span>{displayIdentity.name}</span><small>Pantalla {displayIdentity.id.slice(0, 8).toUpperCase()}</small></div>}
         {announcement && !blackout && <AnnouncementSurface announcement={announcement} getNow={getServerNow} />}
       </div>
     </main>
@@ -866,6 +1052,27 @@ function parseRotation(value: unknown): DisplayRotation | null {
     return value
 
   return null
+}
+
+function isVisualCommand(type: string): boolean {
+  return ['playback.resume', 'playback.loop', 'media.play', 'playlist.play', 'media.pause', 'playlist.pause',
+    'media.stop', 'playlist.stop', 'display.blackout', 'display.restore', 'webpage.show', 'webpage.clear',
+    'announcement.show', 'announcement.clear', 'promotions.configure', 'scene.apply', 'scene.restore'].includes(type)
+}
+
+function hasSameBackground(next: PlaybackRecoveryState | null, current: PlaybackRecoveryState | null): boolean {
+  if (!next || !current || next.desiredState !== current.desiredState || next.contentType !== current.contentType) return false
+  if (next.contentType === 'Media') return next.payload?.mediaId === current.payload?.mediaId
+  if (next.contentType === 'Playlist') return typeof next.payload?.playbackId === 'string' && next.payload.playbackId === current.payload?.playbackId
+  return next.contentType === null
+}
+
+function parseSceneComposition(value: unknown): SceneComposition | null {
+  if (!value || typeof value !== 'object') return null
+  const composition = value as SceneComposition
+  const actions = ['keep', 'replace', 'remove']
+  return actions.includes(composition.media) && actions.includes(composition.webPage) && actions.includes(composition.announcement)
+    && ['keep', 'on', 'off'].includes(composition.blackout) && ['keep', 'suspend'].includes(composition.promotions) ? composition : null
 }
 
 function parseMediaCandidate(payload: Record<string, unknown> | undefined): (CacheCandidate & { mediaType: 'Video' | 'Image' }) | null {
@@ -910,7 +1117,8 @@ function wasCommandProcessed(commandId: string) {
 function markCommandProcessed(commandId: string) {
   const ids = readProcessedCommandIds().filter(id => id !== commandId)
   ids.push(commandId)
-  localStorage.setItem(processedCommandsKey, JSON.stringify(ids.slice(-100)))
+  try { localStorage.setItem(processedCommandsKey, JSON.stringify(ids.slice(-100))) }
+  catch { /* Restricted storage must not prevent live controls. */ }
 }
 
 function readProcessedCommandIds(): string[] {

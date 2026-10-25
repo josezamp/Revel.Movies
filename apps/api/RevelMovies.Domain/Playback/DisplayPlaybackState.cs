@@ -15,6 +15,12 @@ public sealed class DisplayPlaybackState
     public DateTimeOffset? StartedAt { get; set; }
     public double? PausedPositionSeconds { get; set; }
     public Guid? LastCommandId { get; set; }
+    public long Revision { get; set; }
+    public bool Blackout { get; set; }
+    public Guid? ActualCommandId { get; set; }
+    public string? ActualVisibleJson { get; set; }
+    public Guid? SceneSessionId { get; set; }
+    public DateTimeOffset? SceneExpiresAt { get; set; }
 
     public string ActualState { get; set; } = "Idle";
     public Guid? ActualMediaAssetId { get; set; }
