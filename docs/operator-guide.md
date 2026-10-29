@@ -2,6 +2,10 @@
 
 El evento activo permanece en la cabecera. El panel separa cuatro tareas: **En vivo**, **Escenas**, **Contenido** y **Configuración**. Los destinos de reproducción se eligen explícitamente; si desaparecen, el panel pide elegirlos otra vez.
 
+Desde el inicio, **Controlar mi evento** abre el panel para la computadora o el celular; **Conectar una pantalla** abre el reproductor en la TV. Si todavía no hay eventos, **Crear mi primer evento** inicia la preparación.
+
+El nombre del evento encabeza el panel. El evento y la sección seleccionados se conservan en la dirección del navegador: podés recargar, guardar el enlace o usar Atrás sin perder ese contexto. Si un enlace apunta a un evento que ya no está disponible, el panel pide elegir uno; nunca cambia a otro automáticamente. **Panel conectado** indica que el panel recibe datos del servidor; la conexión de cada TV se muestra por separado en su tarjeta.
+
 ## En vivo
 
 Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios, página web y multimedia de fondo. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
@@ -49,6 +53,10 @@ La duración temporal se cuenta desde la activación coordinada. El servidor con
 Biblioteca, Playlists y Promociones tienen pestañas dentro de Contenido. Para agregar archivos a una playlist se abre la biblioteca como selector y, al terminar, se regresa al editor.
 
 La biblioteca permite vista previa local, búsqueda, filtros, selección ordenada y varias subidas. Cada archivo conserva su resultado, bytes enviados, error, cancelación o posibilidad de reintento. Que se hayan enviado todos los bytes no significa que el servidor haya terminado de procesarlo. **Agregar subidos a una playlist** usa los éxitos en el orden seleccionado y conserva los fallidos para reintentar.
+
+Podés arrastrar archivos o usar **Elegir archivos**, seleccionar más de 50 en una tanda y comenzar con **Subir archivos pendientes**. La cola procesa hasta tres transferencias simultáneas, sin límite de cantidad, con un máximo de 1 GB por archivo. Se puede cancelar cada archivo o todos los pendientes y reintentar los fallidos sin volver a subir los exitosos. Mantené la página abierta durante la carga; cambiar de evento o cerrar la página cancela las transferencias locales. La cola no se conserva al recargar.
+
+Los duplicados se detectan por nombre completo dentro del evento, sin distinguir mayúsculas, tanto en la biblioteca como en la misma cola. **Omitir** conserva el existente; **Reemplazar** guarda el nuevo contenido conservando el identificador y las referencias en playlists y escenas. La decisión puede aplicarse a todos los duplicados pendientes. Un mismo contenido con otro nombre se considera un archivo distinto. Si falla el reemplazo, se conserva el archivo anterior. Las escenas preparadas con el contenido anterior deben prepararse de nuevo; el reproductor conectado verifica la versión de su caché al volver a solicitar el recurso. Un reproductor sin conexión conserva la última copia preparada.
 
 Editar una playlist guarda cambios sin publicarlos. **Aplicar cambios** muestra los destinos e inicia la versión guardada desde el primer archivo. Los resultados se muestran por pantalla. Para promociones, aplicar guarda la política y la envía, reiniciando el contador sin reiniciar el video actual. Una promoción en curso puede terminar antes de volver al fondo.
 

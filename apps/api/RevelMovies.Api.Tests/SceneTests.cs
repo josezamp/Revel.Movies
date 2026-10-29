@@ -26,6 +26,25 @@ public sealed class SceneTests
     private static SceneAssignment Overlay(Guid id) => new([id], [], new(), new(), new("replace", Announcement()));
 
     [Fact]
+    public async Task Replacing_media_with_the_same_size_invalidates_scene_preparation()
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        var asset = await db.MediaAssets.SingleAsync(x => x.Id == seed.MediaId);
+        asset.Checksum = "original"; asset.FileSize = 100; await db.SaveChangesAsync();
+        var assignment = Overlay(seed.A) with { Media = new("replace", "media", seed.MediaId) };
+        var scene = await scenes.Save(seed.EventId, null, new("Fondo", [assignment]), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        asset.Checksum = "replacement"; await db.SaveChangesAsync();
+        await Assert.ThrowsAsync<SceneValidationException>(() => scenes.Activate(seed.EventId, scene.Id,
+            new(scene.Version, PreparationId: prepared.Id), default));
+        Assert.Equal(100, asset.FileSize);
+    }
+
+    [Fact]
     public async Task Rename_offline_preserves_identity_pairing_group_and_playback()
     {
         await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f);

@@ -2,13 +2,17 @@ import { test, expect, type Page, type APIRequestContext } from '@playwright/tes
 import { createServer, type Server } from 'node:http'
 
 let site: Server
-test.beforeAll(async () => {
+let siteUrl: string
+test.beforeAll(async ({ baseURL }) => {
   site = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html')
-    res.setHeader('Content-Security-Policy', 'frame-ancestors http://localhost:5175')
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${new URL(baseURL!).origin}`)
     res.end(`<html><body style="margin:0;background:#152035;color:white;display:grid;place-content:center;height:100dvh"><h1>Concurso ${req.url === '/second' ? 'premios' : 'muro'}</h1><script>document.body.dataset.scripts = 'ready'</script></body></html>`)
   })
-  await new Promise<void>(resolve => site.listen(5176, 'localhost', resolve))
+  await new Promise<void>(resolve => site.listen(0, 'localhost', resolve))
+  const address = site.address()
+  if (!address || typeof address === 'string') throw new Error('Test site did not bind a TCP port.')
+  siteUrl = `http://localhost:${address.port}`
 })
 test.afterAll(async () => { await new Promise<void>((resolve, reject) => site.close(error => error ? reject(error) : resolve())) })
 
@@ -47,7 +51,7 @@ test('existing pairing projects from admin, replaces, recovers after disconnect,
   await admin.locator('header select').selectOption(eventId)
   await admin.getByRole('button', { name: 'Contenido', exact: true }).click()
   await admin.locator('summary').filter({ hasText: 'Proyectar una página web' }).click()
-  await admin.getByLabel('URL de la página').fill('http://localhost:5176/first')
+  await admin.getByLabel('URL de la página').fill(`${siteUrl}/first`)
   await admin.getByRole('combobox', { name: 'Proyectar en', exact: true }).selectOption(`display:${displayId}`)
   await admin.getByRole('button', { name: 'Mostrar página en Escenario', exact: true }).click()
   await expect(admin.getByRole('status').filter({ hasText: 'URL guardada' })).toBeVisible()
@@ -60,7 +64,7 @@ test('existing pairing projects from admin, replaces, recovers after disconnect,
 
   // An offline screen receives the latest stored URL without a new pair.
   await page.goto('about:blank')
-  await send(request, displayId, 'webpage.show', { url: 'http://localhost:5176/second' })
+  await send(request, displayId, 'webpage.show', { url: `${siteUrl}/second` })
   await page.goto('/player')
   await expect(frame.getByRole('heading', { name: 'Concurso premios' })).toBeVisible()
   await page.reload()
@@ -92,22 +96,22 @@ test('existing pairing projects from admin, replaces, recovers after disconnect,
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
-test('group assignment reaches paired members and can be removed while offline', async ({ page, browser, request }) => {
+test('group assignment reaches paired members and can be removed while offline', async ({ page, browser, request, baseURL }) => {
   const first = await pair(page, request)
-  const secondContext = await browser.newContext({ baseURL: 'http://localhost:5175' })
+  const secondContext = await browser.newContext({ baseURL })
   const secondPage = await secondContext.newPage()
   // Independent TV storage, same event.
-  await secondPage.goto('http://localhost:5175')
+  await secondPage.goto('/')
   const second = await pair(secondPage, request, first.eventId, 'Entrada')
   const groupResponse = await request.post(`/api/events/${first.eventId}/display-groups`, { data: { name: 'Concurso' } })
   const group = await groupResponse.json()
   expect((await request.put(`/api/display-groups/${group.id}/members`, { data: { displayIds: [first.displayId, second.displayId] } })).ok()).toBeTruthy()
-  expect((await request.post(`/api/display-groups/${group.id}/commands`, { data: { type: 'webpage.show', payload: { url: 'http://localhost:5176/first' } } })).status()).toBe(202)
+  expect((await request.post(`/api/display-groups/${group.id}/commands`, { data: { type: 'webpage.show', payload: { url: `${siteUrl}/first` } } })).status()).toBe(202)
   for (const tv of [page, secondPage]) await expect(tv.frameLocator('iframe').getByText('Concurso muro')).toBeVisible()
   await secondPage.goto('about:blank')
   expect((await request.post(`/api/display-groups/${group.id}/commands`, { data: { type: 'webpage.clear' } })).status()).toBe(202)
   await expect(page.locator('iframe')).toHaveCount(0)
-  await secondPage.goto('http://localhost:5175/player')
+  await secondPage.goto('/player')
   await expect(secondPage.locator('.player-shell')).toBeVisible()
   await expect(secondPage.locator('.pairing-screen')).toHaveCount(0)
   await expect(secondPage.locator('iframe')).toHaveCount(0)

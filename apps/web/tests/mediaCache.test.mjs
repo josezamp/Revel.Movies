@@ -11,6 +11,7 @@ function worker(fetch) {
   const cached = new Map()
   const cache = {
     async match(request) { return cached.get(request.url)?.clone() },
+    async delete(request) { return cached.delete(request.url) },
     async put(request, response) {
       // Consume the same body as Cache Storage, rather than keeping an unread clone.
       cached.set(request.url, new Response(await response.arrayBuffer(), { headers: response.headers }))
@@ -18,7 +19,7 @@ function worker(fetch) {
   }
   vm.runInNewContext(source, {
     self: { addEventListener: (type, callback) => listeners.set(type, callback), location: { origin: 'https://player.test' } },
-    caches: { open: async () => cache }, fetch, Request, Response, Headers, URL, console: { warn() {} },
+    caches: { open: async () => cache }, fetch, Request, Response, Headers, URL, AbortController, setTimeout, clearTimeout, console: { warn() {} },
   })
   return {
     async prepare() {
@@ -48,10 +49,11 @@ test('overlapping preparations share one download and subsequent requests use ca
   let downloading
   let downloads = 0
   const fetched = new Promise(resolve => { downloading = resolve })
-  const response = new Response('0123456789', { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '10' } })
+  const response = new Response('0123456789', { headers: { 'Content-Type': 'video/mp4', 'Content-Length': '10', ETag: '"original"' } })
   // The old implementation retained this unread clone while caching a large video.
   response.clone = () => { throw new Error('Do not tee the download') }
-  const sw = worker(() => {
+  const sw = worker(request => {
+    if (request.method === 'HEAD') return Promise.resolve(new Response(null, { headers: { ETag: '"original"' } }))
     downloads++
     downloading()
     return new Promise(resolve => { release = () => resolve(response) })
@@ -89,4 +91,25 @@ test('unknown and oversized assets are not reported as offline ready', async () 
   assert.deepEqual(await unknown.prepare(), { prepared: 0, failed: 1 })
   const oversized = worker(async () => new Response('stream', { headers: { 'Content-Length': String(257 * 1024 * 1024) } }))
   assert.deepEqual(await oversized.prepare(), { prepared: 0, failed: 1 })
+})
+
+test('replaced content invalidates prepared bytes while offline playback keeps the cached copy', async () => {
+  let version = 'old'
+  let offline = false
+  let downloads = 0
+  const sw = worker(async request => {
+    if (offline) throw new Error('offline')
+    if (request.method === 'HEAD') return new Response(null, { headers: { ETag: `"${version}"` } })
+    downloads++
+    return new Response(version, { headers: { 'Content-Length': '3', ETag: `"${version}"` } })
+  })
+  await sw.prepare()
+  offline = true
+  assert.equal(await (await sw.read()).text(), 'old')
+  offline = false
+  version = 'new'
+  assert.equal(await (await sw.read()).text(), 'new')
+  assert.equal(downloads, 2)
+  await sw.prepare()
+  assert.equal(await (await sw.read()).text(), 'new')
 })

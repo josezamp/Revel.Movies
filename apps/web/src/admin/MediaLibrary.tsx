@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { deleteMedia, sendCommand, sendGroupCommand, type Display, type DisplayGroup, type MediaAsset } from '../api/client'
-import { uploadMediaWithProgress } from '../api/uploads'
+import { MediaUploadQueue } from './MediaUploadQueue'
+import { useTvOptimization } from './useTvOptimization'
+import { TvOptimizationControl } from './TvOptimizationControl'
 import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
 import './content.css'
 
-type Upload = { id: string; file: File; status: 'queued' | 'uploading' | 'complete' | 'error' | 'cancelled'; loaded: number; total: number | null; asset?: MediaAsset; error?: string }
 type Preview = { name: string; type: 'Video' | 'Image'; url?: string; file?: File }
 
 export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onMediaChanged, selecting, selectedIds, onSelectedIds,
@@ -20,60 +21,24 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [uploads, setUploads] = useState<Upload[]>([])
   const [preview, setPreview] = useState<Preview>()
   const [removing, setRemoving] = useState<MediaAsset>()
-  const queue = useRef<Upload[]>([])
-  const running = useRef(false)
-  const mounted = useRef(true)
-  const uploadController = useRef<{ id: string; controller: AbortController } | undefined>(undefined)
   const sending = useRef(false)
+  const tv = useTvOptimization(eventId, media, onMediaChanged)
+  const optimizationByMedia = new Map(tv.jobs.map(job => [job.mediaId, job]))
+  const originalByCopy = new Map(tv.jobs.filter(job => job.resultMediaId).map(job => [job.resultMediaId,
+    media.find(item => item.id === job.mediaId && item.checksum === job.sourceChecksum)]))
+  const mediaById = new Map(media.map(item => [item.id, item]))
+  const previewAsset = (item: MediaAsset) => setPreview({ name: item.name, type: item.type === 'Image' ? 'Image' as const : 'Video' as const, url: item.contentUrl })
   const targets = [...displays.map(item => ({ value: `display:${item.id}`, id: item.id, name: item.name, ids: [item.id], kind: 'display' })),
     ...groups.map(item => ({ value: `group:${item.id}`, id: item.id, name: `${item.name} · ${item.displayIds.length} pantallas`, ids: item.displayIds, kind: 'group' }))]
   const target = targets.find(item => item.value === targetId)
   const canOperate = !!target?.ids.length
   useEffect(() => { setNotice(''); setError('') }, [feedback])
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; uploadController.current?.controller.abort() } }, [])
   useEffect(() => { if (targetId && !target) setTargetId('') }, [targetId, target])
   const visible = media.filter(item => (filter === 'all' || item.type === filter) && `${item.name} ${item.fileName}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()))
   const selected = selectedIds.filter(id => media.some(item => item.id === id))
   const allVisibleSelected = visible.length > 0 && visible.every(item => selected.includes(item.id))
-  const uploaded = uploads.flatMap(item => item.asset ? [item.asset] : [])
-  const hasUploadWork = uploads.some(item => item.status === 'queued' || item.status === 'uploading')
-
-  function updateUpload(id: string, patch: Partial<Upload>) {
-    queue.current = queue.current.map(item => item.id === id ? { ...item, ...patch } : item)
-    if (mounted.current) setUploads(queue.current)
-  }
-
-  async function startUploads() {
-    if (running.current || !eventId) return
-    running.current = true
-    try {
-      let next: Upload | undefined
-      while (mounted.current && (next = queue.current.find(item => item.status === 'queued'))) {
-        const item = next
-        const controller = new AbortController()
-        uploadController.current = { id: item.id, controller }
-        updateUpload(item.id, { status: 'uploading', error: undefined, loaded: 0, total: null })
-        try {
-          const asset = await uploadMediaWithProgress(eventId, item.file, controller.signal,
-            (loaded, total) => updateUpload(item.id, { loaded, total }))
-          updateUpload(item.id, { status: 'complete', asset })
-          try { await onMediaChanged() } catch { if (mounted.current) setError('El archivo se subió. No se pudo actualizar la biblioteca; reintentá actualizarla.') }
-        } catch (cause) {
-          updateUpload(item.id, { status: controller.signal.aborted ? 'cancelled' : 'error',
-            error: controller.signal.aborted ? undefined : cause instanceof Error ? cause.message : 'Falló la subida.' })
-        } finally { uploadController.current = undefined }
-      }
-    } finally { running.current = false }
-  }
-
-  function cancelUpload(item: Upload) {
-    if (uploadController.current?.id === item.id) uploadController.current.controller.abort()
-    else updateUpload(item.id, { status: 'cancelled' })
-  }
-
   async function run(action: () => Promise<unknown>, message: string) {
     if (sending.current) return
     sending.current = true; setBusy(true); setError(''); setNotice('')
@@ -98,37 +63,8 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
         <button type="button" disabled={!media.length && !selecting} aria-pressed={selecting}
           onClick={selecting ? onCancelSelection : onStartSelection}>{selecting ? 'Volver al editor' : 'Seleccionar'}</button>
       </div>
-      <div className="library-upload">
-        <label className="workspace-field">Agregar archivos a la cola
-          <input type="file" multiple accept="video/mp4,image/jpeg,image/png,image/webp,image/gif" disabled={!eventId}
-            onChange={event => {
-              const items: Upload[] = Array.from(event.target.files ?? []).map(file => ({ id: crypto.randomUUID(), file, status: file.size > 1024 ** 3 ? 'error' : 'queued', loaded: 0, total: null, error: file.size > 1024 ** 3 ? 'Supera el límite de 1 GB.' : undefined }))
-              queue.current = [...queue.current, ...items]; setUploads(queue.current); event.target.value = ''
-            }} />
-        </label>
-        <button disabled={!uploads.some(item => item.status === 'queued') || running.current} onClick={() => void startUploads()}>Subir archivos pendientes</button>
-        <small>MP4, JPG, PNG, WEBP o GIF. Hasta 1 GB por archivo. Se conserva el orden de selección.</small>
-      </div>
-      {uploads.length > 0 && <div className="upload-queue">
-        <div className="workspace-heading"><strong>{uploaded.length} de {uploads.length} archivos subidos</strong>
-          <button disabled={!uploaded.length || hasUploadWork || playlistsLoading} onClick={() => onAddUploaded(uploaded)}>Agregar subidos a una playlist</button></div>
-        <ol>{uploads.map(item => <li key={item.id}>
-          <div className="upload-file"><strong>{item.file.name}</strong><small>{formatBytes(item.file.size)} · {uploadLabel(item)}</small>
-            {item.status === 'uploading' && <progress aria-label={`Subida de ${item.file.name}`} value={item.total ? item.loaded : undefined} max={item.total ?? 1} />}
-            {item.error && <span className="workspace-error">{item.error}</span>}
-          </div>
-          <div className="button-row"><button onClick={() => setPreview({ name: item.file.name, file: item.file, type: item.file.type.startsWith('image/') ? 'Image' : 'Video' })}>Vista previa</button>
-            {(item.status === 'queued' || item.status === 'uploading') && <button onClick={() => cancelUpload(item)}>Cancelar</button>}
-            {(item.status === 'error' || item.status === 'cancelled') && <button disabled={item.file.size > 1024 ** 3} onClick={() => { updateUpload(item.id, { status: 'queued', error: undefined }); void startUploads() }}>Reintentar</button>}
-            {item.status === 'queued' && !running.current && <button disabled={uploads.indexOf(item) === 0} aria-label={`Subir ${item.file.name} en el orden`} onClick={() => {
-              const index = queue.current.findIndex(candidate => candidate.id === item.id)
-              const reordered = [...queue.current]; [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]]
-              queue.current = reordered; setUploads(reordered)
-            }}>↑</button>}
-          </div>
-        </li>)}</ol>
-        <small>Cancelar detiene la transferencia local. Si el servidor ya la había recibido, el archivo puede aparecer en la biblioteca.</small>
-      </div>}
+      <MediaUploadQueue eventId={eventId} media={media} onMediaChanged={onMediaChanged} onAddUploaded={onAddUploaded}
+        playlistsLoading={playlistsLoading} onPreview={file => setPreview({ name: file.name, file, type: /\.(jpe?g|png|webp|gif)$/i.test(file.name) ? 'Image' : 'Video' })} />
       <div className="library-tools">
         <label className="workspace-field library-search"><span className="visually-hidden">Buscar archivos</span>
           <input type="search" placeholder="Buscar por nombre…" aria-label="Buscar archivos" value={search} onChange={event => setSearch(event.target.value)} />
@@ -157,6 +93,8 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
       </div>}
       {(feedback || notice) && <p className="workspace-feedback" role="status">{notice || feedback}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
+      {tv.error && <p className="workspace-error" role="alert">{tv.error}</p>}
+      {tv.available === false && media.some(item => item.type === 'Video') && <p className="workspace-help">Reducir tamaño para TV requiere habilitar FFmpeg en el servidor.</p>}
       {!media.length && <div className="workspace-empty"><strong>Tu biblioteca empieza acá</strong><p>Subí un video o una imagen para reproducirlo o agregarlo a una playlist.</p></div>}
       {media.length > 0 && !visible.length && <div className="workspace-empty"><p>No hay archivos que coincidan con la búsqueda.</p><button onClick={() => { setSearch(''); setFilter('all') }}>Limpiar filtros</button></div>}
       <div className="media-grid library-grid">
@@ -169,6 +107,9 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
           </div>
           <div className="library-card-info"><small>Miniatura · {item.type === 'Image' ? 'Imagen' : 'Video'} · {formatBytes(item.fileSize)}</small><strong title={item.name}>{item.name}</strong><span title={item.fileName}>{item.fileName}</span></div>
           <button className="quiet-button" onClick={() => setPreview({ name: item.name, type: item.type === 'Image' ? 'Image' : 'Video', url: item.contentUrl })}>Vista previa local</button>
+          <TvOptimizationControl item={item} job={optimizationByMedia.get(item.id)} origin={originalByCopy.get(item.id)}
+            result={mediaById.get(optimizationByMedia.get(item.id)?.resultMediaId ?? '')} available={tv.available}
+            requesting={tv.requesting} onStart={tv.start} onPreview={previewAsset} />
           {selecting ? <button type="button" className="library-select-text" aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}>{selected.includes(item.id) ? 'Quitar de la selección' : 'Seleccionar archivo'}</button> : <div className="button-row">
             <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.play', { mediaId: item.id }), `Reproducción enviada a ${target!.name}. Consultá la confirmación en En vivo.`)}>Reproducir{target ? ` en ${target.name}` : ' · elegí destino'}</button>
             <button className="quiet-button" disabled={busy} onClick={() => { setRemoving(item); setError('') }}>Eliminar</button>
@@ -195,11 +136,6 @@ function MediaPreview({ preview, onClose }: { preview: Preview; onClose: () => v
     <p className="workspace-help">Solo en este dispositivo. No modifica ninguna pantalla.</p>
     <div className="local-media-preview">{url && (preview.type === 'Image' ? <img src={url} alt={preview.name} /> : <video src={url} controls playsInline preload="metadata" />)}</div>
   </Dialog>
-}
-
-function uploadLabel(item: Upload) {
-  if (item.status === 'uploading') return item.total && item.loaded >= item.total ? 'Archivo enviado; procesando en el servidor…' : `Subiendo ${formatBytes(item.loaded)}${item.total ? ` de ${formatBytes(item.total)}` : ''}`
-  return { queued: 'Pendiente', complete: 'Subido', error: 'Falló', cancelled: 'Cancelado' }[item.status]
 }
 
 function formatBytes(bytes: number) {

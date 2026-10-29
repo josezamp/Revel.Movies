@@ -35,7 +35,7 @@ function prepareMedia(url) {
 
   const preparation = (async () => {
     const cache = await caches.open(MEDIA_CACHE)
-    if (await cache.match(request)) return
+    if (await currentCachedMedia(cache, request)) return
     const response = await fetch(request)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const declaredLength = response.headers.get('Content-Length')
@@ -65,7 +65,7 @@ self.addEventListener('fetch', event => {
 async function handleMediaRequest(request) {
   const cache = await caches.open(MEDIA_CACHE)
   const cacheKey = new Request(request.url, { credentials: 'same-origin' })
-  const cached = await cache.match(cacheKey)
+  const cached = await currentCachedMedia(cache, cacheKey)
 
   if (!cached) return fetch(request)
 
@@ -73,6 +73,23 @@ async function handleMediaRequest(request) {
   if (!range) return cached
 
   return buildRangeResponse(cached, range)
+}
+
+async function currentCachedMedia(cache, request) {
+  const cached = await cache.match(request)
+  if (!cached) return undefined
+  // Media IDs survive replacements. Revalidate their checksum without downloading the video.
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(new Request(request.url, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store', signal: controller.signal }))
+    if (response.ok && response.headers.get('ETag') && response.headers.get('ETag') === cached.headers.get('ETag')) return cached
+    if (!response.ok && response.status !== 404) return cached
+    await cache.delete(request)
+    return undefined
+  } catch {
+    return cached // Offline playback keeps the last successfully prepared file.
+  } finally { clearTimeout(timeout) }
 }
 
 async function buildRangeResponse(response, rangeHeader) {

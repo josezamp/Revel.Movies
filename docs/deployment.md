@@ -75,14 +75,16 @@ dotnet test apps/api/RevelMovies.Api.Tests/RevelMovies.Api.Tests.csproj
 
 ## Media storage
 
-The default development storage root is the relative `media` directory under the API content root. In IIS, use a dedicated persistent path, for example:
+Para habilitar **Reducir tamaño para TV**, ver [instalación de FFmpeg y configuración de IIS](ffmpeg-tv.md). Incluye rutas, permisos, migración y recuperación de la cola.
+
+The default storage root is the relative `media` directory under the API content root. In the current IIS layout, `api` is a child application at `C:\Sites\RevelMovies\api`, so `media` resolves to `C:\Sites\RevelMovies\api\media`. This location can be retained; preserve it when publishing or cleaning the API directory. To make the current location explicit:
 
 ```text
-MediaStorage__RootPath=D:\RevelMovies\media
+MediaStorage__RootPath=C:\Sites\RevelMovies\api\media
 MediaStorage__MaxUploadBytes=1073741824
 ```
 
-The IIS Application Pool identity must have read/write/delete permission on that directory.
+The identity of the Application Pool assigned to the **api application** must have read/write/delete permission on that directory. Check the application's Advanced Settings to find its pool; it may differ from the root site's pool. A dedicated data directory outside the publication folder is also supported, but changing the configured root does not move existing files.
 
 Revel Movies accepts files up to 1 GiB (1,073,741,824 bytes) by default. Kestrel and the in-process ASP.NET Core IIS server allow an additional 1 MiB for multipart boundaries, headers and form fields. The per-file limit remains `MediaStorage:MaxUploadBytes`.
 

@@ -17,6 +17,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<Display> Displays => Set<Display>();
     public DbSet<PairingSession> PairingSessions => Set<PairingSession>();
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
+    public DbSet<MediaOptimizationJob> MediaOptimizationJobs => Set<MediaOptimizationJob>();
     public DbSet<DisplayGroup> DisplayGroups => Set<DisplayGroup>();
     public DbSet<DisplayGroupMember> DisplayGroupMembers => Set<DisplayGroupMember>();
     public DbSet<Playlist> Playlists => Set<Playlist>();
@@ -114,6 +115,22 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
                 .HasForeignKey(x => x.EventId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("fk_media_assets_events_event_id");
+        });
+
+        modelBuilder.Entity<MediaOptimizationJob>(builder =>
+        {
+            builder.ToTable("media_optimization_jobs");
+            builder.HasKey(x => x.MediaId);
+            builder.Property(x => x.MediaId).ValueGeneratedNever();
+            builder.Property(x => x.SourceChecksum).HasMaxLength(64);
+            builder.Property(x => x.SourceStorageKey).HasMaxLength(450);
+            builder.Property(x => x.Status).HasMaxLength(20);
+            builder.Property(x => x.Error).HasMaxLength(500);
+            builder.Property(x => x.LeaseId).IsConcurrencyToken();
+            builder.HasIndex(x => x.EventId);
+            builder.HasIndex(x => new { x.Status, x.LeaseExpiresAt });
+            builder.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.MediaId).OnDelete(DeleteBehavior.Cascade);
+            // No output FK: deleting either file must not delete the other.
         });
 
         modelBuilder.Entity<DisplayGroup>(builder =>

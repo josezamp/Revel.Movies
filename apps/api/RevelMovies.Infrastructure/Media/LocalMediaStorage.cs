@@ -28,31 +28,42 @@ public sealed class LocalMediaStorage : IMediaStorage
         var path = ResolvePath(storageKey);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        await using var destination = new FileStream(
-            path,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            81920,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var buffer = new byte[81920];
-        long total = 0;
-
-        while (true)
+        var created = false;
+        try
         {
-            var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
-            if (read == 0)
-                break;
+            await using var destination = new FileStream(
+                path,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            created = true;
 
-            await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            hash.AppendData(buffer, 0, read);
-            total += read;
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[81920];
+            long total = 0;
+
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+                if (read == 0)
+                    break;
+
+                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                hash.AppendData(buffer, 0, read);
+                total += read;
+            }
+
+            var checksum = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return new StoredMediaFile(storageKey, total, checksum);
         }
-
-        var checksum = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-        return new StoredMediaFile(storageKey, total, checksum);
+        catch
+        {
+            // Dispose the stream before deleting a cancelled or failed partial upload on Windows.
+            if (created && File.Exists(path)) File.Delete(path);
+            throw;
+        }
     }
 
     public Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default)

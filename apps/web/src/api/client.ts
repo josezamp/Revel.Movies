@@ -207,6 +207,19 @@ export async function getMedia(eventId: string): Promise<MediaAsset[]> {
   return getJson(`/api/events/${eventId}/media`)
 }
 
+export interface MediaOptimization {
+  mediaId: string; sourceChecksum: string; status: 'Queued' | 'Processing' | 'Completed' | 'NoSaving' | 'Failed' | 'Deleted'
+  progress: number; originalSize: number; resultMediaId: string | null; optimizedSize: number | null; error: string | null
+}
+
+export function getMediaOptimizations(eventId: string): Promise<{ available: boolean; jobs: MediaOptimization[] }> {
+  return getJson(`/api/events/${eventId}/media-optimizations`)
+}
+
+export function optimizeMediaForTv(mediaId: string): Promise<MediaOptimization> {
+  return requestJson(`/api/media/${mediaId}/tv-optimization`, { method: 'POST' })
+}
+
 export async function uploadMedia(eventId: string, file: File, name?: string): Promise<MediaAsset> {
   const form = new FormData()
   form.append('file', file)

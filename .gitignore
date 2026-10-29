@@ -23,6 +23,10 @@ Thumbs.db
 # Local data
 /deploy-backups/
 media/
+# Source namespaces named Media are code, including on case-insensitive Windows checkouts.
+!apps/api/RevelMovies.Application/Media/
+!apps/api/RevelMovies.Domain/Media/
+!apps/api/RevelMovies.Infrastructure/Media/
 *.db
 *.db-shm
 *.db-wal
@@ -33,3 +37,4 @@ media/
 # Browser test output
 **/test-results/
 **/playwright-report/
+**/.playwright-cli/

@@ -12,11 +12,12 @@ using RevelMovies.Infrastructure.Persistence;
 
 // Test-only process: real HTTP, pairing and SignalR; no connection to a real database.
 await using var factory = new BrowserApiFactory();
-factory.UseKestrel(65180);
+var port = int.TryParse(Environment.GetEnvironmentVariable("REVEL_BROWSER_API_PORT"), out var configuredPort) ? configuredPort : 65180;
+factory.UseKestrel(port);
 factory.StartServer();
 using (var scope = factory.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>().Database.EnsureCreatedAsync();
-Console.WriteLine("Browser test API: http://localhost:65180 (ephemeral database)");
+Console.WriteLine($"Browser test API: http://localhost:{port} (ephemeral database)");
 await Task.Delay(Timeout.InfiniteTimeSpan);
 
 sealed class BrowserApiFactory : WebApplicationFactory<PlayerHub>

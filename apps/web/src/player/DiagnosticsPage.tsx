@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 import { getPlayerDiagnostics, type PlayerDiagnostics } from '../api/client'
 import { getCachedMediaCount } from './mediaCache'
 
@@ -15,7 +16,7 @@ export function DiagnosticsPage() {
     async function refresh() {
       const deviceToken = localStorage.getItem(tokenKey)
       if (!deviceToken) {
-        if (!cancelled) setError('This browser is not paired yet.')
+        if (!cancelled) setError('Esta pantalla todavía no está vinculada. Abrí el reproductor para obtener su código.')
         return
       }
 
@@ -30,7 +31,7 @@ export function DiagnosticsPage() {
         setError(undefined)
       } catch (refreshError) {
         if (!cancelled)
-          setError(refreshError instanceof Error ? refreshError.message : 'Diagnostics unavailable.')
+          setError(refreshError instanceof Error ? refreshError.message : 'No se pudo actualizar el diagnóstico. Se reintentará automáticamente.')
       }
     }
 
@@ -48,53 +49,55 @@ export function DiagnosticsPage() {
   return (
     <main className="diagnostics-shell">
       <p className="eyebrow">REVEL MOVIES</p>
-      <h1>Player diagnostics</h1>
-      {error && <p className="diagnostics-error">{error}</p>}
+      <h1>Diagnóstico de pantalla</h1>
+      <nav className="home-actions" aria-label="Navegación del diagnóstico"><Link to="/player">Volver al reproductor</Link><Link to="/">Ir al inicio</Link></nav>
+      {!diagnostics && !error && <p role="status">Cargando diagnóstico…</p>}
+      {error && <p className="diagnostics-error" role="alert">{error}</p>}
 
       {display && (
         <>
           <section className="diagnostics-grid">
-            <Diagnostic label="Display" value={display.name} />
-            <Diagnostic label="Status" value={String(display.status)} />
-            <Diagnostic label="Playback health" value={display.playbackHealth ?? '—'} />
-            <Diagnostic label="Desired" value={display.desiredPlaybackState ?? '—'} />
-            <Diagnostic label="Actual" value={display.actualPlaybackState ?? '—'} />
-            <Diagnostic label="Position" value={formatSeconds(display.actualPositionSeconds)} />
-            <Diagnostic label="Drift" value={formatMs(display.driftMs)} />
-            <Diagnostic label="Last playback report" value={formatDate(display.lastPlaybackReportAt)} />
-            <Diagnostic label="Clock offset" value={formatMs(display.clockOffsetMs)} />
-            <Diagnostic label="Round trip" value={formatMs(display.roundTripMs)} />
-            <Diagnostic label="Last clock sync" value={formatDate(display.lastClockSyncAt)} />
-            <Diagnostic label="Last seen" value={formatDate(display.lastSeenAt)} />
-            <Diagnostic label="Cached media" value={String(cachedMediaCount)} />
-            <Diagnostic label="Service Worker" value={'serviceWorker' in navigator && window.isSecureContext ? 'Available' : 'Network fallback'} />
+            <Diagnostic label="Pantalla" value={display.name} />
+            <Diagnostic label="Conexión" value={String(display.status)} />
+            <Diagnostic label="Estado de reproducción" value={display.playbackHealth ?? '—'} />
+            <Diagnostic label="Estado solicitado" value={display.desiredPlaybackState ?? '—'} />
+            <Diagnostic label="Estado reportado" value={display.actualPlaybackState ?? '—'} />
+            <Diagnostic label="Posición" value={formatSeconds(display.actualPositionSeconds)} />
+            <Diagnostic label="Desfase de reproducción" value={formatMs(display.driftMs)} />
+            <Diagnostic label="Último reporte de reproducción" value={formatDate(display.lastPlaybackReportAt)} />
+            <Diagnostic label="Diferencia de reloj" value={formatMs(display.clockOffsetMs)} />
+            <Diagnostic label="Latencia de ida y vuelta" value={formatMs(display.roundTripMs)} />
+            <Diagnostic label="Última sincronización" value={formatDate(display.lastClockSyncAt)} />
+            <Diagnostic label="Última conexión" value={formatDate(display.lastSeenAt)} />
+            <Diagnostic label="Archivos en caché" value={String(cachedMediaCount)} />
+            <Diagnostic label="Service Worker" value={'serviceWorker' in navigator && window.isSecureContext ? 'Disponible' : 'Reproducción por red'} />
           </section>
 
           {playback && (
             <section className="diagnostics-history">
-              <h2>Playback state</h2>
+              <h2>Estado de reproducción</h2>
               <div className="diagnostics-grid">
-                <Diagnostic label="Content" value={playback.contentType ?? '—'} />
-                <Diagnostic label="Media" value={playback.actualMediaAssetId ?? playback.mediaAssetId ?? '—'} />
+                <Diagnostic label="Contenido" value={playback.contentType ?? '—'} />
+                <Diagnostic label="Archivo" value={playback.actualMediaAssetId ?? playback.mediaAssetId ?? '—'} />
                 <Diagnostic label="Playlist" value={playback.actualPlaylistId ?? playback.playlistId ?? '—'} />
-                <Diagnostic label="Playlist item" value={playback.actualPlaylistIndex === null ? '—' : String(playback.actualPlaylistIndex + 1)} />
-                <Diagnostic label="Duration" value={formatSeconds(playback.actualDurationSeconds)} />
-                <Diagnostic label="Started at" value={formatDate(playback.startedAt)} />
+                <Diagnostic label="Posición en la playlist" value={playback.actualPlaylistIndex === null ? '—' : String(playback.actualPlaylistIndex + 1)} />
+                <Diagnostic label="Duración" value={formatSeconds(playback.actualDurationSeconds)} />
+                <Diagnostic label="Inicio de reproducción" value={formatDate(playback.startedAt)} />
               </div>
             </section>
           )}
 
           <section className="diagnostics-history">
-            <h2>Recent command acknowledgements</h2>
-            {diagnostics.acknowledgements.length === 0 && <p className="muted">No commands acknowledged yet.</p>}
+            <h2>Últimas confirmaciones de comandos</h2>
+            {diagnostics.acknowledgements.length === 0 && <p className="muted">Todavía no se recibieron confirmaciones de comandos.</p>}
             <div className="diagnostics-table-wrap">
               <table className="diagnostics-table">
                 <thead>
                   <tr>
-                    <th>Time</th>
-                    <th>Command</th>
-                    <th>Status</th>
-                    <th>Detail</th>
+                    <th>Hora</th>
+                    <th>Comando</th>
+                    <th>Estado</th>
+                    <th>Detalle</th>
                   </tr>
                 </thead>
                 <tbody>

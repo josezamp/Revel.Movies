@@ -31,6 +31,11 @@ builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySi
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxMediaUploadBytes);
 builder.Services.AddRevelMoviesInfrastructure(connectionString);
 builder.Services.AddSingleton<IMediaStorage>(_ => new LocalMediaStorage(mediaRoot));
+var tvOptimization = builder.Configuration.GetSection("TvOptimization").Get<TvOptimizationOptions>() ?? new();
+tvOptimization.WorkPath = Path.GetFullPath(tvOptimization.WorkPath, builder.Environment.ContentRootPath);
+builder.Services.AddSingleton(tvOptimization);
+builder.Services.AddSingleton<ITvVideoOptimizer, FFmpegTvVideoOptimizer>();
+builder.Services.AddHostedService<MediaOptimizationWorker>();
 builder.Services.AddScoped<DisplayRegistry>();
 builder.Services.AddScoped<EventRegistry>();
 builder.Services.AddScoped<MediaRegistry>();
@@ -69,6 +74,7 @@ app.MapHub<PlayerHub>("/hubs/player");
 app.MapOrchestrationEndpoints();
 app.MapPromotionalBreakEndpoints();
 app.MapSceneEndpoints();
+app.MapMediaOptimizationEndpoints();
 
 app.MapGet("/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {
@@ -126,6 +132,14 @@ app.MapPost("/events/{eventId:guid}/media", async (
     if (file is null)
         return Results.BadRequest(new { error = "A media file is required." });
 
+    Guid? replaceMediaId = null;
+    if (form.TryGetValue("replaceMediaId", out var replaceValue))
+    {
+        if (!Guid.TryParse(replaceValue.FirstOrDefault(), out var parsed))
+            return Results.BadRequest(new { error = "A valid replacement media ID is required." });
+        replaceMediaId = parsed;
+    }
+
     await using var stream = file.OpenReadStream();
     var result = await mediaRegistry.UploadAsync(
         eventId,
@@ -135,8 +149,10 @@ app.MapPost("/events/{eventId:guid}/media", async (
         file.Length,
         stream,
         maxMediaUploadBytes,
-        cancellationToken);
+        cancellationToken, replaceMediaId);
 
+    if (result.Existing is not null)
+        return Results.Conflict(new { error = result.Error, existing = MediaResponse.From(result.Existing) });
     if (result.Asset is null)
         return Results.BadRequest(new { error = result.Error });
 
@@ -152,7 +168,7 @@ app.MapGet("/media/{mediaId:guid}", async (
     return item is null ? Results.NotFound() : Results.Ok(MediaResponse.From(item));
 });
 
-app.MapGet("/media/{mediaId:guid}/content", async (
+app.MapMethods("/media/{mediaId:guid}/content", ["GET", "HEAD"], async (
     Guid mediaId,
     HttpResponse response,
     MediaRegistry mediaRegistry,
@@ -167,8 +183,9 @@ app.MapGet("/media/{mediaId:guid}/content", async (
     if (stream is null)
         return Results.NotFound();
 
-    response.Headers.CacheControl = "public, max-age=31536000, immutable";
-    return Results.File(stream, item.MimeType, enableRangeProcessing: true);
+    response.Headers.CacheControl = "public, no-cache";
+    return Results.File(stream, item.MimeType, enableRangeProcessing: true,
+        entityTag: new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{item.Checksum}\""));
 });
 
 app.MapDelete("/media/{mediaId:guid}", async (
@@ -539,5 +556,5 @@ public sealed record MediaResponse(
         item.Height,
         item.Checksum,
         item.CreatedAt,
-        $"/api/media/{item.Id}/content");
+        $"/api/media/{item.Id}/content?v={item.Checksum}");
 }

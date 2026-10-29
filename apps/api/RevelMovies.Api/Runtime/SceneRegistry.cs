@@ -130,7 +130,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
                     var media = await db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignment.Media.MediaId && x.EventId == eventId, ct)
                         ?? throw new SceneValidationException("El archivo no pertenece al evento o fue eliminado.");
                     resources.Add(new(media.Id, media.Type.ToString(), media.FileSize));
-                    mediaPayload = JsonSerializer.SerializeToElement(new { mediaId = media.Id, mediaType = media.Type.ToString(), fileSize = media.FileSize, loop = assignment.Media.Loop ?? false }, Json);
+                    mediaPayload = JsonSerializer.SerializeToElement(new { mediaId = media.Id, mediaType = media.Type.ToString(), fileSize = media.FileSize, checksum = media.Checksum, loop = assignment.Media.Loop ?? false }, Json);
                 }
                 else if (assignment.Media.Type == "playlist")
                 {
@@ -138,7 +138,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
                         ?? throw new SceneValidationException("La playlist no pertenece al evento o fue eliminada.");
                     var items = await (from item in db.PlaylistItems join media in db.MediaAssets on item.MediaAssetId equals media.Id
                         where item.PlaylistId == playlist.Id orderby item.Position
-                        select new { mediaId = media.Id, mediaType = media.Type.ToString(), fileSize = media.FileSize, durationSeconds = item.DurationSeconds }).ToArrayAsync(ct);
+                        select new { mediaId = media.Id, mediaType = media.Type.ToString(), fileSize = media.FileSize, checksum = media.Checksum, durationSeconds = item.DurationSeconds }).ToArrayAsync(ct);
                     if (items.Length == 0) throw new SceneValidationException("La playlist está vacía.");
                     resources.AddRange(items.Select(x => new SceneResource(x.mediaId, x.mediaType, x.fileSize)));
                     mediaPayload = JsonSerializer.SerializeToElement(new { playlistId = playlist.Id, playlistUpdatedAt = playlist.UpdatedAt, loop = assignment.Media.Loop ?? playlist.IsLoop, items }, Json);

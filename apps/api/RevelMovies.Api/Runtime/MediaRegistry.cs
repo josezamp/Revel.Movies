@@ -5,8 +5,10 @@ using RevelMovies.Infrastructure.Persistence;
 
 namespace RevelMovies.Api.Runtime;
 
-public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage)
+public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage, ILogger<MediaRegistry> logger)
 {
+    // Bound the lock table; concurrent uploads for an event must agree on its file names.
+    private static readonly SemaphoreSlim[] UploadLocks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
     private static readonly IReadOnlyDictionary<string, MediaFormat> SupportedFormats =
         new Dictionary<string, MediaFormat>(StringComparer.OrdinalIgnoreCase)
         {
@@ -38,7 +40,22 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         long declaredLength,
         Stream content,
         long maxUploadBytes,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Guid? replaceMediaId = null)
+    {
+        var gate = UploadLocks[(int)((uint)eventId.GetHashCode() % (uint)UploadLocks.Length)];
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await UploadCoreAsync(eventId, fileName, suppliedContentType, requestedName, declaredLength,
+                content, maxUploadBytes, replaceMediaId, cancellationToken);
+        }
+        finally { gate.Release(); }
+    }
+
+    private async Task<MediaUploadResult> UploadCoreAsync(Guid eventId, string fileName, string? suppliedContentType,
+        string? requestedName, long declaredLength, Stream content, long maxUploadBytes, Guid? replaceMediaId,
+        CancellationToken cancellationToken)
     {
         if (!await db.Events.AnyAsync(x => x.Id == eventId, cancellationToken))
             return MediaUploadResult.Fail("Event was not found.");
@@ -49,7 +66,7 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         if (declaredLength > maxUploadBytes)
             return MediaUploadResult.Fail($"The uploaded file exceeds the {FormatBytes(maxUploadBytes)} limit.");
 
-        var safeFileName = Path.GetFileName(fileName);
+        var safeFileName = Path.GetFileName(fileName.Replace('\\', '/')).Trim();
         if (string.IsNullOrWhiteSpace(safeFileName))
             return MediaUploadResult.Fail("A valid file name is required.");
 
@@ -80,7 +97,17 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         if (safeFileName.Length > 260)
             return MediaUploadResult.Fail("File name cannot exceed 260 characters.");
 
-        var asset = new MediaAsset
+        await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        var normalizedName = safeFileName.ToUpperInvariant();
+        var matches = await db.MediaAssets.Where(x => x.EventId == eventId && x.FileName.Trim().ToUpper() == normalizedName)
+            .ToListAsync(cancellationToken);
+        var existing = replaceMediaId.HasValue ? matches.FirstOrDefault(x => x.Id == replaceMediaId.Value) : matches.FirstOrDefault();
+        if (replaceMediaId.HasValue && existing is null)
+            return MediaUploadResult.Fail("The file to replace no longer exists or has a different name.");
+        if (existing is not null && !replaceMediaId.HasValue)
+            return MediaUploadResult.Duplicate(existing);
+
+        var asset = existing ?? new MediaAsset
         {
             EventId = eventId,
             Name = name,
@@ -88,11 +115,13 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
             MimeType = format.MimeType,
             FileName = safeFileName
         };
+        var previousKey = existing?.StorageKey;
 
         StoredMediaFile? stored = null;
         try
         {
-            stored = await storage.SaveAsync(eventId, asset.Id, extension, content, cancellationToken);
+            // Write a new physical file first: failed/cancelled replacements leave the old asset intact.
+            stored = await storage.SaveAsync(eventId, Guid.NewGuid(), extension, content, cancellationToken);
             if (stored.FileSize > maxUploadBytes)
             {
                 await storage.DeleteAsync(stored.StorageKey, cancellationToken);
@@ -102,10 +131,25 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
             asset.StorageKey = stored.StorageKey;
             asset.FileSize = stored.FileSize;
             asset.Checksum = stored.Checksum;
+            asset.FileName = safeFileName;
+            asset.MimeType = format.MimeType;
+            asset.Type = format.Type;
+            asset.DurationSeconds = null;
+            asset.Width = null;
+            asset.Height = null;
+            if (!string.IsNullOrWhiteSpace(requestedName)) asset.Name = name;
 
-            db.MediaAssets.Add(asset);
+            if (existing is null) db.MediaAssets.Add(asset);
+            else
+            {
+                // Replacing a generated TV file makes it a new upload, not the previously validated conversion.
+                await db.MediaOptimizationJobs.Where(x => x.ResultMediaId == asset.Id).ExecuteDeleteAsync(cancellationToken);
+                var playlistIds = db.PlaylistItems.Where(x => x.MediaAssetId == asset.Id).Select(x => x.PlaylistId);
+                var playlists = await db.Playlists.Where(x => playlistIds.Contains(x.Id)).ToListAsync(cancellationToken);
+                foreach (var playlist in playlists) playlist.UpdatedAt = DateTimeOffset.UtcNow;
+            }
             await db.SaveChangesAsync(cancellationToken);
-            return MediaUploadResult.Success(asset);
+            await transaction.CommitAsync(cancellationToken);
         }
         catch
         {
@@ -113,6 +157,13 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
                 await storage.DeleteAsync(stored.StorageKey, CancellationToken.None);
             throw;
         }
+        // Cleanup is best effort after commit; its failure must not turn a saved upload into an error.
+        if (previousKey is not null)
+        {
+            try { await storage.DeleteAsync(previousKey, CancellationToken.None); }
+            catch (Exception ex) { logger.LogWarning(ex, "Could not remove replaced media file {StorageKey}", previousKey); }
+        }
+        return MediaUploadResult.Success(asset);
     }
 
     public async Task<bool> DeleteAsync(Guid mediaId, CancellationToken cancellationToken = default)
@@ -168,8 +219,9 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
     private sealed record MediaFormat(MediaType Type, string MimeType);
 }
 
-public sealed record MediaUploadResult(MediaAsset? Asset, string? Error)
+public sealed record MediaUploadResult(MediaAsset? Asset, string? Error, MediaAsset? Existing = null)
 {
     public static MediaUploadResult Success(MediaAsset asset) => new(asset, null);
     public static MediaUploadResult Fail(string error) => new(null, error);
+    public static MediaUploadResult Duplicate(MediaAsset existing) => new(null, "A file with this name already exists.", existing);
 }

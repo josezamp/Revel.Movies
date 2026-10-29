@@ -25,6 +25,7 @@ Revel Movies currently supports:
 - Video and image upload per Event
 - Media metadata persisted in SQL Server while binary files remain in media storage
 - MP4, JPG/JPEG, PNG, WEBP and GIF validation
+- Optional background TV video optimization with xFFmpeg.NET, preserving originals; see [FFmpeg setup](docs/ffmpeg-tv.md)
 - Remote playback by `mediaId`
 - Play, pause, stop, blackout, identify and player reload commands
 - Byte-range media responses for browser video seeking/playback
