@@ -7,8 +7,8 @@ import { SceneEditor } from './SceneEditor'
 import { ScenePreview } from './ScenePreview'
 import { sceneDestinations, sceneStatus } from './sceneView'
 
-type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[]; media: MediaAsset[]; playlists: Playlist[]; onChanged: () => Promise<void>; active: boolean; onPreparedChange: (labels: Record<string, string[]>) => void }
-export function ScenesPanel({ eventId, displays, groups, media, playlists, onChanged, active, onPreparedChange }: Props) {
+type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[]; media: MediaAsset[]; playlists: Playlist[]; onChanged: () => Promise<void>; active: boolean; onPreparedChange: (labels: Record<string, string[]>) => void; onSchedule: (sceneId: string) => void }
+export function ScenesPanel({ eventId, displays, groups, media, playlists, onChanged, active, onPreparedChange, onSchedule }: Props) {
   const [scenes, setScenes] = useState<Scene[]>([])
   const [sessions, setSessions] = useState<SceneSession[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,6 +81,7 @@ export function ScenesPanel({ eventId, displays, groups, media, playlists, onCha
         <div className="display-heading"><h3>{scene.name}</h3><span className="state-tag">{status}</span></div>
         <p className="muted">Versión {scene.version} · {resolved.destinations.length} {resolved.destinations.length === 1 ? 'pantalla' : 'pantallas'}{scene.temporaryDurationSeconds ? ` · Retorno en ${scene.temporaryDurationSeconds} s` : ''}</p>
         <p className="scene-destinations">{resolved.destinations.map(item => item.display.name).join(' · ') || 'Borrador sin destinos'}</p>
+        <button disabled={!valid || !!loadError} onClick={() => onSchedule(scene.id)}>Programar por fecha y hora</button>
         {!!resolved.conflicts.length && <p className="workspace-error">Destinos con asignaciones incompatibles: {resolved.conflicts.join(', ')}</p>}{!!resolved.missing.length && <p className="workspace-error">Hay destinos que ya no existen. Editá la escena.</p>}
         <div className="button-row"><button disabled={!!busy} onClick={() => setEditor(scene)}>Editar</button><button onClick={() => setPreview(scene)}>Previsualizar por destino</button><button disabled={!!busy} onClick={() => setRename(scene)}>Renombrar</button><button disabled={!!busy} onClick={() => void action(`duplicate:${scene.id}`, () => duplicateScene(eventId, scene.id), 'Copia guardada. Las pantallas siguen igual.')}>Duplicar</button><button className="danger-button" disabled={!!busy} onClick={() => setRemove(scene)}>Eliminar</button></div>
         <div className="scene-stage"><div className="section-heading"><strong>1. Preparar</strong><button disabled={!!busy || !valid || !!loadError} onClick={() => void action(`prepare:${scene.id}`, () => prepareScene(eventId, scene), 'Preparación enviada. Esperando resultados por pantalla.')}>{busy === `prepare:${scene.id}` ? 'Enviando…' : 'Preparar recursos'}</button></div><p className="workspace-help">Continúa la emisión actual. La preparación no activa anuncios ni inicia cuentas regresivas.</p>

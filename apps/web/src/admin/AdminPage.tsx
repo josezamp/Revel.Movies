@@ -12,9 +12,10 @@ import { ageLabel } from './liveState'
 import './operations.css'
 
 const EventMapPanel = lazy(() => import('./EventMapPanel').then(module => ({ default: module.EventMapPanel })))
+const SchedulePanel = lazy(() => import('./SchedulePanel').then(module => ({ default: module.SchedulePanel })))
 
-type Section = 'live' | 'scenes' | 'content' | 'configuration'
-const sections = [['live', 'En vivo'], ['scenes', 'Escenas'], ['content', 'Contenido'], ['configuration', 'Configuración']] as const
+type Section = 'live' | 'scenes' | 'schedule' | 'content' | 'configuration'
+const sections = [['live', 'En vivo'], ['scenes', 'Escenas'], ['schedule', 'Programación'], ['content', 'Contenido'], ['configuration', 'Configuración']] as const
 
 export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   username: string; onLogout: () => Promise<void>; loggingOut: boolean; sessionError: string
@@ -27,6 +28,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [groups, setGroups] = useState<DisplayGroup[]>([])
   const [prepared, setPrepared] = useState<Record<string, string[]>>({})
+  const [scheduleSceneId, setScheduleSceneId] = useState<string>()
   const [dialog, setDialog] = useState<'event' | PendingPairing>()
   const [error, setError] = useState('')
   const [mediaError, setMediaError] = useState('')
@@ -53,6 +55,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   }
 
   function setSelectedEventId(eventId: string) {
+    setScheduleSceneId(undefined)
     updateNavigation('event', eventId)
   }
 
@@ -118,7 +121,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
       </select></label><button onClick={() => setDialog('event')}>Nuevo evento</button><div className="admin-session"><span>{username}</span><button disabled={loggingOut} onClick={() => void onLogout()}>{loggingOut ? 'Cerrando…' : 'Cerrar sesión'}</button></div></div>
     </header>
     {sessionError && <p role="alert" className="workspace-error">{sessionError}</p>}
-    {selectedEventId && <nav className="operation-nav" aria-label="Tareas del evento"><div className="nav-context"><span className="nav-event">{eventName}</span><span className={`panel-connection${error || outdated ? ' is-stale' : ''}`}><span aria-hidden="true" />{error || outdated ? 'Sin actualización' : 'Panel conectado'}</span></div>{sections.map(([key, label]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); if (key === 'live' || key === 'scenes') void refreshMedia() }}>{label}</button>)}</nav>}
+    {selectedEventId && <nav className="operation-nav" aria-label="Tareas del evento"><div className="nav-context"><span className="nav-event">{eventName}</span><span className={`panel-connection${error || outdated ? ' is-stale' : ''}`}><span aria-hidden="true" />{error || outdated ? 'Sin actualización' : 'Panel conectado'}</span></div><div className="operation-tabs">{sections.map(([key, label]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); if (key === 'live' || key === 'scenes') void refreshMedia() }}>{label}</button>)}</div></nav>}
     <div id="event-workspace" tabIndex={-1} className="event-workspace">
     {(error || outdated) && <div className="server-alert" role="alert"><strong>Sin actualización del servidor.</strong> <span aria-live="off">{lastUpdated ? `Última actualización: ${ageLabel(now - lastUpdated).toLowerCase()}.` : 'Todavía no se recibieron datos.'}</span> Reintentando… <button onClick={() => void refresh()}>Reintentar ahora</button>{error && <small>{error}</small>}</div>}
     {missingEvent && <div className="server-alert" role="alert"><strong>Este evento no está disponible.</strong> Elegí un evento desde el selector de arriba para continuar. No se seleccionó otro automáticamente.</div>}
@@ -141,7 +144,8 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
         </> : <Suspense fallback={<p role="status">Cargando mapa…</p>}><EventMapPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} playlists={eventPlaylists} prepared={prepared} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} /></Suspense>}
       </section>
     </div>
-    <div hidden={section !== 'scenes'}><ScenesPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} playlists={eventPlaylists} onChanged={refresh} active={section === 'scenes' || section === 'live'} onPreparedChange={setPrepared} /></div>
+    <div hidden={section !== 'scenes'}><ScenesPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} playlists={eventPlaylists} onChanged={refresh} active={section === 'scenes' || section === 'live'} onPreparedChange={setPrepared} onSchedule={id => { setScheduleSceneId(id); setSection('schedule') }} /></div>
+    {section === 'schedule' && <Suspense fallback={<p role="status">Cargando programación…</p>}><SchedulePanel key={selectedEventId} eventId={selectedEventId} timeZone={events.find(item => item.id === selectedEventId)?.timeZone ?? 'UTC'} initialSceneId={scheduleSceneId} onEditorClosed={() => setScheduleSceneId(undefined)} onScenes={() => setSection('scenes')} /></Suspense>}
     <div hidden={section !== 'configuration'}><section><div className="workspace-heading"><div><h2>Agregar pantalla</h2><p>Abrí <a href="/player" target="_blank" rel="noreferrer">el reproductor</a> en la TV. Su código aparecerá acá.</p></div></div>
       {pending.length === 0 && <p className="muted">No hay pantallas esperando vinculación.</p>}<div className="card-grid">{pending.map(item => <article className="card" key={item.code}><strong className="pair-code">{item.code.slice(0, 3)} {item.code.slice(3)}</strong><button disabled={!selectedEventId} onClick={() => setDialog(item)}>Vincular al evento {eventName}</button></article>)}</div>
       <p className="muted">Orientación, nombre, mantenimiento y diagnóstico están en “Detalles” de cada pantalla en En vivo.</p>

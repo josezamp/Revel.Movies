@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RevelMovies.Application.Media;
 using RevelMovies.Domain.Media;
@@ -64,6 +65,18 @@ public sealed class MediaCleanupService(RevelMoviesDbContext db, IMediaStorage s
             .SetProperty(x => x.LastCommandId, stop.CommandId).SetProperty(x => x.Revision, x => x.Revision + 1)
             .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow));
         // Prepared sessions and temporary restoration snapshots must not resurrect deleted content.
+        var schedules = await db.SceneSchedules.Where(x => x.EventId == eventId &&
+            (x.Status == "scheduled" || x.Status == "preparing" || x.Status == "activating")).ToArrayAsync();
+        foreach (var schedule in schedules)
+        {
+            schedule.Status = "cancelled"; schedule.Detail = "Cancelada al limpiar los archivos del evento.";
+            schedule.CompletedAt = DateTimeOffset.UtcNow; schedule.Version++;
+            var targets = JsonSerializer.Deserialize<ScheduleTarget[]>(schedule.TargetsJson, SceneRegistry.Json)!;
+            foreach (var target in targets.Where(x => x.Status == "pending"))
+            { target.Status = "cancelled"; target.Detail = schedule.Detail; }
+            schedule.TargetsJson = JsonSerializer.Serialize(targets, SceneRegistry.Json);
+        }
+        await db.SaveChangesAsync();
         await db.SceneSessions.Where(x => x.EventId == eventId).ExecuteDeleteAsync();
 
         var failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

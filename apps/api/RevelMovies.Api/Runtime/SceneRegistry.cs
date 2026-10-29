@@ -171,14 +171,30 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
         return selected;
     }
 
-    public async Task<SceneSessionResponse> Prepare(Guid eventId, Guid sceneId, SceneOperationRequest request, CancellationToken ct)
+    internal async Task<(SceneResponse Scene, string Fingerprint, SceneTargetResponse[] Targets)> DescribeSchedule(
+        Guid eventId, Guid sceneId, int version, DateTimeOffset startsAt, CancellationToken ct)
     {
+        var scene = await Find(eventId, sceneId, ct);
+        if (scene.Version != version) throw new SceneValidationException("La escena cambió. Editá la programación para usar su versión actual.");
+        var targets = SelectTargets(await Resolve(eventId, Read<SceneAssignment[]>(scene.AssignmentsJson), ct), null);
+        foreach (var target in targets.Where(x => x.Assignment.Announcement.Action == "replace"))
+            if (AnnouncementCommand.Validate(target.Assignment.Announcement.Payload, startsAt, out _) is { } error)
+                throw new SceneValidationException(error);
+        return (View(scene), Fingerprint(targets), targets.Select(x => new SceneTargetResponse(x.DisplayId, x.Name, Guid.Empty, "pending", null, null, 0)).ToArray());
+    }
+
+    public async Task<SceneSessionResponse> Prepare(Guid eventId, Guid sceneId, SceneOperationRequest request, CancellationToken ct,
+        Guid? operationId = null)
+    {
+        if (operationId is { } existing && await db.SceneSessions.AnyAsync(x => x.Id == existing, ct)) return await Session(existing, ct);
         var scene = await Find(eventId, sceneId, ct);
         if (scene.Version != request.Version) throw new SceneValidationException("La versión cambió. Guardá y prepará la versión actual.");
         var all = await Resolve(eventId, Read<SceneAssignment[]>(scene.AssignmentsJson), ct);
         var selected = SelectTargets(all, request.DisplayIds);
-        var session = new SceneSession { EventId = eventId, SceneId = sceneId, Version = scene.Version, Fingerprint = Fingerprint(all) };
-        var older = await db.SceneSessions.Where(x => x.SceneId == sceneId && x.Kind == "prepare").ToListAsync(ct);
+        var session = new SceneSession { Id = operationId ?? Guid.NewGuid(), EventId = eventId, SceneId = sceneId, Version = scene.Version, Fingerprint = Fingerprint(all) };
+        // Each scheduled occurrence owns its preparation. Preparing a later occurrence of the
+        // same scene must not invalidate the one that is about to start.
+        var older = operationId.HasValue ? [] : await db.SceneSessions.Where(x => x.SceneId == sceneId && x.Kind == "prepare").ToListAsync(ct);
         foreach (var prior in older)
         {
             var priorTargets = Read<SceneTargetResult[]>(prior.TargetsJson);
@@ -204,8 +220,11 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
         return await Session(session.Id, ct);
     }
 
-    public async Task<SceneSessionResponse> Activate(Guid eventId, Guid sceneId, SceneOperationRequest request, CancellationToken ct)
+    public async Task<SceneSessionResponse> Activate(Guid eventId, Guid sceneId, SceneOperationRequest request, CancellationToken ct,
+        Guid? operationId = null, DateTimeOffset? scheduledStartAt = null)
     {
+        // The scheduler persists its operation ID before activation. A restart after commit must not activate twice.
+        if (operationId is { } existing && await db.SceneSessions.AnyAsync(x => x.Id == existing, ct)) return await Session(existing, ct);
         await Expire(ct);
         var scene = await Find(eventId, sceneId, ct);
         if (scene.Version != request.Version) throw new SceneValidationException("La versión cambió. Prepará la versión actual.");
@@ -223,11 +242,11 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
         if (!selected.Any(x => ready.Contains(x.DisplayId))) throw new SceneValidationException("No hay pantallas listas para activar.");
         await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
         var now = DateTimeOffset.UtcNow;
-        var startAt = now.AddSeconds(1);
+        var startAt = scheduledStartAt is { } planned && planned > now ? planned : now.AddSeconds(1);
         foreach (var target in selected.Where(x => x.Assignment.Announcement.Action == "replace"))
             if (AnnouncementCommand.Validate(target.Assignment.Announcement.Payload, startAt, out _) is { } deadlineError)
                 throw new SceneValidationException(deadlineError);
-        var session = new SceneSession { EventId = eventId, SceneId = sceneId, Version = scene.Version, Kind = "activate", Status = "activating",
+        var session = new SceneSession { Id = operationId ?? Guid.NewGuid(), EventId = eventId, SceneId = sceneId, Version = scene.Version, Kind = "activate", Status = "activating",
             Fingerprint = preparation.Fingerprint, ExpiresAt = scene.TemporaryDurationSeconds is { } seconds ? startAt.AddSeconds(seconds) : null };
         var results = new List<SceneTargetResult>();
         var commands = new List<(Guid Id, RevelMovies.Application.Commands.PlayerCommand Command)>();
@@ -288,6 +307,24 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
     }
 
     private static readonly PlaybackRecoveryState EmptyRecovery = new("Stopped", null, null, null, null, "Stopped", null, DateTimeOffset.UtcNow, null);
+
+    internal async Task RedeliverScheduledActivation(Guid id, CancellationToken ct)
+    {
+        var session = await db.SceneSessions.SingleAsync(x => x.Id == id && x.Kind == "activate", ct);
+        if (session.ExpiresAt <= DateTimeOffset.UtcNow || session.RestoredAt.HasValue) return;
+        var targets = Read<SceneTargetResult[]>(session.TargetsJson);
+        foreach (var target in targets)
+        {
+            var state = await playback.GetAsync(target.DisplayId, ct);
+            if (target.Composition is null || state?.LastCommandId != target.CommandId || state.Revision != target.AppliedRevision ||
+                state.ActualCommandId == target.CommandId) continue;
+            var recovery = (await playback.GetRecoveryAsync(target.DisplayId, ct))! with { ScenePrevious = target.Previous, SceneComposition = target.Composition };
+            var command = dispatcher.Create("scene.apply", JsonSerializer.SerializeToElement(new { sceneId = session.SceneId,
+                version = session.Version, sessionId = session.Id, startAt = DateTimeOffset.UtcNow.AddSeconds(1),
+                expiresAt = session.ExpiresAt, recovery, composition = target.Composition }, Json)) with { CommandId = target.CommandId };
+            await dispatcher.SendRawAsync([target.DisplayId], command, ct);
+        }
+    }
     private async Task<DisplayPlaybackState> State(Guid id, CancellationToken ct)
     {
         var state = await db.DisplayPlaybackStates.FirstOrDefaultAsync(x => x.DisplayId == id, ct);

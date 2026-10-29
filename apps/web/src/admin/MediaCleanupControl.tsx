@@ -44,7 +44,7 @@ export function MediaCleanupControl({ eventId, onCleaned }: { eventId: string; o
           <div><dt>Archivos temporales asociados</dt><dd>{preview.temporaryFileCount}</dd></div>
           <div><dt>Espacio a liberar</dt><dd>{formatBytes(preview.totalBytes)}</dd></div>
         </dl>
-        <p>Se detendrá la reproducción y se recargarán las pantallas de este evento. Sus playlists quedarán vacías y las escenas que usen estos archivos necesitarán contenido nuevo.</p>
+        <p>Se detendrá la reproducción y se recargarán las pantallas de este evento. Sus playlists quedarán vacías y las escenas que usen estos archivos necesitarán contenido nuevo. Se cancelarán las entradas pendientes de Programación; su historial se conserva.</p>
         <p className="workspace-help">Se conservan el evento y sus pantallas vinculadas. Los archivos de otros eventos no se modifican.</p>
         <label className="workspace-field">Escribí ELIMINAR para confirmar
           <input autoComplete="off" value={confirmation} disabled={busy} onChange={event => setConfirmation(event.target.value)} />

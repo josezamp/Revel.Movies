@@ -8,7 +8,7 @@ Si aparece “El acceso al panel todavía no está configurado”, completá la 
 
 ## El panel
 
-El evento activo permanece en la cabecera. El panel separa cuatro tareas: **En vivo**, **Escenas**, **Contenido** y **Configuración**. Los destinos de reproducción se eligen explícitamente; si desaparecen, el panel pide elegirlos otra vez.
+El evento activo permanece en la cabecera. El panel separa cinco tareas: **En vivo**, **Escenas**, **Programación**, **Contenido** y **Configuración**. Los destinos de reproducción se eligen explícitamente; si desaparecen, el panel pide elegirlos otra vez.
 
 Desde el inicio, **Controlar mi evento** abre el panel para la computadora o el celular; **Conectar una pantalla** abre el reproductor en la TV. Si todavía no hay eventos, **Crear mi primer evento** inicia la preparación.
 
@@ -56,6 +56,14 @@ Cambiar la escena, los recursos de una playlist o los integrantes de un grupo in
 Las cuentas regresivas por duración comienzan al activar; guardar y preparar no inician el reloj. Una hora fija se vuelve a validar al activar. El inicio coordinado reduce diferencias entre destinos, sin garantía de sincronización cuadro a cuadro.
 
 **Guardar configuración actual** captura las pantallas elegidas y sus capas solicitadas. El nombre de la pantalla nunca es su identificador de destino. Una captura conserva el estado y posición del fondo cuando corresponde. La vista previa describe una configuración futura; no representa la emisión actual.
+
+## Programación por fecha y hora
+
+En **Programación → Programar escena**, elegí una escena guardada, fecha, hora, zona horaria y la política para pantallas no disponibles. También podés programar desde cada tarjeta de Escenas. Las entradas se preparan automáticamente dos minutos antes y se activan desde el servidor aunque cierres el panel. El servidor y las pantallas deben permanecer encendidos y conectados.
+
+La agenda muestra el próximo cambio y permite editar o cancelar entradas futuras. El historial detalla la preparación y la confirmación por pantalla. Para después de medianoche elegí la fecha del día siguiente. Si no se puede ejecutar dentro del minuto posterior al horario, la entrada se omite o falla y queda registrada. Los cambios manuales no cancelan las próximas entradas.
+
+La versión y los destinos se confirman al guardar: si cambiás una escena, sus grupos o sus recursos, actualizá su programación. Ver [programación, recuperación y configuración de IIS](scheduling.md).
 
 ## Retorno y escenas temporales
 

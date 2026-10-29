@@ -28,8 +28,9 @@
 .operation-header .eyebrow { color: #d7d7dc; }
 .operation-header .admin-toolbar { align-items: end; margin: 0; flex-wrap: wrap; flex-shrink: 0; max-width: 100%; }
 .operation-header .admin-toolbar label { min-width: 200px; max-width: 340px; }
-.operation-nav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); position: sticky; top: 0; z-index: 8; background: #111113f5; backdrop-filter: blur(12px); border-block: 1px solid #343439; padding: 8px 0; gap: 6px; }
+.operation-nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); position: sticky; top: 0; z-index: 8; background: #111113f5; backdrop-filter: blur(12px); border-block: 1px solid #343439; padding: 8px 0; gap: 6px; }
 .operation-nav button { border-color: transparent; background: transparent; color: #b4b4bc; border-radius: 5px; padding: 12px 10px; font-weight: 600; }
+.operation-tabs { display: contents; }
 .operation-nav button[aria-current="page"], .operation-nav button[aria-current="page"]:hover { background: #f2f1ed; border-color: #f2f1ed; color: #17171a; }
 .nav-context { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; min-width: 0; gap: 16px; padding: 3px 8px 5px; }
 .operation-nav .nav-event { font-size: .72rem; color: #c5c5ce; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -154,8 +155,9 @@
   .operation-header .admin-toolbar label { flex: 1 1 180px; min-width: 0; }
   .operation-header .admin-toolbar select { width: 100%; min-width: 0; }
   .operation-header .admin-toolbar button { flex-shrink: 0; font-size: .8rem; }
-  .operation-nav { gap: 3px; }
-  .operation-nav button { padding-inline: 4px; font-size: .75rem; }
+  .operation-nav { gap: 3px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .operation-tabs { display: flex; overflow-x: auto; grid-column: 1 / -1; gap: 3px; }
+  .operation-nav button { flex: 1 0 auto; padding-inline: 12px; font-size: .8rem; }
   .operation-shell .library-selection-bar { top: 92px; }
   .operation-shell .display-card { padding: 14px; }
   .live-preview { height: 86px; }

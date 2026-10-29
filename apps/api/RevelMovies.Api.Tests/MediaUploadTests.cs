@@ -153,6 +153,9 @@ public sealed class MediaUploadTests
             db.DisplayPlaybackStates.Add(new DisplayPlaybackState { DisplayId = displayId, DesiredState = "Playing", ContentType = "Media",
                 MediaAssetId = mediaId, PayloadJson = "{}", PromotionPolicyJson = "{}", Revision = 4 });
             var scene = new Scene { EventId = eventId, Name = "Escena" }; db.Scenes.Add(scene);
+            db.SceneSchedules.Add(new SceneSchedule { EventId = eventId, SceneId = scene.Id, SceneName = scene.Name,
+                StartsAt = DateTimeOffset.UtcNow.AddHours(1), TargetsJson = JsonSerializer.Serialize(new[] { new ScheduleTarget { DisplayId = displayId, DisplayName = display.Name } }, SceneRegistry.Json) });
+            db.SceneSchedules.Add(new SceneSchedule { EventId = otherId, StartsAt = DateTimeOffset.UtcNow.AddHours(1) });
             db.SceneSessions.Add(new SceneSession { EventId = eventId, SceneId = scene.Id, Kind = "activate" });
             await db.SaveChangesAsync();
         }
@@ -169,6 +172,10 @@ public sealed class MediaUploadTests
         using var verify = factory.Services.CreateScope(); var database = verify.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
         Assert.Empty(await database.PlaylistItems.ToListAsync()); Assert.Single(await database.Playlists.ToListAsync());
         Assert.Empty(await database.SceneSessions.ToListAsync()); Assert.Single(await database.Scenes.ToListAsync());
+        var cancelledSchedule = await database.SceneSchedules.SingleAsync(x => x.EventId == eventId);
+        Assert.Equal("cancelled", cancelledSchedule.Status);
+        Assert.Equal("cancelled", JsonSerializer.Deserialize<ScheduleTarget[]>(cancelledSchedule.TargetsJson, SceneRegistry.Json)!.Single().Status);
+        Assert.Equal("scheduled", (await database.SceneSchedules.SingleAsync(x => x.EventId == otherId)).Status);
         Assert.Equal(2, await database.Events.CountAsync()); Assert.True(await database.Displays.AnyAsync(x => x.Id == displayId));
         var state = await database.DisplayPlaybackStates.SingleAsync();
         Assert.Equal("Stopped", state.DesiredState); Assert.Null(state.PayloadJson); Assert.Null(state.MediaAssetId);

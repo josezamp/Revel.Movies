@@ -27,6 +27,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
 
     public DbSet<Scene> Scenes => Set<Scene>();
     public DbSet<SceneSession> SceneSessions => Set<SceneSession>();
+    public DbSet<SceneSchedule> SceneSchedules => Set<SceneSchedule>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -245,6 +246,24 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.Version).IsConcurrencyToken();
             builder.HasIndex(x => x.EventId);
             builder.HasOne<RevelEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<SceneSchedule>(builder =>
+        {
+            builder.ToTable("scene_schedules");
+            builder.HasKey(x => x.Id);
+            builder.Property(x => x.Id).ValueGeneratedNever();
+            builder.Property(x => x.SceneName).HasMaxLength(200);
+            builder.Property(x => x.Fingerprint).HasMaxLength(64);
+            builder.Property(x => x.TimeZone).HasMaxLength(100);
+            builder.Property(x => x.LocalStartsAt).HasMaxLength(30);
+            builder.Property(x => x.Policy).HasMaxLength(20);
+            builder.Property(x => x.Status).HasMaxLength(40);
+            builder.Property(x => x.Detail).HasMaxLength(1000);
+            builder.Property(x => x.Version).IsConcurrencyToken();
+            builder.HasIndex(x => new { x.Status, x.StartsAt });
+            builder.HasIndex(x => new { x.EventId, x.StartsAt });
+            builder.HasOne<RevelEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
+            // Keep the execution history if its scene is deleted. Sessions have independent lifetimes.
         });
         modelBuilder.Entity<SceneSession>(builder =>
         {

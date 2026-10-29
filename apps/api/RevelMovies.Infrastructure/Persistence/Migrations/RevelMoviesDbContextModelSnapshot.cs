@@ -688,6 +688,86 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                     b.ToTable("scenes", (string)null);
                 });
 
+            modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset?>("LastPreparationAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LocalStartsAt")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Policy")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid?>("PreparationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SceneName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("SceneVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("StartsAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("TargetsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventId", "StartsAt");
+
+                    b.HasIndex("Status", "StartsAt");
+
+                    b.ToTable("scene_schedules", (string)null);
+                });
+
             modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -842,6 +922,15 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("RevelMovies.Domain.Scenes.Scene", b =>
+                {
+                    b.HasOne("RevelMovies.Domain.Events.Event", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneSchedule", b =>
                 {
                     b.HasOne("RevelMovies.Domain.Events.Event", null)
                         .WithMany()

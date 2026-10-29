@@ -73,6 +73,10 @@ Routing regression checks (including simulated IIS `PathBase` handling) can be r
 dotnet test apps/api/RevelMovies.Api.Tests/RevelMovies.Api.Tests.csproj
 ```
 
+## Scheduled playback
+
+For scene schedules to run with the admin panel closed, keep the API running independently of HTTP traffic. Use one API instance/process. In IIS, configure the API's pool with `Maximum Worker Processes=1`, `Start Mode=AlwaysRunning` and `Idle Time-out=0`; enable **Preload Enabled=True on the api application**, with Application Initialization installed. Apply `20261029132437_AddSceneSchedules` before using the new panel. See [scheduling and restart behavior](scheduling.md).
+
 ## Media storage
 
 Para habilitar **Reducir tamaño para TV**, ver [instalación de FFmpeg y configuración de IIS](ffmpeg-tv.md). Incluye rutas, permisos, migración y recuperación de la cola.

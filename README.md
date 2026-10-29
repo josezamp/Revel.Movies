@@ -35,6 +35,7 @@ Revel Movies currently supports:
 - Live display cards with correlated playback reports, layered content, stale-state indicators and offline-safe renaming
 - Per-event floor plans in Live, with shapes, labels, draggable displays, versioned server saves and separate editing/operation modes
 - Event scenes with persisted versions, per-screen preparation and activation, explicit layer policies and guarded temporary restoration
+- Per-event scene schedules with explicit dates and time zones, automatic server-side preparation, and per-screen execution history; see [scheduling](docs/scheduling.md)
 - Mobile operation navigation, explicit destinations, playlist publishing and multiple-file upload queues with local previews
 
 See the [operator guide (Spanish)](docs/operator-guide.md) for the live / scenes / content / configuration workflow and the [scene protocol](docs/scenes.md) for persistence, preparation and recovery semantics.
