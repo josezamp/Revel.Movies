@@ -30,6 +30,7 @@ type ActiveMedia = {
   id: string
   type: 'Video' | 'Image'
   instance?: number
+  playlistTransition?: boolean
 }
 
 type PlaylistPlaybackItem = PlaybackItem
@@ -884,7 +885,7 @@ export function PlayerPage() {
     pendingSeekSecondsRef.current = 0
     itemStartedAtRef.current = Date.now()
     setPlaylistIndex(next.playlistIndex)
-    setCurrentMedia({ id: next.mediaId, type: next.mediaType })
+    setCurrentMedia({ id: next.mediaId, type: next.mediaType, playlistTransition: true })
   }, [playlist, playlistIndex, playlistPaused, media, setCurrentMedia])
 
   useEffect(() => {
@@ -918,7 +919,10 @@ export function PlayerPage() {
       const seek = pendingSeekSecondsRef.current
       if (seek !== undefined && video.readyState >= 1) {
         const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
-        video.currentTime = Math.min(Math.max(0, seek), maxSeek)
+        const target = Math.min(Math.max(0, seek), maxSeek)
+        // A queued video is normally already at zero. Seeking to the same position
+        // can discard decoder readiness just before we consume its warmed buffer.
+        if (video.currentTime !== target) video.currentTime = target
         pendingSeekSecondsRef.current = undefined
       }
     }
@@ -934,8 +938,10 @@ export function PlayerPage() {
       bufferingRef.current = buffering
     }
     const stopPlayback = playlistPaused ? undefined
-      : promotionProgressRef.current?.activeMediaId === media.id ? bufferVideoPlayback(video, onBuffering)
+      : promotionProgressRef.current?.activeMediaId === media.id
+        ? bufferVideoPlayback(video, onBuffering, { startImmediately: media.playlistTransition })
         : recoverVideoPlayback(video, onBuffering, {
+          startImmediately: media.playlistTransition,
           getPosition: () => pendingSeekSecondsRef.current ?? video.currentTime,
           reload: position => {
             pendingSeekSecondsRef.current = position

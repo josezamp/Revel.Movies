@@ -27,21 +27,21 @@ export function canCorrectPlayback(video: BufferedVideo, position: number): bool
   return !video.paused && !video.seeking && hasPlaybackBuffer(video, position)
 }
 
-export function bufferVideoPlayback(video: HTMLVideoElement, onBuffering: (buffering: boolean) => void): () => void {
+type VideoBufferOptions = {
+  // Playlist transitions already had a chance to preload. Ask the browser to
+  // consume that buffer instead of pausing again to build a fifteen-second reserve.
+  startImmediately?: boolean
+}
+
+export function bufferVideoPlayback(
+  video: HTMLVideoElement, onBuffering: (buffering: boolean) => void, options: VideoBufferOptions = {},
+): () => void {
   let disposed = false
   let waiting = false
   let waitStartedAt = 0
-  let nativeBuffering = false
+  let nativeBuffering = options.startImmediately === true
 
-  const checkBuffer = () => {
-    if (disposed || !waiting || video.error) return
-    const timedOut = performance.now() - waitStartedAt >= maxBufferWaitMs
-    if (!timedOut && (video.seeking || !hasPlaybackBuffer(video))) return
-
-    waiting = false
-    // Some TVs cannot finish preloading or seeking until play() is requested.
-    // After the deadline, leave subsequent buffering to the browser as well.
-    if (timedOut) nativeBuffering = true
+  const requestPlayback = () => {
     try {
       void Promise.resolve(video.play()).catch(() => {
         // Autoplay policy or an interrupted play request must not create a retry loop.
@@ -49,6 +49,18 @@ export function bufferVideoPlayback(video: HTMLVideoElement, onBuffering: (buffe
     } catch {
       // Older browsers may throw synchronously instead of returning a rejected promise.
     }
+  }
+
+  const checkBuffer = () => {
+    if (disposed || !waiting || video.error) return
+    const timedOut = performance.now() - waitStartedAt >= maxBufferWaitMs
+    if (!timedOut && (video.seeking || !hasPlaybackBuffer(video))) return
+
+    waiting = false
+    // Some browsers cannot finish preloading or seeking until play() is requested.
+    // After the deadline, leave subsequent buffering to the browser as well.
+    if (timedOut) nativeBuffering = true
+    requestPlayback()
   }
 
   const waitForBuffer = () => {
@@ -76,9 +88,13 @@ export function bufferVideoPlayback(video: HTMLVideoElement, onBuffering: (buffe
   const progressEvents = ['loadedmetadata', 'progress', 'canplay', 'seeked']
   for (const event of progressEvents) video.addEventListener(event, checkBuffer)
   const timer = window.setInterval(checkBuffer, 250)
-  waitForBuffer()
+  if (nativeBuffering && !video.ended && !video.error) {
+    onBuffering(true)
+    requestPlayback()
+  } else waitForBuffer()
 
   return () => {
+    if (disposed) return
     disposed = true
     window.clearInterval(timer)
     video.removeEventListener('waiting', waitForBuffer)
@@ -86,10 +102,11 @@ export function bufferVideoPlayback(video: HTMLVideoElement, onBuffering: (buffe
     video.removeEventListener('playing', onPlaying)
     video.removeEventListener('ended', onEnded)
     for (const event of progressEvents) video.removeEventListener(event, checkBuffer)
+    video.pause() // Cancel a pending native play(), including promotional videos.
   }
 }
 
-type VideoRecoveryOptions = {
+type VideoRecoveryOptions = VideoBufferOptions & {
   // During load(), currentTime is temporarily zero. Keep the pending seek as the checkpoint.
   getPosition: () => number
   reload: (positionSeconds: number) => void
@@ -194,6 +211,6 @@ export function recoverVideoPlayback(
   video.addEventListener('seeked', onSeeked)
   video.addEventListener('ended', stop)
   timer = window.setInterval(checkProgress, 1000)
-  stopBuffering = bufferVideoPlayback(video, onBuffering)
+  stopBuffering = bufferVideoPlayback(video, onBuffering, options)
   return stop
 }

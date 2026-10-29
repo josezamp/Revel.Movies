@@ -30,7 +30,7 @@ class Video extends EventTarget {
   emit(name) { this.dispatchEvent(new Event(name)) }
 }
 
-function control(t, video = new Video()) {
+function control(t, video = new Video(), options) {
   const previousWindow = globalThis.window
   const timers = new Map()
   const states = []
@@ -41,7 +41,7 @@ function control(t, video = new Video()) {
     setInterval(callback) { timers.set(++nextTimer, callback); return nextTimer },
     clearInterval(id) { timers.delete(id) },
   }
-  const stop = bufferVideoPlayback(video, value => states.push(value))
+  const stop = bufferVideoPlayback(video, value => states.push(value), options)
   t.after(() => { stop(); globalThis.window = previousWindow })
   return {
     video, states, stop,
@@ -62,6 +62,40 @@ test('startup waits for fifteen contiguous seconds instead of the first playable
   video.emit('progress')
   assert.equal(video.playCount, 1)
   assert.equal(states.at(-1), false)
+})
+
+for (const readyState of [0, 2, 3]) {
+  test(`playlist transitions request native playback immediately with readyState ${readyState}`, t => {
+    const video = new Video()
+    video.readyState = readyState
+    video.ranges = readyState === 0 ? [] : [[0, 2]]
+    const { tick, states } = control(t, video, { startImmediately: true })
+    assert.equal(video.playCount, 1)
+    assert.equal(video.pauseCount, 0)
+    video.seeking = true
+    video.emit('seeking')
+    video.emit('waiting')
+    assert.equal(video.paused, false)
+    assert.equal(states.at(-1), true)
+    tick(maxBufferWaitMs * 2)
+    assert.equal(video.playCount, 1)
+    video.emit('playing')
+    assert.equal(states.at(-1), false)
+  })
+}
+
+test('canceling a native playlist start pauses it and prevents late events from restarting it', t => {
+  const video = new Video()
+  video.play = () => { video.playCount++; video.paused = false; return new Promise(() => {}) }
+  const { stop, tick, states } = control(t, video, { startImmediately: true })
+  assert.equal(video.playCount, 1)
+  stop()
+  const reports = states.length
+  for (const event of ['loadedmetadata', 'canplay', 'waiting', 'playing']) video.emit(event)
+  tick(maxBufferWaitMs * 2)
+  assert.equal(video.paused, true)
+  assert.equal(video.playCount, 1)
+  assert.equal(states.length, reports)
 })
 
 test('short clips and the final seconds can play once the remainder is buffered', t => {
@@ -229,7 +263,7 @@ test('synchronization only seeks into a buffered destination with a reserve', ()
   assert.equal(canCorrectPlayback(video, 5), false)
 })
 
-function recoveryControl(t, video = new Video()) {
+function recoveryControl(t, video = new Video(), options = {}) {
   const previousWindow = globalThis.window
   const timers = new Map()
   const states = []
@@ -245,6 +279,7 @@ function recoveryControl(t, video = new Video()) {
   }
   video.ranges = [[0, 120]]
   const stop = recoverVideoPlayback(video, value => states.push(value), {
+    ...options,
     getPosition: () => pendingPosition ?? video.currentTime,
     reload(position) {
       reloads.push(position)
@@ -274,6 +309,23 @@ function recoveryControl(t, video = new Video()) {
     },
   }
 }
+
+test('native playlist startup retains the watchdog and uses the normal buffer gate after reload', t => {
+  const video = new Video()
+  video.readyState = 2
+  const { tick, reloads, stop } = recoveryControl(t, video, { startImmediately: true })
+  assert.equal(video.playCount, 1)
+  tick(videoStallTimeoutMs)
+  assert.equal(video.playCount, 2)
+  tick(videoStallTimeoutMs)
+  assert.deepEqual(reloads, [0])
+  // Reload has no usable data; immediate startup is only for the transition.
+  assert.equal(video.playCount, 2)
+  stop()
+  tick(maxBufferWaitMs * 2)
+  assert.equal(video.playCount, 2)
+  assert.equal(video.paused, true)
+})
 
 test('a silent freeze first resumes, then reloads at the saved position', t => {
   const { video, tick, reloads, metadata, states } = recoveryControl(t)

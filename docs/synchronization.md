@@ -43,7 +43,7 @@ The API emits `public, no-cache` with a content checksum ETag for `/api/media/{i
 
 ### Video buffering
 
-The video element requests `preload="auto"`. Before starting or resuming after a stall, the Player waits for 15 seconds of contiguous buffered video at the current position (or the remaining duration for shorter clips). This also applies to network playback for files above the full-file cache limit and on devices without Service Workers.
+The video element requests `preload="auto"`. Initial playback, recovery and manual resume wait for 15 seconds of contiguous buffered video at the current position (or the remaining duration for shorter clips). This also applies to network playback for files above the full-file cache limit and on devices without Service Workers. Automatic playlist transitions use native playback immediately, as described below.
 
 Native browser buffers cannot be assigned a fixed size. After 15 seconds of waiting, the Player requests playback even if the browser has not finished loading playable data or seeking. This lets TVs that limit preloading while paused finish loading through their native playback pipeline. Subsequent waiting and seeking events keep reporting `Buffering` but no longer pause the video to rebuild the reserve. Operator pause, stop or media replacement cancel this buffer session; a new session can use the reserve again. These defaults are `playbackBufferSeconds` and `maxBufferWaitMs` in `apps/web/src/player/videoBuffer.ts`. Slow connections can still stall if their sustained throughput is below the video's bitrate.
 
@@ -56,6 +56,8 @@ Preparation commands share in-flight downloads per URL, and the play command doe
 While a playlist runs, the Player keeps native video elements for up to two distinct upcoming videos, in addition to the current video. Lookahead follows playlist order, skips images, wraps looping playlists and includes promotional breaks. Repeated media IDs share an element. Recovery and changes to the playlist or promotion policy recalculate this window.
 
 New background requests start after the current video begins playing (or the current image loads). Upcoming elements stay hidden, muted and paused, and retain their buffered data when they become active. This works with ordinary HTTP media URLs, including LAN Players without Service Workers and videos larger than the full-file cache limit. It complements the existing preparation cache; native preload remains a browser hint, so TV memory limits and network throughput can still delay transitions.
+
+When advancing to the next playlist item (including a promotion or loop), the Player calls `play()` immediately instead of waiting again for a 15-second reserve. Browsers that cap paused preloads can continue downloading and decoding through native playback. Waiting and seeking still report `Buffering`, but do not pause that transition to rebuild the manual reserve. A queued video already at position zero is not seeked redundantly. The stall watchdog, operator pause/stop and the buffer requirement for drift corrections remain in effect; a recovery reload uses the normal reserve gate.
 
 Stopping, replacing or finishing a playlist releases obsolete elements and their sources. A background load error does not interrupt the current video; the Player retries the source when it becomes active. Browser tests in `tests/browser/playlistPreload.spec.ts` verify native preloading and element reuse with Service Workers disabled.
 

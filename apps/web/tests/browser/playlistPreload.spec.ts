@@ -75,6 +75,131 @@ async function expectPlaying(page: Page, mediaId: string) {
     !video.paused && video.currentTime > 0.2)).toBeTruthy()
 }
 
+async function limitQueuedPreload(page: Page) {
+  await page.addInitScript(() => {
+    const prototype = HTMLMediaElement.prototype
+    const readyState = Object.getOwnPropertyDescriptor(prototype, 'readyState')!.get!
+    const buffered = Object.getOwnPropertyDescriptor(prototype, 'buffered')!.get!
+    const currentTime = Object.getOwnPropertyDescriptor(prototype, 'currentTime')!
+    const nativePlay = prototype.play
+    const queued = new WeakSet<HTMLMediaElement>()
+    const started = new WeakSet<HTMLMediaElement>()
+    let lastEnd = 0
+    const wasQueued = (video: HTMLMediaElement) => {
+      if (video.classList.contains('player-preload')) queued.add(video)
+      return queued.has(video)
+    }
+    document.addEventListener('ended', event => {
+      if ((event.target as Element).matches('video.player-media')) lastEnd = performance.now()
+    }, true)
+    Object.defineProperty(prototype, 'readyState', { configurable: true, get() {
+      const actual = readyState.call(this)
+      return wasQueued(this) && !started.has(this) ? Math.min(actual, 2) : actual
+    } })
+    Object.defineProperty(prototype, 'buffered', { configurable: true, get() {
+      const actual = buffered.call(this) as TimeRanges
+      if (!wasQueued(this) || started.has(this)) return actual
+      return { length: actual.length ? 1 : 0, start: (index: number) => actual.start(index),
+        end: (index: number) => Math.min(actual.end(index), 2) }
+    } })
+    Object.defineProperty(prototype, 'currentTime', { configurable: true,
+      get() { return currentTime.get!.call(this) },
+      set(value: number) {
+        if (wasQueued(this) && currentTime.get!.call(this) === value)
+          this.dataset.redundantSeeks = String(Number(this.dataset.redundantSeeks ?? 0) + 1)
+        currentTime.set!.call(this, value)
+      },
+    })
+    prototype.play = function () {
+      if (wasQueued(this)) {
+        this.dataset.playAttempts = String(Number(this.dataset.playAttempts ?? 0) + 1)
+        if (!started.has(this)) this.dataset.transitionDelayMs = String(performance.now() - lastEnd)
+      }
+      started.add(this)
+      const result = nativePlay.call(this)
+      if (wasQueued(this)) {
+        this.dataset.playResult = 'pending'
+        void result.then(() => { this.dataset.playResult = 'playing' },
+          error => { this.dataset.playResult = error.name })
+      }
+      return result
+    }
+  })
+}
+
+test('a queued video with limited preload starts immediately after the previous video ends', async ({ page, request }) => {
+  await limitQueuedPreload(page)
+  const { eventId, displayId, mediaIds } = await setup(page, request, 2)
+  await playPlaylist(request, eventId, displayId, mediaIds)
+  await expectPlaying(page, mediaIds[0])
+  const queued = page.locator('video.player-preload')
+  await expect.poll(() => queued.evaluate((video: HTMLVideoElement) =>
+    video.readyState === 2 && video.buffered.length > 0 && video.buffered.end(0) === 2)).toBeTruthy()
+  await queued.evaluate(video => video.setAttribute('data-warmed', 'limited-queue'))
+
+  await finishCurrent(page)
+  const active = page.locator('video.player-media')
+  await expect(active).toHaveAttribute('data-play-attempts', '1', { timeout: 2000 })
+  await expect.poll(() => active.evaluate((video: HTMLVideoElement) =>
+    !video.paused && video.currentTime > 0.2), { timeout: 2000 }).toBeTruthy()
+  await expect(active).toHaveAttribute('data-warmed', 'limited-queue')
+  expect(Number(await active.getAttribute('data-transition-delay-ms'))).toBeLessThan(2000)
+  expect(await active.getAttribute('data-redundant-seeks')).toBeNull()
+
+  const checkpoint = await active.evaluate((video: HTMLVideoElement) => {
+    video.dispatchEvent(new Event('waiting'))
+    video.dispatchEvent(new Event('seeking'))
+    return { paused: video.paused, position: video.currentTime }
+  })
+  expect(checkpoint.paused).toBeFalsy()
+  await expect.poll(() => active.evaluate((video: HTMLVideoElement) => video.currentTime), { timeout: 2000 })
+    .toBeGreaterThan(checkpoint.position + 0.3)
+  await expect(active).toHaveAttribute('data-play-attempts', '1')
+})
+
+for (const command of ['playlist.pause', 'playlist.stop']) {
+  test(`${command} cancels a pending native play during a playlist transition`, async ({ page, request }) => {
+    await limitQueuedPreload(page)
+    const { eventId, displayId, mediaIds } = await setup(page, request, 2)
+    const releaseResponses: (() => Promise<void>)[] = []
+    await page.route(`**/api/media/${mediaIds[1]}/content`, async route => {
+      if (route.request().resourceType() !== 'media') { await route.continue(); return }
+      // Hold actual media bytes so play() is pending, rather than replacing it
+      // with a fake Promise which would miss the browser's cancellation behavior.
+      releaseResponses.push(() => route.fulfill({ status: 200, contentType: 'video/mp4', body: clip }))
+    })
+    await playPlaylist(request, eventId, displayId, mediaIds)
+    await expectPlaying(page, mediaIds[0])
+    await expect.poll(() => releaseResponses.length).toBeGreaterThan(0)
+
+    await finishCurrent(page)
+    const active = page.locator('video.player-media')
+    await expect(active).toHaveAttribute('data-play-attempts', '1', { timeout: 2000 })
+    await expect(active).toHaveAttribute('data-play-result', 'pending')
+    await active.evaluate(video => { Object.assign(window, { pendingTransitionVideo: video }) })
+    await send(request, displayId, command)
+    await expect.poll(() => page.evaluate(() => {
+      const video = (window as unknown as { pendingTransitionVideo: HTMLVideoElement }).pendingTransitionVideo
+      return video.paused && video.dataset.playResult === 'AbortError'
+    })).toBeTruthy()
+    if (command === 'playlist.stop') await expect(page.locator('video')).toHaveCount(0)
+
+    await Promise.all(releaseResponses.map(release => release()))
+    if (command === 'playlist.pause') {
+      await expect.poll(() => active.evaluate((video: HTMLVideoElement) => video.readyState)).toBeGreaterThanOrEqual(1)
+      await expect.poll(async () => (await (await request.get(`/api/displays?eventId=${eventId}`)).json())[0].actualPlaybackState)
+        .toBe('Paused')
+    }
+    const afterLateEvents = await page.evaluate(async () => {
+      const video = (window as unknown as { pendingTransitionVideo: HTMLVideoElement }).pendingTransitionVideo
+      for (const name of ['loadedmetadata', 'progress', 'canplay', 'seeked', 'waiting']) video.dispatchEvent(new Event(name))
+      await new Promise(resolve => window.setTimeout(resolve, 400))
+      return { paused: video.paused, attempts: video.dataset.playAttempts }
+    })
+    expect(afterLateEvents).toEqual({ paused: true, attempts: '1' })
+  })
+}
+
 test('preloads only the next two videos without a service worker and promotes the buffered element', async ({ page, request }) => {
   const mediaRequests: string[] = []
   page.on('request', request => {
