@@ -24,7 +24,7 @@ public static class AdminAuthentication
             options.Cookie.SameSite = SameSiteMode.Strict;
             // Local event installations also run over HTTP. IIS HTTPS sets Secure automatically.
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-            options.ExpireTimeSpan = TimeSpan.FromHours(8);
+            options.ExpireTimeSpan = TimeSpan.FromDays(7);
             options.SlidingExpiration = false;
             options.Events.OnRedirectToLogin = context => { context.Response.StatusCode = 401; return Task.CompletedTask; };
             options.Events.OnRedirectToAccessDenied = context => { context.Response.StatusCode = 403; return Task.CompletedTask; };

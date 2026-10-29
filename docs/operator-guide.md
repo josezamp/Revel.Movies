@@ -2,7 +2,7 @@
 
 ## Acceso al panel
 
-Abrí `/admin` e ingresá con el usuario y la contraseña configurados por el administrador del servidor. La sesión dura hasta 8 horas; usá **Cerrar sesión** al terminar. Si vence, volvé a ingresar: el enlace conserva el evento y la sección que estabas usando. Las TVs siguen funcionando con su vinculación habitual y no necesitan la contraseña del panel.
+Abrí `/admin` e ingresá con el usuario y la contraseña configurados por el administrador del servidor. La sesión dura hasta 7 días; usá **Cerrar sesión** al terminar. Si vence, volvé a ingresar: el enlace conserva el evento y la sección que estabas usando. Las TVs siguen funcionando con su vinculación habitual y no necesitan la contraseña del panel.
 
 Si aparece “El acceso al panel todavía no está configurado”, completá la [configuración del servidor](deployment.md#administrator-login).
 
@@ -36,6 +36,7 @@ En **Detalles** se encuentran orientación, diagnóstico, recarga y desvinculaci
 En **En vivo**, alterná entre **Tarjetas** y **Mapa**. Cada evento tiene su propio croquis, guardado en el servidor y disponible desde otras computadoras. La vista elegida se conserva en la dirección del navegador.
 
 - **Editar croquis:** agregá sectores rectangulares, círculos, paredes y etiquetas. Seleccioná un elemento para cambiar su texto, color, posición y tamaño. Una pared puede ser horizontal o vertical ajustando su ancho y alto. El selector de elementos permite elegir figuras superpuestas.
+- **Cambiar tamaño con el mouse o el dedo:** seleccioná un elemento y arrastrá sus tiradores. Los bordes ajustan una dimensión; las esquinas ajustan ancho y alto. Las paredes muestran tiradores en sus cuatro bordes para cambiar longitud y grosor. Los tiradores también aceptan flechas del teclado (5 unidades, o 20 con Mayús). Escape cancela el arrastre y restaura el tamaño y la posición anteriores. El elemento conserva un tamaño mínimo y permanece dentro del lienzo, incluso con zoom. Los cambios se guardan con **Guardar croquis** y los tiradores desaparecen en **Operar**.
 - **Ubicar pantallas:** elegí una de las pantallas sin ubicar y arrastrala hasta su lugar. También podés usar las coordenadas del panel o las flechas del teclado: 5 unidades por pulsación, o 20 con Mayús. El croquis es orientativo, sin escala física. Los botones de zoom y el desplazamiento del lienzo permiten recorrerlo en el celular.
 - **Guardar croquis:** persiste figuras y posiciones para ese evento. Cambiar de evento o de vista conserva un borrador en esta pestaña cuando el navegador permite almacenamiento local. Si cerrás o recargás con cambios pendientes, el navegador avisa. El borrador local no reemplaza el guardado en el servidor.
 - **Operar:** guarda los cambios pendientes y bloquea las posiciones. Seleccioná una pantalla para acceder a sus controles habituales y al último estado reportado. Editar el croquis no envía comandos de reproducción. Las pantallas sin ubicar también se pueden operar desde el panel lateral.

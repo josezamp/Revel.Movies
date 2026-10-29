@@ -22,7 +22,7 @@ export function DisplayCard({ display, media, playlists, prepared, now, onChange
   }
   const blackout = display.blackout ?? display.desiredPlaybackState === 'Blackout'
   return <article className={`card display-card connection-${presence.kind}`}>
-    <div className="display-heading"><h3>{display.name}</h3><span className="display-presence"><span className="status-dot" aria-hidden="true" />{presence.label}</span></div>
+    <div className="display-heading"><h3 title={display.name}>{display.name}</h3><span className="display-presence"><span className="status-dot" aria-hidden="true" />{presence.label}</span></div>
     <DisplayLiveState display={display} media={media} playlists={playlists} now={now} />
     {prepared.length > 0 && <div className="prepared-summary"><small>PREPARADO · SIN MODIFICAR LA EMISIÓN</small>{prepared.map(label => <p key={label}>{label}</p>)}</div>}
     <DisplayPlaybackControls display={display} media={media} playlists={playlists} onChanged={onChanged} />

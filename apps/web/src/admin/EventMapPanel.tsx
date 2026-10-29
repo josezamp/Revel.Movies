@@ -5,7 +5,7 @@ import { DisplayCard } from './DisplayCard'
 import { Dialog } from './Dialog'
 import { displayPresence } from './displayPresence'
 import { playbackLabel, reportAge, REPORT_FRESHNESS_MS } from './liveState'
-import { createMapNodeId, fitMapNode, MAP_WIDTH, MAP_HEIGHT } from './eventMapGeometry'
+import { createMapNodeId, fitMapNode, resizeMapNode, MAP_WIDTH, MAP_HEIGHT, type ResizeHandle } from './eventMapGeometry'
 import './eventMap.css'
 
 const kinds: { kind: Exclude<MapKind, 'display'>; label: string; symbol: string }[] = [
@@ -13,6 +13,17 @@ const kinds: { kind: Exclude<MapKind, 'display'>; label: string; symbol: string 
   { kind: 'wall', label: 'Pared', symbol: '━' }, { kind: 'label', label: 'Etiqueta', symbol: 'T' },
 ]
 const colors: [MapColor, string][] = [['slate', 'Gris'], ['blue', 'Azul'], ['amber', 'Ámbar'], ['rose', 'Rosa'], ['green', 'Verde']]
+const resizeHandles: { handle: ResizeHandle; label: string; x: number; y: number }[] = [
+  { handle: 'nw', label: 'esquina superior izquierda', x: 0, y: 0 },
+  { handle: 'n', label: 'borde superior', x: .5, y: 0 },
+  { handle: 'ne', label: 'esquina superior derecha', x: 1, y: 0 },
+  { handle: 'w', label: 'borde izquierdo', x: 0, y: .5 },
+  { handle: 'e', label: 'borde derecho', x: 1, y: .5 },
+  { handle: 'sw', label: 'esquina inferior izquierda', x: 0, y: 1 },
+  { handle: 's', label: 'borde inferior', x: .5, y: 1 },
+  { handle: 'se', label: 'esquina inferior derecha', x: 1, y: 1 },
+]
+const arrowSteps: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
 
 function readDraft(key: string, eventId: string): EventMap | null {
   try {
@@ -46,7 +57,8 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
   const [attempt, setAttempt] = useState(0)
   const [zoom, setZoom] = useState(1)
   const canvas = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ id: string; pointerId: number; startX: number; startY: number; node: MapNode } | null>(null)
+  const drag = useRef<{ id: string; pointerId: number; startX: number; startY: number; node: MapNode; handle?: ResizeHandle; target: HTMLButtonElement } | null>(null)
+  const cancelledClick = useRef(false)
   const storageKey = `revel-event-map-draft-v1:${eventId}`
   const nodes = draft?.nodes ?? []
   const dirty = !!draft && !!saved && JSON.stringify(draft.nodes) !== JSON.stringify(saved.nodes)
@@ -133,37 +145,46 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
 
   function select(node: MapNode) { setSelectedId(node.id); setSelectedDisplayId('') }
 
-  function startDrag(event: PointerEvent<HTMLButtonElement>, node: MapNode) {
-    if (!editable || event.button !== 0) return
+  function startDrag(event: PointerEvent<HTMLButtonElement>, node: MapNode, handle?: ResizeHandle) {
+    if (!editable || event.button !== 0 || drag.current) return
+    event.preventDefault()
+    event.stopPropagation()
     select(node)
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
-    drag.current = { id: node.id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, node }
+    drag.current = { id: node.id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, node, handle, target: event.currentTarget }
   }
 
   function moveDrag(event: PointerEvent<HTMLButtonElement>) {
     const active = drag.current
     if (!active || active.pointerId !== event.pointerId || !canvas.current || !editable) return
     const rect = canvas.current.getBoundingClientRect()
-    change(active.id, { x: active.node.x + (event.clientX - active.startX) * MAP_WIDTH / rect.width,
-      y: active.node.y + (event.clientY - active.startY) * MAP_HEIGHT / rect.height })
+    const dx = (event.clientX - active.startX) * MAP_WIDTH / rect.width
+    const dy = (event.clientY - active.startY) * MAP_HEIGHT / rect.height
+    change(active.id, active.handle ? resizeMapNode(active.node, active.handle, dx, dy)
+      : { x: active.node.x + dx, y: active.node.y + dy })
   }
 
-  function endDrag(event: PointerEvent<HTMLButtonElement>, cancel = false) {
+  function endDrag(pointerId: number, cancel = false) {
     const active = drag.current
-    if (!active || active.pointerId !== event.pointerId) return
-    if (cancel) change(active.id, { x: active.node.x, y: active.node.y })
+    if (!active || active.pointerId !== pointerId) return
+    if (cancel) {
+      change(active.id, { x: active.node.x, y: active.node.y, width: active.node.width, height: active.node.height })
+      cancelledClick.current = true
+    }
     drag.current = null
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    if (active.target.hasPointerCapture(pointerId)) active.target.releasePointerCapture(pointerId)
   }
 
-  function keyMove(event: KeyboardEvent<HTMLButtonElement>, node: MapNode) {
+  function keyMove(event: KeyboardEvent<HTMLButtonElement>, node: MapNode, handle?: ResizeHandle) {
     if (!editable) return
-    const steps: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
-    const step = steps[event.key]
+    if (event.key === 'Escape' && drag.current) { event.preventDefault(); endDrag(drag.current.pointerId, true); return }
+    if (drag.current) return
+    const step = arrowSteps[event.key]
     if (!step) return
     event.preventDefault()
-    change(node.id, { x: node.x + step[0] * (event.shiftKey ? 20 : 5), y: node.y + step[1] * (event.shiftKey ? 20 : 5) })
+    const dx = step[0] * (event.shiftKey ? 20 : 5), dy = step[1] * (event.shiftKey ? 20 : 5)
+    change(node.id, handle ? resizeMapNode(node, handle, dx, dy) : { x: node.x + dx, y: node.y + dy })
   }
 
   if (loading) return <p role="status" className="workspace-loading">Cargando croquis…</p>
@@ -192,7 +213,14 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
           <div className="map-zoom" role="group" aria-label="Zoom del mapa"><button aria-label="Alejar mapa" disabled={zoom <= 0.5} onClick={() => setZoom(value => Math.max(.5, value - .25))}>−</button><button aria-label="Restablecer zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button aria-label="Acercar mapa" disabled={zoom >= 2} onClick={() => setZoom(value => Math.min(2, value + .25))}>+</button></div>
         </div>
         <div className="map-viewport" tabIndex={0} role="region" aria-label="Lienzo del croquis">
-          <div ref={canvas} className="map-canvas" style={{ width: `${zoom * 100}%`, minWidth: 600 * zoom }} onClick={event => { if (event.target === event.currentTarget) { setSelectedId(''); setSelectedDisplayId('') } }}>
+          <div ref={canvas} className="map-canvas" style={{ width: `${zoom * 100}%`, minWidth: 600 * zoom }}
+            onPointerDownCapture={() => { cancelledClick.current = false }}
+            onClickCapture={event => {
+              // Releasing capture on Escape can synthesize a click on the canvas
+              // after the handle moves back. Keep the cancelled element selected.
+              if (cancelledClick.current) { cancelledClick.current = false; if (event.detail > 0) { event.preventDefault(); event.stopPropagation() } }
+            }}
+            onClick={event => { if (event.target === event.currentTarget) { setSelectedId(''); setSelectedDisplayId('') } }}>
             <span className="map-north" aria-hidden="true">↑<br />PLANO</span>
             {!nodes.length && <div className="map-empty"><span aria-hidden="true">▧</span><strong>Tu evento, visto desde arriba.</strong><p>{editing ? 'Agregá un sector, una pared o una etiqueta. Después ubicá las pantallas desde el panel.' : 'Entrá en Editar croquis para empezar a dibujar el lugar.'}</p></div>}
             {nodes.map(node => {
@@ -208,13 +236,24 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
                 aria-pressed={selectedId === node.id} aria-describedby={editing ? 'map-edit-help' : undefined}
                 tabIndex={editing || node.kind === 'display' ? 0 : -1} disabled={saving}
                 onClick={() => select(node)} onPointerDown={event => startDrag(event, node)} onPointerMove={moveDrag}
-                onPointerUp={event => endDrag(event)} onPointerCancel={event => endDrag(event, true)} onLostPointerCapture={() => { drag.current = null }} onKeyDown={event => keyMove(event, node)}>
+                onPointerUp={event => endDrag(event.pointerId)} onPointerCancel={event => endDrag(event.pointerId, true)} onLostPointerCapture={event => endDrag(event.pointerId, true)} onKeyDown={event => keyMove(event, node)}>
                 {node.kind === 'display' ? <><strong><span className="map-screen-symbol" aria-hidden="true">▣</span>{label}</strong><small>{presence?.label ?? 'Desvinculada'}</small><small>{display ? stale ? 'Sin reporte reciente' : playbackLabel(display.actualPlaybackState) : 'Quitala del croquis'}</small></> : <span>{node.label}</span>}
               </button>
             })}
+            {editing && selected && <div className="map-resize-controls" role="group" aria-label="Cambiar tamaño del elemento seleccionado">
+              <div className="map-resize-box" aria-hidden="true" style={{ left: `${selected.x / MAP_WIDTH * 100}%`, top: `${selected.y / MAP_HEIGHT * 100}%`, width: `${selected.width / MAP_WIDTH * 100}%`, height: `${selected.height / MAP_HEIGHT * 100}%` }} />
+              {resizeHandles.filter(item => selected.kind !== 'wall' || item.handle.length === 1).map(item => <button key={item.handle} type="button"
+                className={`map-resize-handle map-resize-${item.handle}`} disabled={saving}
+                aria-label={`Cambiar tamaño desde ${item.label}`} aria-describedby="map-edit-help" title={`Arrastrá para cambiar tamaño desde ${item.label}`}
+                style={{ left: `clamp(12px, calc(${(selected.x + selected.width * item.x) / MAP_WIDTH * 100}% + ${(item.x - .5) * 24}px), calc(100% - 12px))`,
+                  top: `clamp(12px, calc(${(selected.y + selected.height * item.y) / MAP_HEIGHT * 100}% + ${(item.y - .5) * 24}px), calc(100% - 12px))` }}
+                onPointerDown={event => startDrag(event, selected, item.handle)} onPointerMove={moveDrag}
+                onPointerUp={event => endDrag(event.pointerId)} onPointerCancel={event => endDrag(event.pointerId, true)} onLostPointerCapture={event => endDrag(event.pointerId, true)}
+                onKeyDown={event => keyMove(event, selected, item.handle)} />)}
+            </div>}
           </div>
         </div>
-        <div className="map-caption"><span id="map-edit-help">{editing ? 'Arrastrá para mover · Flechas: 5 unidades · Mayús + flechas: 20' : 'El estado corresponde al último reporte de cada pantalla.'}</span><span>Croquis orientativo · Sin escala</span></div>
+        <div className="map-caption"><span id="map-edit-help">{editing ? 'Arrastrá el elemento para mover o sus tiradores para cambiar tamaño. Flechas: 5 unidades · Mayús + flechas: 20 · Esc: cancelar arrastre.' : 'El estado corresponde al último reporte de cada pantalla.'}</span><span>Croquis orientativo · Sin escala</span></div>
       </div>
       <aside className="map-inspector" aria-label={editing ? 'Herramientas del croquis' : 'Pantalla seleccionada'}>
         {editing ? <>

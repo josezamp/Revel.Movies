@@ -51,6 +51,15 @@
 .is-editing .map-node { cursor: grab; touch-action: none; }
 .is-editing .map-node:active { cursor: grabbing; }
 .event-map:not(.is-editing) .map-node:not(.map-node-display) { pointer-events: none; }
+.map-resize-controls { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.map-resize-box { position: absolute; border: 1px dashed #d5e5ff99; }
+.operation-shell button.map-resize-handle { position: absolute; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 0; border-radius: 4px; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; display: grid; place-items: center; }
+.map-resize-handle::after { content: ''; width: 10px; height: 10px; border: 2px solid #182b40; border-radius: 2px; background: #e0ecff; box-shadow: 0 0 0 1px #b5cff2; }
+.operation-shell .map-resize-handle:hover, .operation-shell .map-resize-handle:focus-visible { background: #a9cfff33; }
+.map-resize-n, .map-resize-s { cursor: ns-resize; }
+.map-resize-e, .map-resize-w { cursor: ew-resize; }
+.map-resize-nw, .map-resize-se { cursor: nwse-resize; }
+.map-resize-ne, .map-resize-sw { cursor: nesw-resize; }
 .map-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 12px; color: #a7b3c0; background: #171c24; font-size: .65rem; line-height: 1.6; }
 .map-inspector { border-left: 1px solid #414149; padding: 20px; min-width: 0; display: grid; gap: 24px; }
 .map-inspector h3 { margin: 0; font-size: 1rem; }

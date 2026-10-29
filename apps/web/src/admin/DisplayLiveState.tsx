@@ -18,17 +18,22 @@ export function DisplayLiveState({ display, media, playlists, now }: { display: 
   const countdownFinished = announcement?.kind === 'countdown' && announcement.endsAt && display.lastPlaybackReportAt && Date.parse(announcement.endsAt) <= Date.parse(display.lastPlaybackReportAt)
   const visible = blackout ? 'Pantalla negra' : announcement ? countdownFinished ? announcement.completedText ?? announcement.text : announcement.text : web ? 'Página web asignada al iframe' : background
   const pending = display.lastCommandId && display.actualCommandId !== display.lastCommandId
+  const portrait = display.rotation % 180 !== 0
   const total = display.actualCommandId === display.lastCommandId && display.actualPlaylistId === display.playbackPlaylistId
     ? display.playbackPlaylistItemCount ?? (display.playbackPlaylistUpdatedAt === playlist?.updatedAt ? playlist?.items.length : undefined) : undefined
 
   return <div className={`live-state${stale ? ' is-stale' : ''}`}>
-    <div className={`live-preview${blackout ? ' is-blackout' : ''}`}>
-      {!blackout && !announcement && !web && asset && (asset.type === 'Image' || asset.type === 2
-        ? <img loading="lazy" src={mediaContentUrl(asset.id)} alt={`Miniatura de ${asset.name}`} />
-        : <VideoThumbnail src={mediaContentUrl(asset.id)} />)}
-      {(blackout || announcement || web || !asset) && <span className="live-symbol" aria-hidden="true">{blackout ? '■' : announcement?.kind === 'countdown' ? '◷' : announcement ? 'Aa' : web ? '↗' : '▶'}</span>}
-      <span className="preview-caption">{asset && !blackout && !announcement && !web ? 'Miniatura · no es una captura en vivo' : 'Representación del último reporte'}</span>
-    </div>
+    <figure className="live-preview-figure" aria-label={`TV ${portrait ? 'vertical · 9:16' : 'horizontal · 16:9'}`}>
+      <div className="live-preview-stage">
+        <div className={`live-preview${portrait ? ' is-portrait' : ''}${blackout ? ' is-blackout' : ''}`}>
+          {!blackout && !announcement && !web && asset && (asset.type === 'Image' || asset.type === 2
+            ? <img loading="lazy" src={mediaContentUrl(asset.id)} alt={`Miniatura de ${asset.name}`} />
+            : <VideoThumbnail src={mediaContentUrl(asset.id)} />)}
+          {(blackout || announcement || web || !asset) && <span className="live-symbol" aria-hidden="true">{blackout ? '■' : announcement?.kind === 'countdown' ? '◷' : announcement ? 'Aa' : web ? '↗' : '▶'}</span>}
+        </div>
+      </div>
+      <figcaption className="preview-caption">{portrait ? 'Vertical · 9:16' : 'Horizontal · 16:9'}<br />{asset && !blackout && !announcement && !web ? 'Miniatura · no es una captura en vivo' : 'Representación del último reporte'}</figcaption>
+    </figure>
     <div className="live-content">
       <span className="eyebrow">{age === null ? 'SIN REPORTE' : stale ? 'ÚLTIMO ESTADO CONOCIDO' : 'REPORTADO POR LA TV'}</span>
       <strong>{visible}</strong>

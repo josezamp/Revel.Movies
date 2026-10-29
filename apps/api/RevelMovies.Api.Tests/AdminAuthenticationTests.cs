@@ -136,16 +136,16 @@ public sealed class AdminAuthenticationTests
         new { username = AuthenticatedApiFactory.Username, password = AuthenticatedApiFactory.Password });
 
     [Fact]
-    public async Task Session_expires_after_eight_hours_even_when_the_admin_is_active()
+    public async Task Session_expires_after_seven_days_even_when_the_admin_is_active()
     {
         var clock = new TestClock();
         await using var factory = new AuthFactory(clock: clock);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(AdminAuthentication.RequestHeader, "1");
         (await Login(client)).EnsureSuccessStatusCode();
-        clock.Now += TimeSpan.FromHours(7);
+        clock.Now += TimeSpan.FromDays(7) - TimeSpan.FromSeconds(1);
         Assert.True((await client.GetFromJsonAsync<JsonElement>("/api/auth/session")).GetProperty("authenticated").GetBoolean());
-        clock.Now += TimeSpan.FromHours(2);
+        clock.Now += TimeSpan.FromSeconds(2);
         Assert.False((await client.GetFromJsonAsync<JsonElement>("/api/auth/session")).GetProperty("authenticated").GetBoolean());
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/events", new { name = "" })).StatusCode);
     }
