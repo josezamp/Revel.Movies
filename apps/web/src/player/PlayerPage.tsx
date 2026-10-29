@@ -615,6 +615,8 @@ export function PlayerPage() {
             break
           }
 
+          // Invalidate older website recovery now; remove the page with the scheduled media change.
+          webPageRevision++
           loopRef.current = command.payload?.loop === true
           setMediaLoop(loopRef.current)
           acknowledge(command, 'ready', `scheduled; offset ${clockOffsetMsRef.current.toFixed(1)}ms`)
@@ -627,6 +629,7 @@ export function PlayerPage() {
             setPlaylistPaused(false)
             setPlaybackEnded(false)
             setBlackout(false)
+            setWebPage(null)
             setCurrentMedia({ id: candidate.mediaId, type: candidate.mediaType })
             acknowledge(command, 'executed')
           })
@@ -663,6 +666,7 @@ export function PlayerPage() {
             break
           }
 
+          webPageRevision++
           const nextPlaylist: ActivePlaylist = {
             id: playlistId,
             playbackId: typeof command.payload?.playbackId === 'string' ? command.payload.playbackId : playlistId,
@@ -683,6 +687,7 @@ export function PlayerPage() {
             setPlaylistPaused(false)
             setPlaybackEnded(false)
             setBlackout(false)
+            setWebPage(null)
             setCurrentMedia({ id: items[0].mediaId, type: items[0].mediaType })
             acknowledge(command, 'executed')
           })

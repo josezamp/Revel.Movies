@@ -1,5 +1,6 @@
 import { test, expect } from './adminFixture'
 import { createServer, type Server } from 'node:http'
+import { readFileSync } from 'node:fs'
 
 let site: Server
 let siteUrl: string
@@ -110,3 +111,48 @@ test('saved link displays from the library and the visual picker and recovers af
   await expect(admin.getByRole('button', { name: 'Contenido para TV Enlaces' })).toContainText('Enlace · Cambiar')
   await admin.close()
 })
+
+for (const kind of ['Image', 'Video', 'Playlist'] as const) {
+  test(`playing ${kind} from the picker replaces a link and keeps it cleared after reload`, async ({ page: player, context, request }) => {
+    const event = await (await request.post('/api/events', { data: { name: `Cambiar enlace ${kind} ${Date.now()}`, timeZone: 'UTC' } })).json()
+    await player.goto('/player')
+    await expect(player.locator('.pairing-code')).toHaveText(/\d{3} \d{3}/)
+    const code = (await player.locator('.pairing-code').innerText()).replace(/\s/g, '')
+    const paired = await request.post('/api/displays/pair', { data: { code, name: 'TV Cambio', eventId: event.id } })
+    expect(paired.ok()).toBeTruthy()
+    const display = await paired.json()
+    await expect(player.locator('.pairing-screen')).toHaveCount(0)
+    const file = kind === 'Video'
+      ? { name: 'Contenido.mp4', mimeType: 'video/mp4', buffer: readFileSync(new URL('../fixtures/picker-preview.mp4', import.meta.url)) }
+      : { name: 'Contenido.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5S8AAAAASUVORK5CYII=', 'base64') }
+    const uploaded = await request.post(`/api/events/${event.id}/media`, { multipart: { file } })
+    expect(uploaded.ok()).toBeTruthy()
+    const media = await uploaded.json()
+    if (kind === 'Playlist') expect((await request.post(`/api/events/${event.id}/playlists`, { data: {
+      name: 'Secuencia', isLoop: true, items: [{ mediaAssetId: media.id, durationSeconds: 60 }],
+    } })).ok()).toBeTruthy()
+    const createdLink = await request.post(`/api/events/${event.id}/media/links`, { data: { name: 'Resultados', url: siteUrl } })
+    expect(createdLink.ok()).toBeTruthy()
+    const link = await createdLink.json()
+    expect((await request.post(`/api/displays/${display.id}/commands`, { data: { type: 'media.play', payload: { mediaId: link.id } } })).ok()).toBeTruthy()
+    await expect(player.frameLocator('iframe.player-webpage').getByRole('heading', { name: 'Resultados del concurso' })).toBeVisible()
+    const admin = await context.newPage()
+    await admin.goto(`/admin?event=${event.id}`)
+    const pickerButton = admin.getByRole('button', { name: 'Contenido para TV Cambio' })
+    await pickerButton.click()
+    const label = kind === 'Playlist' ? 'playlist: Secuencia' : `${kind === 'Image' ? 'imagen' : 'video'}: Contenido`
+    await admin.getByRole('dialog', { name: 'Elegir contenido' }).getByRole('button', { name: `Seleccionar ${label}`, exact: true }).click()
+    // Selection alone must leave the currently displayed site in place.
+    await expect(player.locator('iframe.player-webpage')).toBeVisible()
+    await admin.getByRole('button', { name: 'Reproducir en TV Cambio', exact: true }).click()
+    await expect(player.locator('iframe.player-webpage')).toHaveCount(0)
+    const currentMedia = player.locator(kind === 'Video' ? 'video.player-media' : 'img.player-media')
+    await expect(currentMedia).toBeVisible()
+    await expect(pickerButton).toContainText(kind === 'Playlist' ? 'Secuencia' : 'Contenido')
+    await expect(admin.getByRole('button', { name: 'Retirar página', exact: true })).toHaveCount(0)
+    await player.reload()
+    await expect(currentMedia).toBeVisible()
+    await expect(player.locator('iframe.player-webpage')).toHaveCount(0)
+    await admin.close()
+  })
+}

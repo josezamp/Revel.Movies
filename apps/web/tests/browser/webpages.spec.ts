@@ -85,6 +85,7 @@ test('existing pairing projects from admin, replaces, recovers after disconnect,
   await expect(page.locator('iframe')).toBeVisible()
   await expect(frame.getByRole('heading', { name: 'Concurso premios' })).toBeVisible()
   await send(request, displayId, 'media.play', { mediaId: media.id })
+  await expect(page.locator('iframe')).toHaveCount(0)
   await expect(page.locator('img.player-media')).toBeVisible()
   await admin.getByRole('button', { name: 'Contenido', exact: true }).click()
   await admin.getByRole('button', { name: 'Retirar página', exact: true }).click()

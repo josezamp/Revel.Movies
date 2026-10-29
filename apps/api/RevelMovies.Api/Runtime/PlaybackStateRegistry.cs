@@ -192,6 +192,8 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         {
             state.DesiredState = "Playing";
             state.ContentType = "Media";
+            // A new content selection replaces the website, including after reconnect.
+            state.WebPageJson = null;
             state.PromotionProgressJson = null;
             state.MediaAssetId = media.Id;
             state.PlaylistId = null;
@@ -219,6 +221,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         {
             state.DesiredState = "Playing";
             state.ContentType = "Playlist";
+            state.WebPageJson = null;
             state.PromotionProgressJson = null;
             state.MediaAssetId = null;
             state.PlaylistId = playlistId;

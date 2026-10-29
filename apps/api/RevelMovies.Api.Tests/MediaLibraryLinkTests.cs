@@ -112,6 +112,67 @@ public sealed partial class MediaUploadTests
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(path, new { type = "media.play", payload = new { mediaId = foreignMediaId } })).StatusCode);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Playing_multimedia_replaces_the_saved_webpage_only_on_target_displays(bool groupTarget, bool playlist)
+    {
+        await using var factory = new MediaApiFactory(); using var client = factory.CreateClient();
+        var eventId = await CreateEvent(factory, client);
+        using var uploaded = await Upload(client, eventId, "Logo.png"); uploaded.EnsureSuccessStatusCode();
+        var mediaId = (await uploaded.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        using var createdPlaylist = await client.PostAsJsonAsync($"/api/events/{eventId}/playlists", new
+        { name = "Multimedia", items = new[] { new { mediaAssetId = mediaId, durationSeconds = 60 } } });
+        createdPlaylist.EnsureSuccessStatusCode();
+        var playlistId = (await createdPlaylist.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        using var createdLink = await client.PostAsJsonAsync($"/api/events/{eventId}/media/links", new { url = "https://example.com/live" });
+        createdLink.EnsureSuccessStatusCode();
+        var linkId = (await createdLink.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        var displays = Enumerable.Range(0, 3).Select(i => new Display
+        { EventId = eventId, Name = $"Screen {i}", DeviceTokenHash = Guid.NewGuid().ToString() }).ToArray();
+        var group = new DisplayGroup { EventId = eventId, Name = "Group" };
+        db.Displays.AddRange(displays); db.DisplayGroups.Add(group);
+        db.DisplayGroupMembers.AddRange(displays.Take(2).Select(display => new DisplayGroupMember { DisplayId = display.Id, DisplayGroupId = group.Id }));
+        await db.SaveChangesAsync();
+        foreach (var display in displays)
+        {
+            (await client.PostAsJsonAsync($"/api/displays/{display.Id}/commands", new { type = "media.play", payload = new { mediaId = linkId } })).EnsureSuccessStatusCode();
+            (await client.PostAsJsonAsync($"/api/displays/{display.Id}/commands", new { type = "announcement.show", payload = new
+            { kind = "message", text = "Aviso vigente", layout = "banner", theme = "dark" } })).EnsureSuccessStatusCode();
+        }
+        var path = groupTarget ? $"/api/display-groups/{group.Id}/commands" : $"/api/displays/{displays[0].Id}/commands";
+        var registry = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(path,
+            new { type = "media.play", payload = new { mediaId = Guid.NewGuid() } })).StatusCode);
+        Assert.NotNull((await registry.GetRecoveryAsync(displays[0].Id))?.WebPage);
+        var before = await registry.GetAsync(displays[0].Id);
+        using var played = playlist
+            ? await client.PostAsJsonAsync($"/api/playlists/{playlistId}/play", new { targetType = groupTarget ? "group" : "display", targetId = groupTarget ? group.Id : displays[0].Id })
+            : await client.PostAsJsonAsync(path, new { type = "media.play", payload = new { mediaId } });
+        Assert.Equal(HttpStatusCode.Accepted, played.StatusCode);
+        var dispatch = await played.Content.ReadFromJsonAsync<JsonElement>();
+        var commandId = dispatch.GetProperty("playCommand").GetProperty("commandId").GetGuid();
+        for (var i = 0; i < displays.Length; i++)
+        {
+            var recovery = await registry.GetRecoveryAsync(displays[i].Id);
+            Assert.NotNull(recovery);
+            Assert.NotNull(recovery.Announcement);
+            if (i == 0 || (groupTarget && i == 1))
+            {
+                Assert.Null(recovery.WebPage);
+                Assert.Equal(playlist ? "Playlist" : "Media", recovery.ContentType);
+                Assert.Equal(playlist ? playlistId : mediaId, recovery.Payload!.Value.GetProperty(playlist ? "playlistId" : "mediaId").GetGuid());
+                Assert.Equal(commandId, recovery.CommandId);
+                Assert.Equal(before!.Revision + 1, recovery.Revision);
+            }
+            else Assert.Equal("https://example.com/live", recovery.WebPage?.GetProperty("url").GetString());
+        }
+    }
+
     [Fact]
     public void Library_link_migration_is_additive_reversible_and_matches_the_model()
     {
