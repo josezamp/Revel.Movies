@@ -345,11 +345,12 @@ public sealed class SceneTests
         await db.SaveChangesAsync(); return (evt.Id, a.Id, b.Id, group.Id, media.Id);
     }
 
-    private sealed class Factory : WebApplicationFactory<PlayerHub>
+    private sealed class Factory : AuthenticatedApiFactory
     {
         private readonly string database = Guid.NewGuid().ToString();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Database:ApplyMigrationsOnStartup"] = "false" }));
             builder.ConfigureServices(services =>
             {

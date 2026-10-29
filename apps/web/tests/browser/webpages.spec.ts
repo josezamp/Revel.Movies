@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { test, expect, type Page, type APIRequestContext } from './adminFixture'
 import { createServer, type Server } from 'node:http'
 
 let site: Server

@@ -1,4 +1,5 @@
 import type { WebPage } from '../webpages/webPage'
+import { apiFetch } from './auth'
 import type { Announcement } from '../announcements/announcement'
 import type { PromotionPolicy } from '../player/promotionalBreaks'
 
@@ -385,13 +386,13 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init)
+  const response = await apiFetch(url, init)
   if (!response.ok) throw await responseError(response)
   return response.json()
 }
 
 async function requestVoid(url: string, init?: RequestInit): Promise<void> {
-  const response = await fetch(url, init)
+  const response = await apiFetch(url, init)
   if (!response.ok) throw await responseError(response)
 }
 

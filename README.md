@@ -19,6 +19,7 @@ Revel Movies turns browser-capable devices into remotely controlled media player
 
 Revel Movies currently supports:
 
+- Password-protected administration with a server-configured account and an 8-hour session; see [administrator setup](docs/deployment.md#administrator-login)
 - Events persisted in SQL Server
 - Display pairing with persistent device identity
 - Online/offline presence through SignalR and heartbeat

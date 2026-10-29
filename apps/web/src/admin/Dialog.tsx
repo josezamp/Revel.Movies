@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react'
 
-export function Dialog({ title, busy = false, onClose, children }: {
-  title: string; busy?: boolean; onClose: () => void; children: ReactNode
+export function Dialog({ title, busy = false, onClose, children, initialFocusRef }: {
+  title: string; busy?: boolean; onClose: () => void; children: ReactNode; initialFocusRef?: RefObject<HTMLElement | null>
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   const titleId = useId()
@@ -10,13 +10,14 @@ export function Dialog({ title, busy = false, onClose, children }: {
     const previous = document.activeElement as HTMLElement | null
     const overflow = document.body.style.overflow
     dialog.showModal()
+    initialFocusRef?.current?.focus()
     document.body.style.overflow = 'hidden'
     return () => {
       dialog.close()
       document.body.style.overflow = overflow
       if (previous?.isConnected) previous.focus()
     }
-  }, [])
+  }, [initialFocusRef])
   return (
     <dialog ref={ref} className="playlist-dialog" aria-labelledby={titleId}
       onKeyDown={event => {

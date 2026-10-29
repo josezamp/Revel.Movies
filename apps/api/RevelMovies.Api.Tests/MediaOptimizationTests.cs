@@ -240,7 +240,7 @@ public sealed class MediaOptimizationTests
         }
     }
 
-    private sealed class OptimizationFactory : WebApplicationFactory<PlayerHub>
+    private sealed class OptimizationFactory : AuthenticatedApiFactory
     {
         public static readonly byte[] Source = new byte[1024];
         static OptimizationFactory() { "ftyp"u8.CopyTo(Source.AsSpan(4)); }
@@ -251,6 +251,7 @@ public sealed class MediaOptimizationTests
         public FakeOptimizer Optimizer { get; } = new();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             keeper.Open();
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             { ["Database:ApplyMigrationsOnStartup"] = "false", ["MediaStorage:RootPath"] = MediaRoot,

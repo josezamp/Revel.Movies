@@ -222,11 +222,12 @@ public sealed class PlaylistSelectionTests
         return (eventItem.Id, new[] { video.Id, image.Id }, foreign.Id);
     }
 
-    private sealed class PlaylistApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class PlaylistApiFactory : AuthenticatedApiFactory
     {
         private readonly SqliteConnection connection = new("Data Source=:memory:;Foreign Keys=True");
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             connection.Open();
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Database:ApplyMigrationsOnStartup"] = "false" }));
             builder.ConfigureServices(services =>

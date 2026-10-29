@@ -1,5 +1,13 @@
 # Operar un evento en Revel Movies
 
+## Acceso al panel
+
+Abrí `/admin` e ingresá con el usuario y la contraseña configurados por el administrador del servidor. La sesión dura hasta 8 horas; usá **Cerrar sesión** al terminar. Si vence, volvé a ingresar: el enlace conserva el evento y la sección que estabas usando. Las TVs siguen funcionando con su vinculación habitual y no necesitan la contraseña del panel.
+
+Si aparece “El acceso al panel todavía no está configurado”, completá la [configuración del servidor](deployment.md#administrator-login).
+
+## El panel
+
 El evento activo permanece en la cabecera. El panel separa cuatro tareas: **En vivo**, **Escenas**, **Contenido** y **Configuración**. Los destinos de reproducción se eligen explícitamente; si desaparecen, el panel pide elegirlos otra vez.
 
 Desde el inicio, **Controlar mi evento** abre el panel para la computadora o el celular; **Conectar una pantalla** abre el reproductor en la TV. Si todavía no hay eventos, **Crear mi primer evento** inicia la preparación.

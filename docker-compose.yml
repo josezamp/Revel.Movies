@@ -20,6 +20,8 @@ services:
       context: ./apps/api
     environment:
       ASPNETCORE_URLS: http://+:8080
+      AdminAuth__Username: ${ADMIN_USERNAME:-admin}
+      AdminAuth__Password: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env before starting the admin}
       ConnectionStrings__RevelMovies: Server=sqlserver,1433;Database=Revel.Movies;User Id=sa;Password=${MSSQL_SA_PASSWORD:-RevelMovies_dev_2026!};TrustServerCertificate=True
       MediaStorage__RootPath: /app/media
     ports:

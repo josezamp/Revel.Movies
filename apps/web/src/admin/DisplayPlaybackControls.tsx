@@ -1,12 +1,14 @@
 import { useRef, useState } from 'react'
-import { sendCommand, type Display, type MediaAsset } from '../api/client'
+import { playPlaylist, sendCommand, type Display, type MediaAsset, type Playlist } from '../api/client'
 import { displayPresence } from './displayPresence'
 import { playbackConfirmed } from './liveState'
+import { playbackCommandId } from './contentOperations'
+import { DisplayMediaPicker, type DisplayContentSelection } from './DisplayMediaPicker'
 
-type Props = { display: Display; media: MediaAsset[]; onChanged: () => Promise<void> }
+type Props = { display: Display; media: MediaAsset[]; playlists: Playlist[]; onChanged: () => Promise<void> }
 
-export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
-  const [selectedMediaId, setSelectedMediaId] = useState('')
+export function DisplayPlaybackControls({ display, media, playlists, onChanged }: Props) {
+  const [selection, setSelection] = useState<DisplayContentSelection | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
@@ -15,16 +17,19 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
   const previousCommandId = useRef<string | null | undefined>(undefined)
   const sending = useRef(false)
   const connected = displayPresence(display.status).connected
-  const assigned = display.playbackContentType === 'Playlist'
-    ? 'Playlist asignada'
-    : media.find(item => item.id === display.playbackMediaId)?.name
+  const assigned: DisplayContentSelection | null = display.playbackContentType === 'Playlist' && display.playbackPlaylistId
+    ? { kind: 'playlist', id: display.playbackPlaylistId }
+    : display.playbackMediaId ? { kind: 'media', id: display.playbackMediaId } : null
   const hasContent = Boolean(display.playbackMediaId || display.playbackPlaylistId)
-  const selected = media.find(item => item.id === selectedMediaId)
+  const selected = selection?.kind === 'playlist'
+    ? playlists.find(item => item.id === selection.id && item.items.length > 0)
+    : media.find(item => item.id === selection?.id)
+  const validSelection = selected ? selection : null
   const playing = display.desiredPlaybackState === 'Playing' && display.actualPlaybackState !== 'Ended'
   const pause = !selected && playing
   const disabled = !connected || busy
 
-  async function command(type: string, payload?: unknown) {
+  async function command(type: string, payload?: unknown, playlistId?: string) {
     if (sending.current || !connected) return
     sending.current = true
     setBusy(true)
@@ -34,9 +39,9 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
     previousCommandId.current = display.lastCommandId
     setCommandId(undefined)
     try {
-      const result = await sendCommand(display.id, type, payload) as { commandId?: string; playCommand?: { commandId: string } }
-      setCommandId(result.playCommand?.commandId ?? result.commandId)
-      if (type === 'media.play') setSelectedMediaId('')
+      const result = playlistId ? await playPlaylist(playlistId, 'display', display.id) : await sendCommand(display.id, type, payload)
+      setCommandId(playbackCommandId(result))
+      if (type === 'media.play' || playlistId) setSelection(null)
       setFeedback('Esperando confirmación del reproductor')
       await onChanged()
     } catch (cause) {
@@ -48,7 +53,7 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
     }
   }
 
-  let status = feedback || (hasContent ? `Destino: ${display.name}` : 'Elegí un archivo para comenzar.')
+  let status = feedback || (selected ? `Selección: ${selected.name}. Pulsá Reproducir para enviarla.` : hasContent ? `Destino: ${display.name}` : 'Elegí contenido para comenzar.')
   if (commandId && display.actualCommandId === commandId && playbackConfirmed(display, Date.now()))
     status = display.actualPlaybackState === 'Error' ? 'El reproductor informó un error'
       : ['Buffering', 'Loading'].includes(display.actualPlaybackState ?? '') ? 'Cargando en la TV…' : 'Acción confirmada por el reproductor'
@@ -58,24 +63,14 @@ export function DisplayPlaybackControls({ display, media, onChanged }: Props) {
 
   return (
     <div className="display-playback" role="group" aria-label={`Multimedia de ${display.name}`} aria-busy={busy}>
-      <label className="display-media-picker">
-        Contenido
-        <select
-          aria-label={`Contenido para ${display.name}`}
-          value={selected?.id ?? ''}
-          disabled={disabled}
-          onChange={event => { setSelectedMediaId(event.target.value); setFeedback(''); setError('') }}
-        >
-          <option value="">{hasContent ? assigned ?? 'Contenido asignado' : 'Seleccionar contenido…'}</option>
-          {media.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </label>
+      <DisplayMediaPicker displayName={display.name} media={media} playlists={playlists} selected={validSelection} assigned={assigned} disabled={disabled}
+        onSelect={next => { setSelection(next); setFeedback(''); setError(''); setCommandId(undefined); setSentAt(undefined) }} />
       <div className="display-transport">
         <button
           type="button"
           className="display-play-button"
           disabled={disabled || (!selected && !hasContent)}
-          onClick={() => void command(selected ? 'media.play' : pause ? 'media.pause' : 'playback.resume', selected ? { mediaId: selected.id } : undefined)}
+          onClick={() => void command(selected ? 'media.play' : pause ? 'media.pause' : 'playback.resume', selected && selection?.kind === 'media' ? { mediaId: selected.id } : undefined, selected && selection?.kind === 'playlist' ? selected.id : undefined)}
         >
           <span aria-hidden="true">{pause ? 'Ⅱ' : '▶'}</span> {selected ? `Reproducir en ${display.name}` : pause ? 'Pausar' : 'Reanudar'}
         </button>

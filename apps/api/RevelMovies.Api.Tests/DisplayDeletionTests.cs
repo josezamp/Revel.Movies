@@ -156,12 +156,13 @@ public sealed class DisplayDeletionTests
         return (display.Id, other.Id);
     }
 
-    private sealed class DisplayApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class DisplayApiFactory : AuthenticatedApiFactory
     {
         private readonly SqliteConnection connection = new("Data Source=:memory:;Foreign Keys=True");
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             connection.Open();
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {

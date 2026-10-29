@@ -237,11 +237,12 @@ public sealed class DisplayPlaybackTests
         return display.Id;
     }
 
-    private sealed class PlaybackApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class PlaybackApiFactory : AuthenticatedApiFactory
     {
         private readonly string databaseName = Guid.NewGuid().ToString();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Database:ApplyMigrationsOnStartup"] = "false"

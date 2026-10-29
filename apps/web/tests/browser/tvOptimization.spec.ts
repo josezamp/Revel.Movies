@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from './adminFixture'
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 

@@ -1,4 +1,5 @@
 import type { MediaAsset } from './client'
+import { notifySessionExpired } from './auth'
 
 export class DuplicateUploadError extends Error {
   existing: MediaAsset
@@ -17,10 +18,12 @@ export function uploadMediaWithProgress(eventId: string, file: File, signal: Abo
     const finish = () => signal.removeEventListener('abort', abort)
     if (signal.aborted) { reject(new DOMException('Subida cancelada', 'AbortError')); return }
     xhr.open('POST', `/api/events/${encodeURIComponent(eventId)}/media`)
+    xhr.setRequestHeader('X-Revel-Admin', '1')
     xhr.responseType = 'json'
     xhr.upload.onprogress = event => onProgress(event.loaded, event.lengthComputable ? event.total : null)
     xhr.onload = () => {
       finish()
+      notifySessionExpired(xhr.status)
       if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.id) resolve(xhr.response as MediaAsset)
       else if (xhr.status === 409 && xhr.response?.existing?.id) reject(new DuplicateUploadError(xhr.response.existing))
       else if (xhr.status === 413) reject(new Error('El servidor rechazó el tamaño del archivo. Revisá el límite de subida configurado.'))

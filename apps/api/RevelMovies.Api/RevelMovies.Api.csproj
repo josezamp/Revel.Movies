@@ -3,6 +3,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>revel-movies-admin</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../RevelMovies.Application/RevelMovies.Application.csproj" />

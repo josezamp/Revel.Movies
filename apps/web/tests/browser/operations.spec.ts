@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test'
+import { test, expect, type Page, type APIRequestContext } from './adminFixture'
 
 async function setup(page: Page, request: APIRequestContext) {
   const event = await (await request.post('/api/events', { data: { name: `Operación ${Date.now()}`, timeZone: 'UTC' } })).json()

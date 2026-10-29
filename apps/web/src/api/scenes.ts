@@ -1,3 +1,5 @@
+import { apiFetch } from './auth'
+
 export type LayerAction = 'keep' | 'replace' | 'remove'
 export type SceneAnnouncement = { kind: 'message' | 'countdown'; text: string; layout: 'fullscreen' | 'banner'; theme: 'dark' | 'light'; endsAt?: string | null; durationSeconds?: number; completedText?: string | null }
 export interface SceneAssignment {
@@ -16,7 +18,7 @@ async function request<T>(url: string, method = 'GET', body?: unknown): Promise<
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 30000)
   let response: Response
-  try { response = await fetch(`/api${url}`, { method, signal: controller.signal, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }) }
+  try { response = await apiFetch(`/api${url}`, { method, signal: controller.signal, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }) }
   catch (cause) { if (controller.signal.aborted) throw new Error('No se pudo confirmar la respuesta del servidor. Revisá el estado actualizado antes de reintentar.'); throw cause }
   finally { window.clearTimeout(timer) }
   if (!response.ok) { const data = await response.json().catch(() => null); throw new Error(data?.error ?? `No se pudo completar la operación (${response.status}).`) }

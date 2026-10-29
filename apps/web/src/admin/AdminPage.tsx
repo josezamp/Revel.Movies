@@ -14,7 +14,9 @@ import './operations.css'
 type Section = 'live' | 'scenes' | 'content' | 'configuration'
 const sections = [['live', 'En vivo'], ['scenes', 'Escenas'], ['content', 'Contenido'], ['configuration', 'Configuración']] as const
 
-export function AdminPage() {
+export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
+  username: string; onLogout: () => Promise<void>; loggingOut: boolean; sessionError: string
+}) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [pending, setPending] = useState<PendingPairing[]>([])
   const [displays, setDisplays] = useState<Display[]>([])
@@ -110,8 +112,9 @@ export function AdminPage() {
       <div className="operation-identity"><Link className="operation-brand eyebrow" to="/">REVEL MOVIES <span> / CONTROL DE EVENTO</span></Link><h1>{eventName ?? 'Tus eventos'}</h1><p className="muted">Prepará cada momento. Controlá lo que está en pantalla.</p></div>
       <div className="admin-toolbar"><label>Evento activo<select value={selectedEventId} onChange={event => setSelectedEventId(event.target.value)}>
         {!selectedEventId && <option value="" disabled>{missingEvent ? 'Elegí un evento disponible' : lastUpdated ? 'Sin eventos' : 'Cargando eventos…'}</option>}{events.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label><button onClick={() => setDialog('event')}>Nuevo evento</button></div>
+      </select></label><button onClick={() => setDialog('event')}>Nuevo evento</button><div className="admin-session"><span>{username}</span><button disabled={loggingOut} onClick={() => void onLogout()}>{loggingOut ? 'Cerrando…' : 'Cerrar sesión'}</button></div></div>
     </header>
+    {sessionError && <p role="alert" className="workspace-error">{sessionError}</p>}
     {selectedEventId && <nav className="operation-nav" aria-label="Tareas del evento"><div className="nav-context"><span className="nav-event">{eventName}</span><span className={`panel-connection${error || outdated ? ' is-stale' : ''}`}><span aria-hidden="true" />{error || outdated ? 'Sin actualización' : 'Panel conectado'}</span></div>{sections.map(([key, label]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); if (key === 'live' || key === 'scenes') void refreshMedia() }}>{label}</button>)}</nav>}
     <div id="event-workspace" tabIndex={-1} className="event-workspace">
     {(error || outdated) && <div className="server-alert" role="alert"><strong>Sin actualización del servidor.</strong> <span aria-live="off">{lastUpdated ? `Última actualización: ${ageLabel(now - lastUpdated).toLowerCase()}.` : 'Todavía no se recibieron datos.'}</span> Reintentando… <button onClick={() => void refresh()}>Reintentar ahora</button>{error && <small>{error}</small>}</div>}

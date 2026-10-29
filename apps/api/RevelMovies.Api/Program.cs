@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Http.Features;
+using RevelMovies.Api.Auth;
 using RevelMovies.Api.Endpoints;
 using RevelMovies.Api.Hubs;
 using RevelMovies.Api.Runtime;
@@ -50,15 +51,16 @@ builder.Services.AddScoped<SceneRegistry>();
 builder.Services.AddHostedService<SceneExpiryService>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
+builder.Services.AddAdminAuthentication();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("web", policy => policy
-        .WithOrigins("http://localhost:5173")
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials());
+    options.AddPolicy("web", policy =>
+    {
+        if (builder.Environment.IsDevelopment()) policy.WithOrigins("http://localhost:5173");
+        policy.AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+    });
 });
 
 var app = builder.Build();
@@ -71,10 +73,12 @@ if (builder.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
 app.UsePathBase("/api");
 app.UseRouting();
 app.UseCors("web");
+app.UseAdminAuthentication();
 app.Use(async (context, next) =>
 {
     if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method) ||
         HttpMethods.IsOptions(context.Request.Method) || context.Request.Path.StartsWithSegments("/hubs") ||
+        context.Request.Path.StartsWithSegments("/auth") ||
         context.Request.Path.Value?.TrimEnd('/').EndsWith("/media-cleanup", StringComparison.OrdinalIgnoreCase) == true)
     { await next(context); return; }
     using var activity = context.RequestServices.GetRequiredService<MediaMaintenanceGate>().TryEnter();
@@ -86,8 +90,9 @@ app.Use(async (context, next) =>
     }
     await next(context);
 });
-app.MapHealthChecks("/health");
-app.MapHub<PlayerHub>("/hubs/player");
+app.MapHealthChecks("/health").AllowAnonymous();
+app.MapHub<PlayerHub>("/hubs/player").AllowAnonymous();
+app.MapAdminAuthentication();
 app.MapOrchestrationEndpoints();
 app.MapPromotionalBreakEndpoints();
 app.MapSceneEndpoints();
@@ -204,7 +209,7 @@ app.MapMethods("/media/{mediaId:guid}/content", ["GET", "HEAD"], async (
     response.Headers.CacheControl = "public, no-cache";
     return Results.File(stream, item.MimeType, enableRangeProcessing: true,
         entityTag: new Microsoft.Net.Http.Headers.EntityTagHeaderValue($"\"{item.Checksum}\""));
-});
+}).AllowAnonymous();
 
 app.MapDelete("/media/{mediaId:guid}", async (
     Guid mediaId,
@@ -220,7 +225,7 @@ app.MapGet("/player/identity", async (HttpRequest request, DisplayRegistry regis
     var token = request.Headers["X-Device-Token"].ToString();
     var display = await registry.AuthenticateAsync(token, cancellationToken);
     return display is null ? Results.Unauthorized() : Results.Ok(DisplayResponse.From(display));
-});
+}).AllowAnonymous();
 
 app.MapGet("/player/diagnostics", async (
     HttpRequest request,
@@ -251,7 +256,7 @@ app.MapGet("/player/diagnostics", async (
             x.ServerReceivedAt
         })
     });
-});
+}).AllowAnonymous();
 
 app.MapPost("/player/pairing-session", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
 {
@@ -262,7 +267,7 @@ app.MapPost("/player/pairing-session", async (DisplayRegistry registry, Cancella
         code = session.Code,
         expiresAt = session.ExpiresAt
     });
-});
+}).AllowAnonymous();
 
 app.MapGet("/player/pairing-session/{sessionToken}", async (
     string sessionToken,
@@ -271,7 +276,7 @@ app.MapGet("/player/pairing-session/{sessionToken}", async (
 {
     var result = await registry.GetPairingResultAsync(sessionToken, cancellationToken);
     return result is null ? Results.NotFound() : Results.Ok(result);
-});
+}).AllowAnonymous();
 
 app.MapGet("/pairing/pending", async (DisplayRegistry registry, CancellationToken cancellationToken) =>
 {

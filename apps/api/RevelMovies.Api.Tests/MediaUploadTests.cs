@@ -274,12 +274,13 @@ public sealed class MediaUploadTests
         return await client.PostAsync($"/api/events/{eventId}/media", form);
     }
 
-    private sealed class MediaApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class MediaApiFactory : AuthenticatedApiFactory
     {
         private readonly SqliteConnection connection = new($"Data Source=Uploads-{Guid.NewGuid()};Mode=Memory;Cache=Shared");
         public string MediaRoot { get; } = Path.Combine(Path.GetTempPath(), "revel-upload-test-" + Guid.NewGuid());
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             connection.Open();
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             { ["Database:ApplyMigrationsOnStartup"] = "false", ["MediaStorage:RootPath"] = MediaRoot, ["Logging:LogLevel:Default"] = "Warning" }));

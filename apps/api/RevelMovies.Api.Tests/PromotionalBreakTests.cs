@@ -263,11 +263,12 @@ public sealed class PromotionalBreakTests
         return new(eventId, displays.Select(x => x.Id).ToArray(), group.Id, playlist.Id, promo.Id, main.Id, mainPlaylistId, playbackId);
     }
 
-    private sealed class PromotionApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class PromotionApiFactory : AuthenticatedApiFactory
     {
         private readonly string databaseName = Guid.NewGuid().ToString();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Database:ApplyMigrationsOnStartup"] = "false" }));
             builder.ConfigureServices(services => {
                 services.RemoveAll<DbContextOptions<RevelMoviesDbContext>>();

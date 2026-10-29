@@ -7,6 +7,9 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
+using System.Threading.RateLimiting;
 using RevelMovies.Api.Hubs;
 using RevelMovies.Infrastructure.Persistence;
 
@@ -37,12 +40,18 @@ sealed class BrowserApiFactory : WebApplicationFactory<PlayerHub>
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Database:ApplyMigrationsOnStartup"] = "false",
+            ["AdminAuth:Username"] = "test-admin",
+            ["AdminAuth:Password"] = "Test-only-password-2026!",
             ["ConnectionStrings:RevelMovies"] = "TestOnly",
             ["Logging:LogLevel:Default"] = "Warning",
             ["MediaStorage:RootPath"] = Path.Combine(Path.GetTempPath(), "revel-browser-tests"),
         }));
         builder.ConfigureServices(services =>
         {
+            // The API tests cover throttling. Browser fixtures log in for every isolated test.
+            services.RemoveAll<IConfigureOptions<RateLimiterOptions>>();
+            services.Configure<RateLimiterOptions>(options => options.AddPolicy("admin-login",
+                _ => RateLimitPartition.GetNoLimiter("browser-tests")));
             services.RemoveAll<DbContextOptions<RevelMoviesDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<RevelMoviesDbContext>>();
             services.AddDbContext<RevelMoviesDbContext>(options => options.UseSqlite(keeper.ConnectionString).ReplaceService<IModelCustomizer, BrowserSqliteModelCustomizer>());

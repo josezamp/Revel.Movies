@@ -148,11 +148,12 @@ public sealed class WebPageTests
         return (displays.Select(display => display.Id).ToArray(), group.Id);
     }
 
-    private sealed class WebPageApiFactory : WebApplicationFactory<PlayerHub>
+    private sealed class WebPageApiFactory : AuthenticatedApiFactory
     {
         private readonly string databaseName = Guid.NewGuid().ToString();
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Database:ApplyMigrationsOnStartup"] = "false"

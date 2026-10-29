@@ -62,7 +62,7 @@ After publishing **both** applications, check:
 
 - `/admin` and `/player`: the React application loads, including on refresh.
 - `/api/health`: returns `Healthy`.
-- `/api/events`: returns a JSON array.
+- `/api/events`: returns `401` without an admin session, and a JSON array after login.
 - `/api/hubs/player/negotiate?negotiateVersion=1`: a POST returns SignalR negotiation JSON.
 
 The health endpoint only checks whether the API is running; `/api/events` also exercises the database connection. Do not use `/api/api/events`.
@@ -108,6 +108,8 @@ A `413 Request Entity Too Large` from IIS can indicate that the in-process serve
 
 A local SQL Server instance can be used directly with the default connection string.
 
+Configure the administrator credentials as described below before opening the panel.
+
 API:
 
 ```bash
@@ -143,6 +145,8 @@ Publish the frontend and reload the TV's Player page to load this change. Valida
 
 Docker remains available as an optional local or portable deployment path. The compose stack uses SQL Server 2022 and a persistent media volume.
 
+Create an untracked `.env` with `ADMIN_USERNAME=admin` and `ADMIN_PASSWORD` set to a unique password of 12–256 characters. Compose requires the password before starting.
+
 ```bash
 docker compose up --build
 ```
@@ -159,3 +163,29 @@ Then open:
 - `http://localhost:8080/player`
 
 For a LAN event, expose the host IP to the TVs, for example `http://192.168.1.10:8080/player`.
+
+## Administrator login
+
+`/admin` requires one configured administrator account. Set these values **on the API server**, using environment variables or deployment configuration outside the repository:
+
+```text
+AdminAuth__Username=admin
+AdminAuth__Password=<unique password of 12–256 characters>
+```
+
+The username is case sensitive (up to 100 characters). There is no default password. Missing, blank or short credentials leave the panel locked; health checks and paired TVs remain available. The login page reports that server setup is required. Credentials never belong in `VITE_*` variables or frontend files.
+
+For local development, the API has a `UserSecretsId`. Store credentials outside the checkout:
+
+```powershell
+dotnet user-secrets set 'AdminAuth:Username' 'admin' --project apps/api/RevelMovies.Api
+dotnet user-secrets set 'AdminAuth:Password' '<your unique password>' --project apps/api/RevelMovies.Api
+```
+
+For IIS, set the two environment variables on the **API application pool**, then recycle it. Keep that server configuration when publishing. Publish both the API and frontend together. Restart the API after changing credentials; restarting invalidates existing admin sessions, so operators must log in again. TVs use their existing device tokens.
+
+The session uses an HttpOnly, SameSite=Strict cookie scoped to `/api`, expires after 8 hours without automatic renewal, and can be closed from **Cerrar sesión**. Login permits 10 requests per minute per source IP. Behind a proxy, clients may share that limit. Admin writes require the `X-Revel-Admin: 1` header in addition to the session cookie, including multipart uploads. New API routes require admin authentication by default; only health, login/session, the player protocol and GET/HEAD media content explicitly allow anonymous access. Media URLs remain available to TVs and are not private file storage.
+
+Use HTTPS on the site to encrypt credentials and set the session cookie's Secure flag. HTTP remains supported for local event networks. If HTTPS terminates at a reverse proxy, configure trusted forwarding so ASP.NET Core sees the original HTTPS scheme. See [ASP.NET Core cookie authentication](https://learn.microsoft.com/aspnet/core/security/authentication/cookie?view=aspnetcore-10.0).
+
+After deployment, verify that `/admin` asks for credentials, invalid credentials are rejected, login permits administration, and **Cerrar sesión** blocks access again. Check `/player` from a separate browser without an admin session and confirm playback and reconnection.

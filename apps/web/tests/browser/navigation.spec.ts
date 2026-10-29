@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './adminFixture'
 
 test('event and section survive reload, shared links and browser history', async ({ page, request }) => {
   const first = await (await request.post('/api/events', { data: { name: 'Fiesta de bienvenida' } })).json()

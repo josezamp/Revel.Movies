@@ -1,0 +1,17 @@
+.admin-access { min-height: 100svh; display: grid; place-items: center; padding: 40px 24px; background: #101113; color: #f2f1ed; }
+.access-layout { width: min(440px, 100%); }
+.access-brand { display: inline-block; margin-bottom: 42px; color: #f2f1ed; font-family: Bahnschrift, 'Trebuchet MS', sans-serif; font-weight: 700; letter-spacing: .09em; text-decoration: none; }
+.access-brand span { color: #a6a6a6; font-weight: 400; }
+.access-card { border-top: 3px solid #d8e9ad; padding-top: 28px; }
+.access-card .eyebrow { font-size: .65rem; color: #b6b6b8; }
+.access-card h1 { font-family: Bahnschrift, 'Trebuchet MS', sans-serif; font-size: clamp(2.6rem, 8vw, 3.7rem); line-height: 1.07; letter-spacing: -.045em; margin: 24px 0 20px; }
+.access-card h1 span { color: #d8e9ad; }
+.access-description { color: #b6b6b8; line-height: 1.6; margin-bottom: 30px; max-width: 36ch; }
+.access-form { display: grid; gap: 10px; }
+.access-form label { font-size: .85rem; font-weight: 600; }
+.access-form input { width: 100%; min-height: 48px; border: 1px solid #54565b; border-radius: 4px; background: #191a1d; color: #f2f1ed; padding: 12px; margin-bottom: 12px; font-size: 1rem; }
+.access-form button { display: flex; justify-content: space-between; min-height: 50px; align-items: center; background: #d8e9ad; color: #20271b; border: 1px solid #d8e9ad; border-radius: 4px; font-weight: 700; }
+.access-form button:hover:not(:disabled) { background: #e8f4cb; }
+.access-error { color: #ffc5bd; line-height: 1.5; font-size: .9rem; margin: 0 0 14px; }
+.access-player { display: flex; justify-content: space-between; gap: 16px; margin-top: 32px; padding: 18px 0; border-top: 1px solid #37383a; color: #b6b6b8; font-size: .85rem; text-underline-offset: 4px; }
+.admin-session { display: flex; align-items: center; gap: 10px; font-size: .8rem; color: #b6b6b8; }

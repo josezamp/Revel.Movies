@@ -78,10 +78,11 @@ public sealed class ApiRoutingTests
             transport => transport.GetProperty("transport").GetString() == "WebSockets");
     }
 
-    private sealed class ApiFactory(bool simulateIis) : WebApplicationFactory<PlayerHub>
+    private sealed class ApiFactory(bool simulateIis) : AuthenticatedApiFactory
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            base.ConfigureWebHost(builder);
             builder.ConfigureAppConfiguration((_, configuration) =>
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {

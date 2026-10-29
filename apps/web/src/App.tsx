@@ -1,5 +1,5 @@
 import { Link, Navigate, Route, Routes } from 'react-router'
-import { AdminPage } from './admin/AdminPage'
+import { AdminAccess } from './admin/AdminAccess'
 import { DiagnosticsPage } from './player/DiagnosticsPage'
 import { PlayerPage } from './player/PlayerPage'
 import './home.css'
@@ -8,7 +8,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
-      <Route path="/admin" element={<AdminPage />} />
+      <Route path="/admin" element={<AdminAccess />} />
       <Route path="/player" element={<PlayerPage />} />
       <Route path="/player/diagnostics" element={<DiagnosticsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
