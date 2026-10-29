@@ -24,7 +24,7 @@ public sealed class MediaCleanupService(RevelMoviesDbContext db, IMediaStorage s
     {
         var name = await db.Events.Where(x => x.Id == eventId).Select(x => x.Name).FirstOrDefaultAsync(token);
         if (name is null) return null;
-        var assets = await db.MediaAssets.AsNoTracking().Where(x => x.EventId == eventId).ToListAsync(token);
+        var assets = await db.MediaAssets.AsNoTracking().Where(x => x.EventId == eventId && x.Type != MediaType.Link).ToListAsync(token);
         var files = storage.ListEventFiles(eventId);
         if (assets.Any(x => !x.StorageKey.StartsWith($"{eventId:N}/", StringComparison.OrdinalIgnoreCase)))
             throw new IOException("Hay archivos registrados fuera de la carpeta del evento.");

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RevelMovies.Application.Media;
 using RevelMovies.Domain.Media;
@@ -31,6 +32,27 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
 
     public Task<MediaAsset?> GetAsync(Guid mediaId, CancellationToken cancellationToken = default) =>
         db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == mediaId, cancellationToken);
+
+    public async Task<MediaUploadResult> CreateLinkAsync(Guid eventId, string? name, string? url,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await db.Events.AnyAsync(x => x.Id == eventId, cancellationToken))
+            return MediaUploadResult.Fail("El evento no existe.");
+
+        var error = WebPageCommand.Validate(JsonSerializer.SerializeToElement(new { url }), out var normalized);
+        if (error is not null) return MediaUploadResult.Fail(error);
+        var address = normalized.GetProperty("url").GetString()!;
+        if (address.Length > 2048) return MediaUploadResult.Fail("La URL no puede superar los 2048 caracteres.");
+        var title = string.IsNullOrWhiteSpace(name) ? new Uri(address).Host : name.Trim();
+        if (title.Length > 200) return MediaUploadResult.Fail("El nombre no puede superar los 200 caracteres.");
+
+        var asset = new MediaAsset { EventId = eventId, Name = title, Type = MediaType.Link, Url = address, MimeType = "text/html" };
+        // Reserve a unique identity without creating a physical file.
+        asset.StorageKey = $"links/{asset.Id:N}";
+        db.MediaAssets.Add(asset);
+        await db.SaveChangesAsync(cancellationToken);
+        return MediaUploadResult.Success(asset);
+    }
 
     public async Task<MediaUploadResult> UploadAsync(
         Guid eventId,
@@ -99,7 +121,7 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
 
         await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var normalizedName = safeFileName.ToUpperInvariant();
-        var matches = await db.MediaAssets.Where(x => x.EventId == eventId && x.FileName.Trim().ToUpper() == normalizedName)
+        var matches = await db.MediaAssets.Where(x => x.EventId == eventId && x.Type != MediaType.Link && x.FileName.Trim().ToUpper() == normalizedName)
             .ToListAsync(cancellationToken);
         var existing = replaceMediaId.HasValue ? matches.FirstOrDefault(x => x.Id == replaceMediaId.Value) : matches.FirstOrDefault();
         if (replaceMediaId.HasValue && existing is null)
@@ -180,7 +202,8 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        await storage.DeleteAsync(asset.StorageKey, cancellationToken);
+        if (asset.Type != MediaType.Link)
+            await storage.DeleteAsync(asset.StorageKey, cancellationToken);
         return true;
     }
 

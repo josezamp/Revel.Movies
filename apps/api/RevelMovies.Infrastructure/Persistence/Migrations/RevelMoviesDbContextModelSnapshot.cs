@@ -317,6 +317,11 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .HasColumnType("int")
                         .HasColumnName("type");
 
+                    b.Property<string>("Url")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("url");
+
                     b.Property<int?>("Width")
                         .HasColumnType("int")
                         .HasColumnName("width");

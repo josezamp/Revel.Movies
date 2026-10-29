@@ -6,6 +6,7 @@ public sealed class MediaAsset
     public Guid EventId { get; set; }
     public string Name { get; set; } = string.Empty;
     public MediaType Type { get; set; }
+    public string? Url { get; set; }
     public string MimeType { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public string StorageKey { get; set; } = string.Empty;

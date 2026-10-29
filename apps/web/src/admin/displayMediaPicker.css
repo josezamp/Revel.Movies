@@ -33,6 +33,11 @@
 .content-picker-option[aria-pressed="true"] { border-color: #c8dcff; box-shadow: 0 0 0 1px #c8dcff; background: #222d3d; }
 .content-picker-cover { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #252630; }
 .content-picker-cover.is-playlist { background: #2f2937; }
+.content-picker-cover .library-link-preview { min-height:0; padding:1rem 1rem 2rem; }
+.content-picker-cover .library-link-preview span { display:none; }
+.content-picker-cover.is-compact .library-link-preview { padding:6px; }
+.content-picker-cover.is-compact .library-link-preview svg { width:28px; height:28px; }
+.is-link .content-picker-type { background:#163633; color:#b5f0e6; border-color:#487e78; }
 .content-picker-cover > img, .content-picker-cover > .media-video-preview { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 0; }
 .content-picker-cover .media-preview { border-radius: 0; }
 .content-picker-cover .media-preview-placeholder { font-size: .7rem; padding: 8px; }

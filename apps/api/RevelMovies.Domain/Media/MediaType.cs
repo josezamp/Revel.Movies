@@ -3,5 +3,6 @@ namespace RevelMovies.Domain.Media;
 public enum MediaType
 {
     Video = 1,
-    Image = 2
+    Image = 2,
+    Link = 3
 }

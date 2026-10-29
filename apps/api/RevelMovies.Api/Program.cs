@@ -147,6 +147,15 @@ app.MapGet("/events/{eventId:guid}/media", async (
     return Results.Ok(items.Select(MediaResponse.From));
 });
 
+app.MapPost("/events/{eventId:guid}/media/links", async (
+    Guid eventId, CreateMediaLinkRequest request, MediaRegistry mediaRegistry, CancellationToken cancellationToken) =>
+{
+    var result = await mediaRegistry.CreateLinkAsync(eventId, request.Name, request.Url, cancellationToken);
+    return result.Asset is null
+        ? Results.BadRequest(new { error = result.Error })
+        : Results.Created($"/api/media/{result.Asset.Id}", MediaResponse.From(result.Asset));
+});
+
 app.MapPost("/events/{eventId:guid}/media", async (
     Guid eventId,
     HttpRequest request,
@@ -205,7 +214,7 @@ app.MapMethods("/media/{mediaId:guid}/content", ["GET", "HEAD"], async (
     CancellationToken cancellationToken) =>
 {
     var item = await mediaRegistry.GetAsync(mediaId, cancellationToken);
-    if (item is null)
+    if (item is null || item.Type == MediaType.Link)
         return Results.NotFound();
 
     var stream = await storage.OpenReadAsync(item.StorageKey, cancellationToken);
@@ -453,6 +462,13 @@ app.MapPost("/displays/{displayId:guid}/commands", async (
         if (media is null || media.EventId != display.EventId)
             return Results.NotFound(new { error = "Media was not found for this display event." });
 
+        if (media.Type == MediaType.Link)
+        {
+            var show = dispatcher.Create("webpage.show", JsonSerializer.SerializeToElement(new { url = media.Url }));
+            await dispatcher.SendAsync([display.Id], show, cancellationToken);
+            return Results.Accepted(value: show);
+        }
+
         var dispatch = await dispatcher.SendMediaPlayAsync([display.Id], media, cancellationToken);
         return Results.Accepted(value: dispatch);
     }
@@ -557,6 +573,8 @@ public sealed record DisplayResponse(
         PlaybackStateRegistry.ReadPlaylistItemCount(playback));
 }
 
+public sealed record CreateMediaLinkRequest(string? Name, string? Url);
+
 public sealed record MediaResponse(
     Guid Id,
     Guid EventId,
@@ -585,5 +603,5 @@ public sealed record MediaResponse(
         item.Height,
         item.Checksum,
         item.CreatedAt,
-        $"/api/media/{item.Id}/content?v={item.Checksum}");
+        item.Type == MediaType.Link ? item.Url! : $"/api/media/{item.Id}/content?v={item.Checksum}");
 }

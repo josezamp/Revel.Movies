@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { sendCommand, sendGroupCommand, type Display, type DisplayGroup } from '../api/client'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import type { Announcement } from '../announcements/announcement'
+import { displayTargets } from './displayTargets'
+import { DisplayTargetSelect } from './DisplayTargetSelect'
 
 type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[] }
 
@@ -21,10 +23,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
   const sending = useRef(false)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
 
-  const targets = [
-    ...displays.map(display => ({ value: `display:${display.id}`, label: display.name, ids: [display.id] })),
-    ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
-  ]
+  const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
@@ -137,10 +136,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
             </div>
             <label>
               Enviar a
-              <select value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required>
-                <option value="">Elegí una pantalla o un grupo</option>
-                {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
-              </select>
+              <DisplayTargetSelect targets={targets} value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required />
             </label>
             {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para enviar anuncios.</p>}
             {offlineCount > 0 && <p className="announcement-notice">{offlineCount} sin conexión. Recibirán el anuncio al reconectarse; la cuenta no se reinicia.</p>}

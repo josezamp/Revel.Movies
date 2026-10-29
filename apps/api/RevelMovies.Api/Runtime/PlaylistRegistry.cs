@@ -142,6 +142,8 @@ public sealed class PlaylistRegistry(RevelMoviesDbContext db)
             return "Playlist items contain invalid media or duration values.";
 
         var ids = definitions.Select(x => x.MediaAssetId).Distinct().ToArray();
+        if (await db.MediaAssets.AnyAsync(x => ids.Contains(x.Id) && x.EventId == eventId && x.Type == MediaType.Link, cancellationToken))
+            return "Las playlists admiten videos e imágenes. Mostrá los enlaces como páginas web.";
         var count = await db.MediaAssets.CountAsync(x => ids.Contains(x.Id) && x.EventId == eventId, cancellationToken);
         return count == ids.Length ? null : "Every media item must belong to the same event as the playlist.";
     }

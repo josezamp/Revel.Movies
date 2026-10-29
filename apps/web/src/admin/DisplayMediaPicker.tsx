@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
-import type { MediaAsset, Playlist } from '../api/client'
+import { isMediaLink, type MediaAsset, type Playlist } from '../api/client'
+import { LinkThumbnail } from './LinkThumbnail'
 import { Dialog } from './Dialog'
 import { VideoThumbnail } from './VideoThumbnail'
 import './displayMediaPicker.css'
 
 export type DisplayContentSelection = { kind: 'media' | 'playlist'; id: string }
-type Category = 'all' | 'playlist' | 'video' | 'image'
+type Category = 'all' | 'playlist' | 'video' | 'image' | 'link'
 type Entry = { selection: DisplayContentSelection; category: Exclude<Category, 'all'>; name: string; detail: string; cover?: MediaAsset; disabled: boolean }
 
 const categories = [
@@ -13,17 +14,20 @@ const categories = [
   { id: 'playlist', label: 'Playlists' },
   { id: 'video', label: 'Videos' },
   { id: 'image', label: 'Imágenes' },
+  { id: 'link', label: 'Enlaces' },
 ] as const
-const typeLabels = { playlist: 'Playlist', video: 'Video', image: 'Imagen' }
-const symbols = { playlist: '▤', video: '▶', image: '▧' }
+const typeLabels = { playlist: 'Playlist', video: 'Video', image: 'Imagen', link: 'Enlace' }
+const symbols = { playlist: '▤', video: '▶', image: '▧', link: '↗' }
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').trim()
 const sameSelection = (left: DisplayContentSelection | null, right: DisplayContentSelection) => left?.kind === right.kind && left.id === right.id
 
-function assetCategory(asset: MediaAsset): 'image' | 'video' {
+function assetCategory(asset: MediaAsset): 'image' | 'video' | 'link' {
+  if (isMediaLink(asset)) return 'link'
   return asset.type === 'Image' || asset.type === 2 ? 'image' : 'video'
 }
 
 function assetDetail(asset: MediaAsset) {
+  if (isMediaLink(asset)) return asset.contentUrl
   const dimensions = asset.width && asset.height ? `${asset.width} × ${asset.height}` : ''
   const seconds = asset.durationSeconds
   const duration = seconds && Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : ''
@@ -34,7 +38,7 @@ function ContentCover({ entry, compact = false }: { entry: Entry; compact?: bool
   const [failed, setFailed] = useState(false)
   const cover = entry.cover
   return <span className={`content-picker-cover is-${entry.category}${compact ? ' is-compact' : ''}`} aria-hidden="true">
-    {cover && !failed ? assetCategory(cover) === 'image'
+    {cover && !failed ? isMediaLink(cover) ? <LinkThumbnail url={cover.contentUrl} /> : assetCategory(cover) === 'image'
       ? <img key={cover.contentUrl} src={cover.contentUrl} alt="" loading="lazy" onError={() => setFailed(true)} />
       : <VideoThumbnail key={cover.contentUrl} src={cover.contentUrl} />
       : <span className="content-picker-placeholder">{symbols[entry.category]}</span>}
@@ -65,7 +69,7 @@ export function DisplayMediaPicker({ displayName, media, playlists, selected, as
     <button type="button" className="content-picker-trigger" aria-label={`Contenido para ${displayName}`}
       aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => setOpen(true)}>
       {current ? <ContentCover key={`${current.selection.kind}:${current.selection.id}`} entry={current} compact /> : <span className="content-picker-empty-icon" aria-hidden="true">▤</span>}
-      <span className="content-picker-trigger-text"><strong>{current?.name ?? (assigned ? 'Contenido asignado' : 'Seleccionar contenido')}</strong><small>{current ? `${typeLabels[current.category]} · Cambiar` : 'Playlists, videos e imágenes'}</small></span>
+      <span className="content-picker-trigger-text"><strong>{current?.name ?? (assigned ? 'Contenido asignado' : 'Seleccionar contenido')}</strong><small>{current ? `${typeLabels[current.category]} · Cambiar` : 'Playlists, videos, imágenes y enlaces'}</small></span>
       <span className="content-picker-chevron" aria-hidden="true">›</span>
     </button>
     {selected && <button type="button" className="content-picker-reset" disabled={disabled} onClick={() => onSelect(null)}>Descartar selección</button>}
@@ -83,7 +87,7 @@ function ContentBrowser({ displayName, entries, selected, assigned, disabled, on
   const [category, setCategory] = useState<Category>('all')
   const [limit, setLimit] = useState(24)
   const search = normalize(query)
-  const matching = entries.filter(entry => normalize(entry.name).includes(search))
+  const matching = entries.filter(entry => normalize(`${entry.name} ${entry.category === 'link' ? entry.detail : ''}`).includes(search))
   const filtered = matching.filter(entry => category === 'all' || entry.category === category)
   const visible = filtered.slice(0, limit)
 
@@ -127,6 +131,6 @@ function ContentBrowser({ displayName, entries, selected, assigned, disabled, on
       })}
       {filtered.length > visible.length && <button type="button" className="content-picker-more" onClick={() => setLimit(value => value + 24)}>Mostrar más ({filtered.length - visible.length} restantes)</button>}
     </div>
-    <div className="playlist-dialog-footer content-picker-footer"><p>Elegí el contenido y luego pulsá <strong>Reproducir</strong> para enviarlo a la pantalla.</p><button type="button" onClick={onClose}>Cancelar</button></div>
+    <div className="playlist-dialog-footer content-picker-footer"><p>Elegí el contenido y confirmá el envío desde la tarjeta de la pantalla.</p><button type="button" onClick={onClose}>Cancelar</button></div>
   </Dialog>
 }

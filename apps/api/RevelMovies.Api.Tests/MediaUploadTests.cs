@@ -23,7 +23,7 @@ using Xunit;
 
 namespace RevelMovies.Api.Tests;
 
-public sealed class MediaUploadTests
+public sealed partial class MediaUploadTests
 {
     private static readonly byte[] Png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5S8AAAAASUVORK5CYII=");
 

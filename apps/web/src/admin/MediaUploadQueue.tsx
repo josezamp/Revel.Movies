@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { MediaAsset } from '../api/client'
+import { isMediaLink, type MediaAsset } from '../api/client'
 import { DuplicateUploadError, uploadMediaWithProgress } from '../api/uploads'
 import { Dialog } from './Dialog'
 
@@ -37,7 +37,7 @@ export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded
   const refresh = useRef(onMediaChanged)
   refresh.current = onMediaChanged
   useEffect(() => {
-    known.current = new Map(media.map(item => [nameKey(item.fileName), item]))
+    known.current = new Map(media.filter(item => !isMediaLink(item)).map(item => [nameKey(item.fileName), item]))
     for (const [key, asset] of unrefreshed.current) {
       const refreshed = known.current.get(key)
       if (refreshed?.id === asset.id && refreshed.checksum === asset.checksum) unrefreshed.current.delete(key)

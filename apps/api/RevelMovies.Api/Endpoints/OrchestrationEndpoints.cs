@@ -103,6 +103,13 @@ public static class OrchestrationEndpoints
                 if (media is null || media.EventId != group.EventId)
                     return Results.NotFound(new { error = "Media was not found for this event." });
 
+                if (media.Type == MediaType.Link)
+                {
+                    var show = dispatcher.Create("webpage.show", JsonSerializer.SerializeToElement(new { url = media.Url }));
+                    await dispatcher.SendAsync(displayIds, show, cancellationToken);
+                    return Results.Accepted(value: new { command = show, targets = displayIds.Count });
+                }
+
                 var dispatch = await dispatcher.SendMediaPlayAsync(displayIds, media, cancellationToken);
                 return Results.Accepted(value: dispatch);
             }

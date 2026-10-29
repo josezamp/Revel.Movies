@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { configurePromotionalBreaks, type Display, type DisplayGroup, type Playlist } from '../api/client'
 import { displayPresence } from './displayPresence'
 import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
+import { displayTargets } from './displayTargets'
+import { DisplayTargetSelect } from './DisplayTargetSelect'
 
 export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, loading }: {
   eventId: string; displays: Display[]; groups: DisplayGroup[]; playlists: Playlist[]; loading: boolean
@@ -17,10 +19,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 5000); return () => window.clearInterval(timer) }, [])
   const sending = useRef(false)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
-  const targets = [
-    ...displays.map(display => ({ value: `display:${display.id}`, label: display.name, ids: [display.id] })),
-    ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
-  ]
+  const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const selectedDisplays = displays.filter(display => target?.ids.includes(display.id))
@@ -74,10 +73,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
           <fieldset disabled={pending}>
             <legend className="visually-hidden">Configurar cortes promocionales</legend>
             <label>Dónde aparecen
-              <select required value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null); setDeliveries([]) }}>
-                <option value="">Elegí una pantalla o un grupo</option>
-                {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
-              </select>
+              <DisplayTargetSelect targets={targets} required value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null); setDeliveries([]) }} />
             </label>
             {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo antes de configurar los cortes.</p>}
             <label>Playlist de promociones

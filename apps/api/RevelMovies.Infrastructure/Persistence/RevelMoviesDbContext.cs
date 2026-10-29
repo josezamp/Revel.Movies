@@ -101,6 +101,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.EventId).HasColumnName("event_id").IsRequired();
             builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             builder.Property(x => x.Type).HasColumnName("type").IsRequired();
+            builder.Property(x => x.Url).HasColumnName("url").HasMaxLength(2048);
             builder.Property(x => x.MimeType).HasColumnName("mime_type").HasMaxLength(100).IsRequired();
             builder.Property(x => x.FileName).HasColumnName("file_name").HasMaxLength(260).IsRequired();
             builder.Property(x => x.StorageKey).HasColumnName("storage_key").HasMaxLength(450).IsRequired();

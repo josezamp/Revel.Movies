@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { sendCommand, sendGroupCommand, type Display, type DisplayGroup } from '../api/client'
 import { webPageUrlError } from '../webpages/webPage'
+import { displayTargets } from './displayTargets'
+import { DisplayTargetSelect } from './DisplayTargetSelect'
 
 type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[] }
 
@@ -10,10 +12,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
   const [pending, setPending] = useState(false)
   const sending = useRef(false)
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null)
-  const targets = [
-    ...displays.map(display => ({ value: `display:${display.id}`, label: display.name, ids: [display.id] })),
-    ...groups.map(group => ({ value: `group:${group.id}`, label: `Grupo: ${group.name}`, ids: group.displayIds })),
-  ]
+  const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
   const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
@@ -56,10 +55,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
             <small>Usá la dirección pública que pueden abrir las pantallas.</small>
           </label>
           <label>Proyectar en
-            <select value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required>
-              <option value="">Elegí una pantalla o un grupo</option>
-              {targets.map(item => <option key={item.value} value={item.value}>{item.label} ({item.ids.length})</option>)}
-            </select>
+            <DisplayTargetSelect targets={targets} value={target?.value ?? ''} onChange={event => { setSelectedTarget(event.target.value); setFeedback(null) }} required />
           </label>
           {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para proyectar.</p>}
           {blackedOut > 0 && <p className="announcement-notice">{blackedOut} con la imagen oscurecida. Usá «Restaurar imagen» en la tarjeta de la pantalla para volver a mostrar su contenido.</p>}

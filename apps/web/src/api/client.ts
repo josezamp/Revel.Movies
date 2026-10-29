@@ -5,7 +5,9 @@ import type { PromotionPolicy } from '../player/promotionalBreaks'
 
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
 export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
-export type MediaType = 'Video' | 'Image' | number
+export type MediaType = 'Video' | 'Image' | 'Link' | number
+
+export const isMediaLink = (item: { type: MediaType }) => item.type === 'Link' || item.type === 3
 
 export interface EventSummary {
   id: string
@@ -219,6 +221,12 @@ export function getMediaOptimizations(eventId: string): Promise<{ available: boo
 
 export function optimizeMediaForTv(mediaId: string): Promise<MediaOptimization> {
   return requestJson(`/api/media/${mediaId}/tv-optimization`, { method: 'POST' })
+}
+
+export function createMediaLink(eventId: string, name: string, url: string): Promise<MediaAsset> {
+  return requestJson(`/api/events/${eventId}/media/links`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, url }),
+  })
 }
 
 export async function uploadMedia(eventId: string, file: File, name?: string): Promise<MediaAsset> {

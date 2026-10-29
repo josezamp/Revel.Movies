@@ -4,6 +4,8 @@ import { deletePlaylist, playPlaylist, replacePlaylistItems, sendCommand, sendGr
 import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
 import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
+import { displayTargets } from './displayTargets'
+import { DisplayTargetSelect } from './DisplayTargetSelect'
 
 export function PlaylistsPanel({ eventId, playlists, media, displays, groups, activeId, onActiveId, loading, loadError, onRefresh, onCreate, onAddContent, feedback }: {
   eventId: string; playlists: Playlist[]; media: MediaAsset[]; displays: Display[]; groups: DisplayGroup[]; activeId: string
@@ -23,8 +25,7 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 5000); return () => window.clearInterval(timer) }, [])
   const sending = useRef(false)
   useEffect(() => { setNotice(''); setError('') }, [feedback])
-  const targets = [...displays.map(item => ({ value: `display:${item.id}`, label: item.name })),
-    ...groups.filter(item => item.displayIds.length > 0).map(item => ({ value: `group:${item.id}`, label: `Grupo: ${item.name}` }))]
+  const targets = displayTargets(displays, groups.filter(item => item.displayIds.length > 0))
   const targetKey = targets.map(item => item.value).join(',')
   useEffect(() => { setTarget(current => targets.some(item => item.value === current) ? current : '') }, [targetKey])
   const targetLabel = targets.find(item => item.value === target)?.label ?? ''
@@ -127,9 +128,7 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
             })}
           </ol>
           <div className="playlist-playback-strip"><label className="workspace-field">Reproducir en
-            <select aria-label="Destino de la playlist" value={target} disabled={busy} onChange={event => setTarget(event.target.value)}>
-              <option value="">Elegí una pantalla o un grupo</option>{targets.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select></label>
+            <DisplayTargetSelect targets={targets} aria-label="Destino de la playlist" value={target} disabled={busy} onChange={event => setTarget(event.target.value)} /></label>
             <div className="button-row"><button className="workspace-primary" disabled={busy || !target || !active.items.length} onClick={() => void applyPlaylist()}>{targetLabel ? `Reproducir en ${targetLabel}` : 'Reproducir · elegí destino'}</button><button disabled={busy || !target} onClick={() => control('playlist.pause')}>Pausar</button><button disabled={busy || !target} onClick={() => control('playlist.stop')}>Detener</button></div>
           </div>
           <div className="content-application">

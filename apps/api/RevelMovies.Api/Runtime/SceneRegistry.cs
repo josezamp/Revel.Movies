@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using RevelMovies.Domain.Displays;
+using RevelMovies.Domain.Media;
 using RevelMovies.Domain.Playback;
 using RevelMovies.Domain.Scenes;
 using RevelMovies.Infrastructure.Persistence;
@@ -130,6 +131,8 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
                 {
                     var media = await db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == assignment.Media.MediaId && x.EventId == eventId, ct)
                         ?? throw new SceneValidationException("El archivo no pertenece al evento o fue eliminado.");
+                    if (media.Type == MediaType.Link)
+                        throw new SceneValidationException("Usá la capa Página web para mostrar un enlace.");
                     resources.Add(new(media.Id, media.Type.ToString(), media.FileSize));
                     mediaPayload = JsonSerializer.SerializeToElement(new { mediaId = media.Id, mediaType = media.Type.ToString(), fileSize = media.FileSize, checksum = media.Checksum, loop = assignment.Media.Loop ?? false }, Json);
                 }

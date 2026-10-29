@@ -83,7 +83,7 @@ export function MediaWorkspace({ eventId, displays, groups, media, onMediaChange
           onCancelSelection={returnToEditor} onAdd={() => { setUploadedSelection(undefined); setModal('add') }}
           onAddUploaded={assets => { setUploadedSelection(assets); setPreferredPlaylistId(activeId || undefined); setModal('add') }} feedback={feedback} playlistsLoading={loading || !!loadError} />
         <section className="media-cleanup" aria-label="Limpieza de archivos">
-          <div><h3>Liberar espacio del evento</h3><p>Eliminá sus archivos del servidor, incluidas las copias para TV y los archivos huérfanos. Podés revisar el espacio a liberar antes de confirmar.</p></div>
+          <div><h3>Liberar espacio del evento</h3><p>Eliminá sus archivos del servidor, incluidas las copias para TV y los archivos huérfanos. Los enlaces guardados se conservan. Podés revisar el espacio a liberar antes de confirmar.</p></div>
           <MediaCleanupControl eventId={eventId} onCleaned={async () => {
             setSelectedIds([]); setSelecting(false); setUploadedSelection(undefined); setModal(undefined); setFeedback('')
             await Promise.all([onMediaChanged(), refresh()]); setCleanupVersion(value => value + 1)

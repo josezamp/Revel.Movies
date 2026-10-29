@@ -24,6 +24,7 @@ Revel Movies currently supports:
 - Display pairing with persistent device identity
 - Online/offline presence through SignalR and heartbeat
 - Video and image upload per Event
+- Saved website links in the event library, with an Enlace badge, URL search, and display/group projection
 - Media metadata persisted in SQL Server while binary files remain in media storage
 - MP4, JPG/JPEG, PNG, WEBP and GIF validation
 - Optional background TV video optimization with xFFmpeg.NET, preserving originals; see [FFmpeg setup](docs/ffmpeg-tv.md)
