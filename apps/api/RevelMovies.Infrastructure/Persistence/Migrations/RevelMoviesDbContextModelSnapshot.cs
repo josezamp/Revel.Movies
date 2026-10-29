@@ -207,6 +207,16 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("ends_at");
 
+                    b.Property<string>("MapJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("map_json");
+
+                    b.Property<int>("MapVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int")
+                        .HasColumnName("map_version");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)

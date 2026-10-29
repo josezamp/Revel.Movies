@@ -31,6 +31,18 @@ Las acciones de reproducción quedan esperando confirmación. La aceptación HTT
 
 En **Detalles** se encuentran orientación, diagnóstico, recarga y desvinculación. La recarga interrumpe brevemente el reproductor; desvincular requiere confirmación y una nueva vinculación para volver a usarlo.
 
+### Mapa del evento
+
+En **En vivo**, alterná entre **Tarjetas** y **Mapa**. Cada evento tiene su propio croquis, guardado en el servidor y disponible desde otras computadoras. La vista elegida se conserva en la dirección del navegador.
+
+- **Editar croquis:** agregá sectores rectangulares, círculos, paredes y etiquetas. Seleccioná un elemento para cambiar su texto, color, posición y tamaño. Una pared puede ser horizontal o vertical ajustando su ancho y alto. El selector de elementos permite elegir figuras superpuestas.
+- **Ubicar pantallas:** elegí una de las pantallas sin ubicar y arrastrala hasta su lugar. También podés usar las coordenadas del panel o las flechas del teclado: 5 unidades por pulsación, o 20 con Mayús. El croquis es orientativo, sin escala física. Los botones de zoom y el desplazamiento del lienzo permiten recorrerlo en el celular.
+- **Guardar croquis:** persiste figuras y posiciones para ese evento. Cambiar de evento o de vista conserva un borrador en esta pestaña cuando el navegador permite almacenamiento local. Si cerrás o recargás con cambios pendientes, el navegador avisa. El borrador local no reemplaza el guardado en el servidor.
+- **Operar:** guarda los cambios pendientes y bloquea las posiciones. Seleccioná una pantalla para acceder a sus controles habituales y al último estado reportado. Editar el croquis no envía comandos de reproducción. Las pantallas sin ubicar también se pueden operar desde el panel lateral.
+- **Quitar del croquis:** retira solamente el marcador; conserva la pantalla vinculada y su reproducción. Si una pantalla se desvincula, su marcador queda señalado para que puedas quitarlo al editar.
+
+Si otra sesión guardó cambios, el panel rechaza la escritura antigua y conserva tu borrador visible. **Cargar versión guardada** pide confirmar el descarte del borrador antes de traer la última versión. Un error de red conserva los cambios pendientes y permite reintentar. El límite es de 300 elementos por evento.
+
 ## Escenas: guardar, preparar y activar
 
 1. Crear una escena y agregar asignaciones. Cada asignación puede apuntar a pantallas o grupos. El editor muestra los destinos concretos y detecta composiciones incompatibles por grupos superpuestos.
@@ -81,6 +93,8 @@ El almacenamiento local requiere una sola instancia/proceso de la API por carpet
 ## Despliegue y comprobaciones
 
 Publicar frontend y API juntos. La migración `20261025222149_AddScenesAndPlaybackConfirmation` agrega escenas, intentos y campos de correlación/visibilidad. Se aplica con el mecanismo EF existente: automáticamente si `Database:ApplyMigrationsOnStartup` está habilitado, o mediante el procedimiento de migraciones del despliegue. No se requiere un servicio externo adicional; el retorno temporal usa un servicio alojado en la API y persistencia SQL.
+
+La vista Mapa requiere también la migración `20261029123444_AddEventMap`, que agrega el croquis y su versión al evento. Los eventos existentes comienzan con un croquis vacío. Se aplica con el mismo mecanismo de migraciones, antes de usar la nueva vista.
 
 Ver [escenas y protocolo](scenes.md), [despliegue IIS](deployment.md) y [protocolo del Player](player-protocol.md).
 

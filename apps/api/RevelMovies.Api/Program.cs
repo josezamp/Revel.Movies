@@ -96,6 +96,7 @@ app.MapAdminAuthentication();
 app.MapOrchestrationEndpoints();
 app.MapPromotionalBreakEndpoints();
 app.MapSceneEndpoints();
+app.MapEventMapEndpoints();
 app.MapMediaOptimizationEndpoints();
 app.MapMediaCleanupEndpoints();
 

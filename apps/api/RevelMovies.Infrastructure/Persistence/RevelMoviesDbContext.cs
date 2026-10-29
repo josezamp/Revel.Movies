@@ -45,6 +45,8 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.Status).HasColumnName("status").IsRequired();
             builder.Property(x => x.CreatedAt).HasColumnName("created_at").IsRequired();
             builder.Property(x => x.UpdatedAt).HasColumnName("updated_at").IsRequired();
+            builder.Property(x => x.MapJson).HasColumnName("map_json").IsRequired();
+            builder.Property(x => x.MapVersion).HasColumnName("map_version").IsConcurrencyToken();
             builder.HasIndex(x => x.Slug).IsUnique().HasDatabaseName("ux_events_slug");
         });
 

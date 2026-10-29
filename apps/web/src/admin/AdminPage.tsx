@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { createEvent, getDisplays, getEvents, getMedia, getPendingPairings, getPlaylists, pairDisplay,
   type Display, type DisplayGroup, type EventSummary, type MediaAsset, type PendingPairing, type Playlist } from '../api/client'
@@ -10,6 +10,8 @@ import { ScenesPanel } from './ScenesPanel'
 import { displayPresence } from './displayPresence'
 import { ageLabel } from './liveState'
 import './operations.css'
+
+const EventMapPanel = lazy(() => import('./EventMapPanel').then(module => ({ default: module.EventMapPanel })))
 
 type Section = 'live' | 'scenes' | 'content' | 'configuration'
 const sections = [['live', 'En vivo'], ['scenes', 'Escenas'], ['content', 'Contenido'], ['configuration', 'Configuración']] as const
@@ -35,12 +37,13 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     ? events.find(item => item.id === requestedEventId)?.id ?? ''
     : events[0]?.id ?? ''
   const section: Section = sections.find(([key]) => key === searchParams.get('section'))?.[0] ?? 'live'
+  const liveView = searchParams.get('view') === 'map' ? 'map' : 'cards'
   const currentEventId = useRef(selectedEventId)
   const refreshRevision = useRef(0)
   const mediaRevision = useRef(0)
   currentEventId.current = selectedEventId
 
-  function updateNavigation(key: 'event' | 'section', value: string, replace = false) {
+  function updateNavigation(key: 'event' | 'section' | 'view', value: string, replace = false) {
     // Router renders may lag behind rapid clicks. Merge into the actual URL,
     // which history updates synchronously, instead of a previous render's params.
     const next = new URLSearchParams(window.location.search)
@@ -131,8 +134,11 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     <div hidden={section !== 'live'}>
       <section aria-label="Pantallas en vivo"><div className="workspace-heading"><div><p className="eyebrow">EN VIVO</p><h2>Pantallas <span className="count-badge">{onlineCount} de {visibleDisplays.length} conectadas</span></h2></div><div className="button-row"><button onClick={() => setSection('scenes')}>Escenas preparadas →</button><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div></div>
         {!lastUpdated && !error && <p role="status">Cargando pantallas…</p>}
-        {lastUpdated && visibleDisplays.length === 0 && <div className="workspace-empty"><strong>Tu evento empieza con una pantalla.</strong><p>Abrí el reproductor en la TV y vinculala desde Configuración.</p><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div>}
-        <div className="card-grid display-grid">{visibleDisplays.map(display => <DisplayCard key={display.id} display={display} media={eventMedia} playlists={eventPlaylists} prepared={prepared[display.id] ?? []} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} />)}</div>
+        <div className="live-view-switch" role="group" aria-label="Vista de pantallas"><button aria-pressed={liveView === 'cards'} onClick={() => updateNavigation('view', 'cards')}>Tarjetas</button><button aria-pressed={liveView === 'map'} onClick={() => updateNavigation('view', 'map')}>Mapa</button></div>
+        {liveView === 'cards' ? <>
+          {lastUpdated && visibleDisplays.length === 0 && <div className="workspace-empty"><strong>Tu evento empieza con una pantalla.</strong><p>Abrí el reproductor en la TV y vinculala desde Configuración.</p><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div>}
+          <div className="card-grid display-grid">{visibleDisplays.map(display => <DisplayCard key={display.id} display={display} media={eventMedia} playlists={eventPlaylists} prepared={prepared[display.id] ?? []} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} />)}</div>
+        </> : <Suspense fallback={<p role="status">Cargando mapa…</p>}><EventMapPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} playlists={eventPlaylists} prepared={prepared} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} /></Suspense>}
       </section>
     </div>
     <div hidden={section !== 'scenes'}><ScenesPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} playlists={eventPlaylists} onChanged={refresh} active={section === 'scenes' || section === 'live'} onPreparedChange={setPrepared} /></div>

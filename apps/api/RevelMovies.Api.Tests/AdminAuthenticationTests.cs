@@ -48,6 +48,8 @@ public sealed class AdminAuthenticationTests
 
     [Theory]
     [InlineData("GET", "/api/events")]
+    [InlineData("GET", "/api/events/11111111-1111-1111-1111-111111111111/map")]
+    [InlineData("PUT", "/api/events/11111111-1111-1111-1111-111111111111/map")]
     [InlineData("GET", "/api/displays")]
     [InlineData("GET", "/api/pairing/pending")]
     [InlineData("POST", "/api/displays/pair")]

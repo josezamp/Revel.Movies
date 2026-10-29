@@ -33,6 +33,7 @@ Revel Movies currently supports:
 - Web pages by URL on paired displays or groups, with persisted reconnect recovery
 - Live messages and synchronized countdown announcements for displays or groups, with preview and reconnect recovery
 - Live display cards with correlated playback reports, layered content, stale-state indicators and offline-safe renaming
+- Per-event floor plans in Live, with shapes, labels, draggable displays, versioned server saves and separate editing/operation modes
 - Event scenes with persisted versions, per-screen preparation and activation, explicit layer policies and guarded temporary restoration
 - Mobile operation navigation, explicit destinations, playlist publishing and multiple-file upload queues with local previews
 

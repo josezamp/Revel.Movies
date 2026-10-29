@@ -15,6 +15,12 @@ public sealed class EventRegistry(RevelMoviesDbContext db)
             .AsNoTracking()
             .OrderByDescending(x => x.Status == EventStatus.Active)
             .ThenByDescending(x => x.CreatedAt)
+            // The live panel polls event summaries; do not fetch every event's drawing on each refresh.
+            .Select(x => new RevelEvent
+            {
+                Id = x.Id, Name = x.Name, Slug = x.Slug, StartsAt = x.StartsAt, EndsAt = x.EndsAt,
+                TimeZone = x.TimeZone, Status = x.Status, CreatedAt = x.CreatedAt, UpdatedAt = x.UpdatedAt
+            })
             .ToListAsync(cancellationToken);
 
     public Task<RevelEvent?> GetEventAsync(Guid id, CancellationToken cancellationToken = default) =>

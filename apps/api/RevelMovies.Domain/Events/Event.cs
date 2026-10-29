@@ -11,4 +11,6 @@ public sealed class Event
     public EventStatus Status { get; set; } = EventStatus.Active;
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string MapJson { get; set; } = "[]";
+    public int MapVersion { get; set; }
 }
