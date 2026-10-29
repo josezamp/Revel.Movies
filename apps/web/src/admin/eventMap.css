@@ -76,7 +76,7 @@
 .map-display-list h3 > span { color: #aebfd1; font-weight: 400; }
 .map-display-list > button { text-align: left; display: flex; justify-content: space-between; align-items: center; gap: 10px; border-radius: 6px; font-size: .8rem; }
 .map-display-list button span { min-width: 0; overflow-wrap: anywhere; }
-.map-display-list small { display: block; color: #aaaeb9; margin-top: 5px; font-size: .68rem; }
+.map-display-list small { display: flex; align-items: center; gap: 6px; color: #aaaeb9; margin-top: 5px; font-size: .68rem; }
 .map-inspector > .display-card { border: 0; padding: 0; }
 @media (max-width: 1100px) { .map-workspace { grid-template-columns: minmax(0, 1fr) 280px; } .map-inspector { padding: 16px; } }
 @media (max-width: 860px) {

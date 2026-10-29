@@ -6,6 +6,8 @@ import { Dialog } from './Dialog'
 import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
 import { displayTargets } from './displayTargets'
 import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayName, DisplayNames } from './DisplayName'
+import { sortByConnection } from './displayPresence'
 
 export function PlaylistsPanel({ eventId, playlists, media, displays, groups, activeId, onActiveId, loading, loadError, onRefresh, onCreate, onAddContent, feedback }: {
   eventId: string; playlists: Playlist[]; media: MediaAsset[]; displays: Display[]; groups: DisplayGroup[]; activeId: string
@@ -31,8 +33,9 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
   const targetLabel = targets.find(item => item.value === target)?.label ?? ''
   const [targetKind, targetId] = target.split(':')
   const targetDisplays = displays.filter(item => targetKind === 'display' ? item.id === targetId : groups.find(group => group.id === targetId)?.displayIds.includes(item.id))
-  const assignedDisplays = displays.filter(item => item.playbackPlaylistId === active?.id)
+  const assignedDisplays = sortByConnection(displays.filter(item => item.playbackPlaylistId === active?.id), display => display.status)
   const outdatedDisplays = assignedDisplays.filter(item => item.playbackPlaylistUpdatedAt && item.playbackPlaylistUpdatedAt !== active?.updatedAt)
+  const displaysById = new Map(displays.map(display => [display.id, display]))
 
   async function applyPlaylist(retryIds?: string[]) {
     if (!active || sending.current || !targetDisplays.length) return
@@ -134,17 +137,17 @@ export function PlaylistsPanel({ eventId, playlists, media, displays, groups, ac
           <div className="content-application">
             <h4>Cambios guardados</h4>
             <p>Guardar conserva la playlist. Aplicar cambios la reinicia desde el primer archivo en los destinos indicados.</p>
-            {outdatedDisplays.length > 0 && <p className="announcement-notice">Cambios pendientes de aplicar en {outdatedDisplays.map(item => item.name).join(', ')}. Estas pantallas tienen solicitada una versión anterior.</p>}
-            {assignedDisplays.length > 0 && <details><summary>Versión solicitada por pantalla</summary><ul className="content-results">{assignedDisplays.map(display => <li key={display.id}><strong>{display.name}</strong><span>{!display.playbackPlaylistUpdatedAt ? 'Versión solicitada sin identificar' : display.playbackPlaylistUpdatedAt === active.updatedAt ? 'Última versión guardada solicitada' : 'Versión anterior · cambios pendientes'}</span></li>)}</ul><small>Este registro persiste al recargar el panel. La confirmación de reproducción aparece en En vivo.</small></details>}
-            <p className="content-target-names">{targetDisplays.length ? `Destinos: ${targetDisplays.map(item => item.name).join(', ')}` : 'Elegí un destino para aplicar.'}</p>
+            {outdatedDisplays.length > 0 && <p className="announcement-notice">Cambios pendientes de aplicar en <DisplayNames displays={outdatedDisplays} />. Estas pantallas tienen solicitada una versión anterior.</p>}
+            {assignedDisplays.length > 0 && <details><summary>Versión solicitada por pantalla</summary><ul className="content-results">{assignedDisplays.map(display => <li key={display.id}><strong><DisplayName display={display} /></strong><span>{!display.playbackPlaylistUpdatedAt ? 'Versión solicitada sin identificar' : display.playbackPlaylistUpdatedAt === active.updatedAt ? 'Última versión guardada solicitada' : 'Versión anterior · cambios pendientes'}</span></li>)}</ul><small>Este registro persiste al recargar el panel. La confirmación de reproducción aparece en En vivo.</small></details>}
+            <p className="content-target-names">{targetDisplays.length ? <>Destinos: <DisplayNames displays={targetDisplays} /></> : 'Elegí un destino para aplicar.'}</p>
             <button className="workspace-primary" disabled={busy || !targetDisplays.length || !active.items.length} onClick={() => void applyPlaylist()}>{busy ? 'Enviando…' : `Aplicar cambios${targetLabel ? ` en ${targetLabel}` : ''}`}</button>
             {application?.playlistId === active.id && <>
               <p>{application.version === active.updatedAt ? 'Último envío de la versión guardada.' : 'Cambios guardados pendientes de aplicar.'}</p>
-              <ul className="content-results">{application.deliveries.map(delivery => {
-                const display = displays.find(item => item.id === delivery.displayId)
+              <ul className="content-results">{sortByConnection(application.deliveries, delivery => displaysById.get(delivery.displayId)?.status).map(delivery => {
+                const display = displaysById.get(delivery.displayId)
                 const state = deliveryState(delivery, display, now)
                 const retry = delivery.error || state.startsWith('Sin confirmación') || state.startsWith('Confirmación desactualizada') || state.includes('informó un error')
-                return <li key={delivery.displayId}><strong>{display?.name ?? delivery.name}</strong><span className={retry ? 'content-result-error' : ''}>{state}</span>{retry && <button disabled={busy || application.version !== active.updatedAt || !display} onClick={() => void applyPlaylist([delivery.displayId])}>Reintentar desde el inicio</button>}</li>
+                return <li key={delivery.displayId}><strong><DisplayName display={display} fallbackName={delivery.name} /></strong><span className={retry ? 'content-result-error' : ''}>{state}</span>{retry && <button disabled={busy || application.version !== active.updatedAt || !display} onClick={() => void applyPlaylist([delivery.displayId])}>Reintentar desde el inicio</button>}</li>
               })}</ul>
             </>}
           </div>

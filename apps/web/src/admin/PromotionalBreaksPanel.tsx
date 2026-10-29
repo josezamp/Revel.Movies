@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { configurePromotionalBreaks, type Display, type DisplayGroup, type Playlist } from '../api/client'
-import { displayPresence } from './displayPresence'
+import { displayPresence, sortByConnection } from './displayPresence'
 import { deliveryState, playbackCommandId, type ContentDelivery } from './contentOperations'
 import { displayTargets } from './displayTargets'
 import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayName, DisplayNames } from './DisplayName'
 
 export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, loading }: {
   eventId: string; displays: Display[]; groups: DisplayGroup[]; playlists: Playlist[]; loading: boolean
@@ -22,7 +23,8 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
   const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
-  const selectedDisplays = displays.filter(display => target?.ids.includes(display.id))
+  const selectedDisplays = sortByConnection(displays.filter(display => target?.ids.includes(display.id)), display => display.status)
+  const displaysById = new Map(displays.map(display => [display.id, display]))
   const availablePlaylists = playlists.filter(playlist => playlist.items.length > 0 &&
     playlist.items.every(item => item.mediaType === 'Video' || item.mediaType === 1))
   const selectedPlaylist = availablePlaylists.find(playlist => playlist.id === playlistId)
@@ -89,7 +91,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
               <small>Cuenta videos completos del contenido principal. Las imágenes y las promociones no suman.</small>
             </label>
             {offlineCount > 0 && <p className="announcement-notice">{offlineCount} sin conexión. Recibirán la configuración al reconectarse.</p>}
-            <p className="content-target-names">{selectedDisplays.length ? `Destinos: ${selectedDisplays.map(display => display.name).join(', ')}` : 'No hay destino elegido.'}</p>
+            <p className="content-target-names">{selectedDisplays.length ? <>Destinos: <DisplayNames displays={selectedDisplays} /></> : 'No hay destino elegido.'}</p>
             <p className="content-saved-label">{pending ? 'Aplicación en curso…' : sentSignature === signature ? 'Cambios enviados. Revisá la confirmación por pantalla.' : 'Cambios pendientes de aplicar. La configuración de las pantallas sigue igual.'}</p>
             <div className="button-row">
               <button type="submit" className="announcement-publish" disabled={!eventId || !target?.ids.length || !selectedPlaylist || loading}>
@@ -99,7 +101,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
             </div>
           </fieldset>
           {feedback && <p className={feedback.error ? 'diagnostics-error' : 'announcement-feedback'} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
-          {deliveries.length > 0 && <ul className="content-results">{deliveries.map(delivery => <li key={delivery.displayId}><strong>{displays.find(display => display.id === delivery.displayId)?.name ?? delivery.name}</strong><span className={delivery.error ? 'content-result-error' : ''}>{deliveryState(delivery, displays.find(display => display.id === delivery.displayId), now)}</span>{delivery.error && <button disabled={pending || sentSignature !== signature} onClick={() => void apply(lastEnabled, [delivery.displayId])}>Reintentar</button>}</li>)}</ul>}
+          {deliveries.length > 0 && <ul className="content-results">{sortByConnection(deliveries, delivery => displaysById.get(delivery.displayId)?.status).map(delivery => <li key={delivery.displayId}><strong><DisplayName display={displaysById.get(delivery.displayId)} fallbackName={delivery.name} /></strong><span className={delivery.error ? 'content-result-error' : ''}>{deliveryState(delivery, displaysById.get(delivery.displayId), now)}</span>{delivery.error && <button disabled={pending || sentSignature !== signature} onClick={() => void apply(lastEnabled, [delivery.displayId])}>Reintentar</button>}</li>)}</ul>}
         </form>
         <div className="promotion-summary">
           <h3>La playlist sigue donde corresponde</h3>
@@ -109,7 +111,7 @@ export function PromotionalBreaksPanel({ eventId, displays, groups, playlists, l
           {selectedDisplays.length > 0 && <div className="announcement-assigned">
             <h3>Configuración guardada por pantalla</h3>
             <ul>{selectedDisplays.map(display => <li key={display.id}>
-              <strong>{display.name}</strong>
+              <strong><DisplayName display={display} /></strong>
               <span>{display.promotionPolicy?.enabled
                 ? `${display.promotionPolicy.playlistName} · cada ${display.promotionPolicy.everyVideos} videos`
                 : 'Sin cortes promocionales'}</span>

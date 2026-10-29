@@ -1,8 +1,8 @@
 import type { Display, DisplayGroup } from '../api/client'
 import type { SceneAssignment } from '../api/scenes'
 
-export function sceneDestinations(assignments: SceneAssignment[], displays: Pick<Display, 'id' | 'name'>[], groups: Pick<DisplayGroup, 'id' | 'displayIds'>[]) {
-  const destinations = new Map<string, { display: Pick<Display, 'id' | 'name'>; assignment: SceneAssignment }>()
+export function sceneDestinations<T extends Pick<Display, 'id' | 'name'>>(assignments: SceneAssignment[], displays: T[], groups: Pick<DisplayGroup, 'id' | 'displayIds'>[]) {
+  const destinations = new Map<string, { display: T; assignment: SceneAssignment }>()
   const conflicts = new Set<string>()
   const missing = new Set<string>()
   for (const assignment of assignments) {

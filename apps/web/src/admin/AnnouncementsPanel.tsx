@@ -4,6 +4,8 @@ import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import type { Announcement } from '../announcements/announcement'
 import { displayTargets } from './displayTargets'
 import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayName, DisplayNames } from './DisplayName'
+import { displayPresence, sortByConnection } from './displayPresence'
 
 type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[] }
 
@@ -26,8 +28,8 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
   const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
-  const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
-  const offlineCount = targetDisplays.filter(display => display.status === 'Offline' || display.status === 2 || display.status === 'Unknown' || display.status === 0).length
+  const targetDisplays = sortByConnection(displays.filter(display => target?.ids.includes(display.id)), display => display.status)
+  const offlineCount = targetDisplays.filter(display => !displayPresence(display.status).connected).length
   const blackoutCount = targetDisplays.filter(display => display.blackout ?? display.desiredPlaybackState === 'Blackout').length
   const seconds = Math.round(Number(minutes) * 60)
   const deadlineMs = Date.parse(deadline)
@@ -141,7 +143,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
             {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para enviar anuncios.</p>}
             {offlineCount > 0 && <p className="announcement-notice">{offlineCount} sin conexión. Recibirán el anuncio al reconectarse; la cuenta no se reinicia.</p>}
             {blackoutCount > 0 && <p className="announcement-notice">{blackoutCount} con la imagen oscurecida. El anuncio quedará oculto hasta usar «Restaurar imagen».</p>}
-            <p className="content-target-names">{targetDisplays.map(display => display.name).join(', ')}</p><p className="announcement-help">El contenido sigue reproduciéndose debajo. Un nuevo anuncio reemplaza al anterior.</p>
+            <p className="content-target-names"><DisplayNames displays={targetDisplays} /></p><p className="announcement-help">El contenido sigue reproduciéndose debajo. Un nuevo anuncio reemplaza al anterior.</p>
             <div className="button-row">
               <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : target ? `Mostrar anuncio en ${target.label} · ${target.ids.length} pantallas` : 'Mostrar anuncio · elegí destino'}</button>
               <button type="button" disabled={!target?.ids.length} onClick={() => void dispatch('announcement.clear')}>Retirar anuncio</button>
@@ -163,7 +165,7 @@ export function AnnouncementsPanel({ eventId, displays, groups }: Props) {
           {targetDisplays.length > 0 && <div className="announcement-assigned">
             <h3>Anuncios asignados</h3>
             <ul>{targetDisplays.map(display => <li key={display.id}>
-              <strong>{display.name}</strong>
+              <strong><DisplayName display={display} /></strong>
               <span>{display.announcement ? `${display.announcement.kind === 'countdown' ? 'Cuenta regresiva' : 'Mensaje'}: ${display.announcement.text}` : 'Sin anuncio'}</span>
             </li>)}</ul>
             <small>Estado guardado. El envío aceptado no confirma que la pantalla ya lo muestre.</small>

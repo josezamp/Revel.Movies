@@ -18,13 +18,16 @@ async function send(request: APIRequestContext, displayId: string, type: string,
   return response.json()
 }
 
-async function setup(page: Page, request: APIRequestContext, playlist = false) {
+async function setup(page: Page, request: APIRequestContext, playlist = false, beforeProgress?: () => Promise<void>) {
   // Advance only the watchdog clock; keep real SignalR/server clocks and decoding running.
   await page.addInitScript(() => {
     const nativeNow = performance.now.bind(performance)
     let elapsed = 0
     Object.defineProperty(performance, 'now', { value: () => nativeNow() + elapsed })
-    Object.assign(window, { advanceWatchdog: () => { elapsed += 31_000 } })
+    Object.assign(window, {
+      advanceWatchdog: () => { elapsed += 31_000 },
+      advanceBufferWait: () => { elapsed += 15_001 },
+    })
   })
   const eventResponse = await request.post('/api/events', { data: { name: `Recovery ${Date.now()}`, timeZone: 'UTC' } })
   expect(eventResponse.ok()).toBeTruthy()
@@ -49,6 +52,7 @@ async function setup(page: Page, request: APIRequestContext, playlist = false) {
     const { id } = await saved.json()
     expect((await request.post(`/api/playlists/${id}/play`, { data: { targetType: 'display', targetId: displayId } })).ok()).toBeTruthy()
   } else await send(request, displayId, 'media.play', { mediaId })
+  await beforeProgress?.()
   await expect.poll(() => page.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime)).toBeGreaterThan(2)
   return { eventId, displayId, mediaId }
 }
@@ -90,6 +94,45 @@ async function reachReload(page: Page) {
   await expect(page.locator('video')).toHaveAttribute('data-resumes', '1')
   await advanceWatchdog(page)
   await expect(page.locator('video')).toHaveAttribute('data-reloads', '1')
+}
+
+for (const playlist of [false, true]) {
+  test(`limited TV preload starts the ${playlist ? 'playlist' : 'single video'} at the buffer deadline without a reload`, async ({ page, request }) => {
+    await page.addInitScript(() => {
+      const prototype = HTMLMediaElement.prototype
+      const readyState = Object.getOwnPropertyDescriptor(prototype, 'readyState')!.get!
+      const nativePlay = prototype.play
+      const started = new WeakSet<HTMLMediaElement>()
+      // A TV decoder can stay at HAVE_CURRENT_DATA while paused, even though
+      // enough bytes have arrived. It needs play() to decode future frames.
+      Object.defineProperty(prototype, 'readyState', { configurable: true, get() {
+        const actual = readyState.call(this)
+        return started.has(this) ? actual : Math.min(actual, 2)
+      } })
+      prototype.play = function () {
+        started.add(this)
+        this.dataset.playAttempts = String(Number(this.dataset.playAttempts ?? 0) + 1)
+        return nativePlay.call(this)
+      }
+    })
+    const { displayId } = await setup(page, request, playlist, async () => {
+      await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBe(2)
+      await expect(page.locator('.player-video-canvas')).toHaveCount(0)
+      await page.evaluate(() => (window as unknown as { advanceBufferWait: () => void }).advanceBufferWait())
+    })
+    await expect(page.locator('video')).toHaveAttribute('data-play-attempts', '1')
+    const checkpoint = await page.locator('video').evaluate((video: HTMLVideoElement) => {
+      video.dispatchEvent(new Event('waiting'))
+      return video.currentTime
+    })
+    await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement, position) => !v.paused && v.currentTime > position + 0.5, checkpoint)).toBeTruthy()
+    await send(request, displayId, playlist ? 'playlist.pause' : 'media.pause')
+    await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.paused)).toBeTruthy()
+    await page.locator('video').evaluate(video => video.dispatchEvent(new Event('waiting')))
+    await advanceWatchdog(page)
+    expect(await page.locator('video').evaluate((v: HTMLVideoElement) => v.paused)).toBeTruthy()
+    await expect(page.locator('video')).toHaveAttribute('data-play-attempts', '1')
+  })
 }
 
 test('a normal video recovers by reloading the same element at its checkpoint', async ({ page, request }) => {

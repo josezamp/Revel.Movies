@@ -3,7 +3,8 @@ import type { Display, MediaAsset, Playlist } from '../api/client'
 import { getEventMap, saveEventMap, MapRequestError, type EventMap, type MapNode, type MapKind, type MapColor } from '../api/eventMap'
 import { DisplayCard } from './DisplayCard'
 import { Dialog } from './Dialog'
-import { displayPresence } from './displayPresence'
+import { displayPresence, sortByConnection } from './displayPresence'
+import { ConnectionDot } from './DisplayName'
 import { playbackLabel, reportAge, REPORT_FRESHNESS_MS } from './liveState'
 import { createMapNodeId, fitMapNode, resizeMapNode, MAP_WIDTH, MAP_HEIGHT, type ResizeHandle } from './eventMapGeometry'
 import './eventMap.css'
@@ -64,7 +65,9 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
   const dirty = !!draft && !!saved && JSON.stringify(draft.nodes) !== JSON.stringify(saved.nodes)
   const selected = nodes.find(node => node.id === selectedId)
   const selectedDisplay = displays.find(display => display.id === (selected?.displayId ?? selectedDisplayId))
-  const unplaced = displays.filter(display => !nodes.some(node => node.displayId === display.id))
+  const unplaced = sortByConnection(displays.filter(display => !nodes.some(node => node.displayId === display.id)), display => display.status)
+    .map(display => ({ display, presence: displayPresence(display.status) }))
+  const nodeOptions = sortByConnection(nodes.map((node, index) => ({ node, index, display: displays.find(display => display.id === node.displayId) })), item => item.display?.status)
   const editable = editing && !saving && !loading
 
   useEffect(() => {
@@ -257,7 +260,7 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
       </div>
       <aside className="map-inspector" aria-label={editing ? 'Herramientas del croquis' : 'Pantalla seleccionada'}>
         {editing ? <>
-          {nodes.length > 0 && <label className="workspace-field">Seleccionar elemento<select value={selectedId} disabled={saving} onChange={event => { setSelectedId(event.target.value); setSelectedDisplayId('') }}><option value="">Elegí un elemento</option>{nodes.map((node, index) => <option key={node.id} value={node.id}>{index + 1}. {displays.find(display => display.id === node.displayId)?.name ?? (node.label || 'Sin etiqueta')}</option>)}</select></label>}
+          {nodes.length > 0 && <label className="workspace-field">Seleccionar elemento<select value={selectedId} disabled={saving} onChange={event => { setSelectedId(event.target.value); setSelectedDisplayId('') }}><option value="">Elegí un elemento</option>{nodeOptions.map(({ node, index, display }) => <option key={node.id} value={node.id}>{node.kind === 'display' && (displayPresence(display?.status).connected ? '🟢 ' : '🔴 ')}{index + 1}. {display?.name ?? (node.label || 'Sin etiqueta')}{node.kind === 'display' && ` · ${display ? displayPresence(display.status).label : 'Desvinculada'}`}</option>)}</select></label>}
           {selected ? <div className="map-properties"><p className="eyebrow">ELEMENTO SELECCIONADO</p><h3>{selected.kind === 'display' ? selectedDisplay?.name ?? selected.label : 'Editar elemento'}</h3>
             {selected.kind !== 'display' && <label className="workspace-field">Etiqueta<input maxLength={100} value={selected.label} disabled={saving} onChange={event => change(selected.id, { label: event.target.value })} /></label>}
             <div className="map-coordinates">{(['x', 'y', 'width', 'height'] as const).map(field => <label className="workspace-field" key={field}>{({ x: 'Posición X', y: 'Posición Y', width: 'Ancho', height: 'Alto' })[field]}<input type="number" step="1" min={field === 'width' || field === 'height' ? 8 : 0} max={field === 'x' || field === 'width' ? MAP_WIDTH : MAP_HEIGHT} value={selected[field]} disabled={saving} onChange={event => { if (Number.isFinite(event.target.valueAsNumber)) change(selected.id, { [field]: event.target.valueAsNumber }) }} /></label>)}</div>
@@ -265,12 +268,12 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
             <button disabled={saving} onClick={removeSelected}>{selected.kind === 'display' ? 'Quitar del croquis' : 'Eliminar elemento'}</button>
             {selected.kind === 'display' && <p className="map-hint">Quitarla del croquis conserva su vinculación al evento.</p>}
           </div> : <div className="map-inspector-intro"><p className="eyebrow">DISEÑÁ EL ESPACIO</p><h3>Todo en su lugar.</h3><p>Agregá figuras desde la barra. Seleccionalas para cambiar su nombre, tamaño y color.</p></div>}
-          <div className="map-display-list"><h3>Pantallas sin ubicar <span>{unplaced.length}</span></h3>{!unplaced.length && <p className="map-hint">{displays.length ? 'Todas las pantallas están en el croquis.' : 'Vinculá una pantalla desde Configuración para ubicarla acá.'}</p>}{unplaced.map(display => <button key={display.id} disabled={saving || nodes.length >= 300} onClick={() => add('display', display)} aria-label={`Ubicar ${display.name}`}><span>{display.name}<small>{displayPresence(display.status).label}</small></span><span aria-hidden="true">+</span></button>)}</div>
+          <div className="map-display-list"><h3>Pantallas sin ubicar <span>{unplaced.length}</span></h3>{!unplaced.length && <p className="map-hint">{displays.length ? 'Todas las pantallas están en el croquis.' : 'Vinculá una pantalla desde Configuración para ubicarla acá.'}</p>}{unplaced.map(({ display, presence }) => <button key={display.id} className={`connection-${presence.kind}`} disabled={saving || nodes.length >= 300} onClick={() => add('display', display)} aria-label={`Ubicar ${display.name}`} aria-description={presence.label}><span>{display.name}<small><ConnectionDot connected={presence.connected} label={presence.label} />{presence.label}</small></span><span aria-hidden="true">+</span></button>)}</div>
           {nodes.length >= 300 && <p className="map-hint">Llegaste al límite de 300 elementos.</p>}
         </> : <>
           {selectedDisplay ? <DisplayCard key={selectedDisplay.id} display={selectedDisplay} media={media} playlists={playlists} prepared={prepared[selectedDisplay.id] ?? []} now={now} onChanged={onChanged} onUpdated={onUpdated} />
             : <div className="map-inspector-intro"><p className="eyebrow">CONTROL EN VIVO</p><h3>Una pantalla, un lugar.</h3><p>Seleccioná una pantalla del mapa para ver su último reporte y acceder a sus controles.</p></div>}
-          {unplaced.length > 0 && <div className="map-display-list"><h3>Sin ubicar <span>{unplaced.length}</span></h3><p className="map-hint">Podés operarlas acá o ubicarlas en Editar croquis.</p>{unplaced.map(display => <button key={display.id} aria-pressed={selectedDisplayId === display.id} onClick={() => { setSelectedId(''); setSelectedDisplayId(display.id) }}>{display.name}</button>)}</div>}
+          {unplaced.length > 0 && <div className="map-display-list"><h3>Sin ubicar <span>{unplaced.length}</span></h3><p className="map-hint">Podés operarlas acá o ubicarlas en Editar croquis.</p>{unplaced.map(({ display, presence }) => <button key={display.id} className={`connection-${presence.kind}`} aria-label={display.name} aria-description={presence.label} aria-pressed={selectedDisplayId === display.id} onClick={() => { setSelectedId(''); setSelectedDisplayId(display.id) }}><span>{display.name}<small><ConnectionDot connected={presence.connected} label={presence.label} />{presence.label}</small></span></button>)}</div>}
         </>}
       </aside>
     </div>

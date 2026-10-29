@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getScenes, type Scene } from '../api/scenes'
 import { cancelSchedule, getSchedule, saveSchedule, type SceneSchedule } from '../api/schedules'
 import { Dialog } from './Dialog'
+import type { Display } from '../api/client'
+import { DisplayName } from './DisplayName'
+import { sortByConnection } from './displayPresence'
 import { sceneStatus } from './sceneView'
 import { localDateTime, pendingSchedule, scheduleDate, scheduleStatus, scheduleTime } from './scheduleView'
 import './schedule.css'
 
-type Props = { eventId: string; timeZone: string; initialSceneId?: string; onEditorClosed: () => void; onScenes: () => void }
-export function SchedulePanel({ eventId, timeZone, initialSceneId, onEditorClosed, onScenes }: Props) {
+type Props = { eventId: string; displays: Display[]; timeZone: string; initialSceneId?: string; onEditorClosed: () => void; onScenes: () => void }
+export function SchedulePanel({ eventId, displays, timeZone, initialSceneId, onEditorClosed, onScenes }: Props) {
   const [entries, setEntries] = useState<SceneSchedule[]>([])
   const [scenes, setScenes] = useState<Scene[]>([])
   const [loading, setLoading] = useState(true)
@@ -17,6 +20,7 @@ export function SchedulePanel({ eventId, timeZone, initialSceneId, onEditorClose
   const [busy, setBusy] = useState('')
   const [editor, setEditor] = useState<SceneSchedule | 'new' | undefined>(initialSceneId ? 'new' : undefined)
   const revision = useRef(0)
+  const displaysById = new Map(displays.map(display => [display.id, display]))
   const refresh = useCallback(async () => {
     const request = ++revision.current
     try {
@@ -53,8 +57,8 @@ export function SchedulePanel({ eventId, timeZone, initialSceneId, onEditorClose
         <p className="muted">Versión {entry.sceneVersion} · {entry.targets.length} {entry.targets.length === 1 ? 'pantalla' : 'pantallas'} · {entry.policy === 'all' ? 'Requiere todas disponibles' : 'Activar las disponibles'}</p>
         {entry.detail && <p className="schedule-detail">{entry.detail}</p>}
         <details><summary>Resultados por pantalla ({entry.targets.length})</summary><div className="schedule-results" role="region" aria-label={`Resultados de ${entry.sceneName}`} tabIndex={0}><table>
-          <thead><tr><th>Pantalla</th><th>Preparación</th><th>Ejecución</th></tr></thead>
-          <tbody>{entry.targets.map(target => <tr key={target.displayId}><th scope="row">{target.displayName}</th>
+          <thead><tr><th>Pantalla · conexión actual</th><th>Preparación</th><th>Ejecución</th></tr></thead>
+          <tbody>{sortByConnection(entry.targets, target => displaysById.get(target.displayId)?.status).map(target => <tr key={target.displayId}><th scope="row"><DisplayName display={displaysById.get(target.displayId)} fallbackName={target.displayName} /></th>
             <td>{target.preparationStatus === 'pending' ? 'Pendiente' : sceneStatus(target.preparationStatus, 'prepare')}</td>
             <td>{target.status === 'pending' ? entry.status === 'activating' ? 'Esperando confirmación' : 'Pendiente de horario' : target.status === 'missed' ? 'Omitida' : sceneStatus(target.status, 'activate')}
               {target.detail && <small>{target.detail}</small>}{target.reportedAt && <small>Reporte: {new Date(target.reportedAt).toLocaleString('es-AR', { timeZone: entry.timeZone })}</small>}</td></tr>)}</tbody>

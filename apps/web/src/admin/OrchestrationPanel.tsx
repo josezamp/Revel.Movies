@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { WebPagePanel } from './WebPagePanel'
 import { AnnouncementsPanel } from './AnnouncementsPanel'
 import { Dialog } from './Dialog'
+import { ConnectionDot, DisplayName, DisplayNames } from './DisplayName'
+import { displayPresence, sortByConnection } from './displayPresence'
+import { displayTargets } from './displayTargets'
 import { createDisplayGroup, deleteDisplayGroup, getDisplayGroups, replaceDisplayGroupMembers, sendGroupCommand, type Display, type DisplayGroup, type MediaAsset } from '../api/client'
 import './content.css'
 
@@ -25,6 +28,8 @@ export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged, 
   const mounted = useRef(true)
   const sending = useRef(false)
   const displayMembershipKey = displays.map(display => display.id).sort().join(',')
+  const orderedDisplays = sortByConnection(displays, display => display.status)
+  const groupTargets = displayTargets(displays, groups).filter(target => target.kind === 'group')
 
   async function refresh() {
     if (!mounted.current) return
@@ -75,14 +80,15 @@ export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged, 
       {notice && <p role="status" className="workspace-feedback">{notice}</p>}
       {error && <p role="alert" className="workspace-error">{error}</p>}
       {!loading && !loadError && !groups.length && <p className="muted">Todavía no hay grupos en este evento.</p>}
-      <div className="card-grid orchestration-grid">{groups.map(group => {
-        const members = displays.filter(display => group.displayIds.includes(display.id))
+      <div className="card-grid orchestration-grid">{groupTargets.map(target => {
+        const group = groups.find(item => item.id === target.id)!
+        const members = orderedDisplays.filter(display => group.displayIds.includes(display.id))
         const asset = media.find(item => item.id === groupMedia[group.id])
         return <article className="card group-card" key={group.id}>
-          <div className="display-heading"><strong>{group.name}</strong><span className="count-badge">{members.length} pantallas</span></div>
-          <div className="member-list">{displays.map(display => <label key={display.id}><input type="checkbox" checked={group.displayIds.includes(display.id)} disabled={busy || !!loadError}
-            onChange={() => toggleGroupMember(group, display.id)} />{display.name}</label>)}{!displays.length && <small className="muted">No hay pantallas vinculadas.</small>}</div>
-          <p className="content-target-names">{members.length ? `Destino: ${members.map(display => display.name).join(', ')}` : 'Agregá integrantes para operar.'}</p>
+          <div className="display-heading"><strong className="display-name"><ConnectionDot connected={target.connected} label={target.statusLabel} /><span>{group.name}</span></strong><span className="count-badge">{target.statusLabel}</span></div>
+          <div className="member-list">{orderedDisplays.map(display => <label key={display.id}><input type="checkbox" aria-label={display.name} aria-description={displayPresence(display.status).label} checked={group.displayIds.includes(display.id)} disabled={busy || !!loadError}
+            onChange={() => toggleGroupMember(group, display.id)} /><DisplayName display={display} /></label>)}{!displays.length && <small className="muted">No hay pantallas vinculadas.</small>}</div>
+          <p className="content-target-names">{members.length ? <>Destino: <DisplayNames displays={members} /></> : 'Agregá integrantes para operar.'}</p>
           <div className="inline-control"><label className="workspace-field">Contenido para {group.name}<select value={asset?.id ?? ''} disabled={busy || !!loadError}
             onChange={event => setGroupMedia(current => ({ ...current, [group.id]: event.target.value }))}><option value="">Elegí un archivo</option>{media.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <button disabled={busy || !members.length || !asset || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'media.play', { mediaId: asset!.id }), `Reproducción enviada a ${group.name} · ${members.length} pantallas. Revisá la confirmación en En vivo.`)}>Reproducir en {group.name}</button></div>

@@ -9,6 +9,7 @@ import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
 import { displayTargets } from './displayTargets'
 import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayNames } from './DisplayName'
 import './content.css'
 
 type Preview = { name: string; type: 'Video' | 'Image'; url?: string; file?: File }
@@ -37,6 +38,7 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
   const previewAsset = (item: MediaAsset) => setPreview({ name: item.name, type: item.type === 'Image' ? 'Image' as const : 'Video' as const, url: item.contentUrl })
   const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === targetId)
+  const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
   const canOperate = !!target?.ids.length
   useEffect(() => { setNotice(''); setError('') }, [feedback])
   useEffect(() => { if (targetId && !target) setTargetId('') }, [targetId, target])
@@ -95,7 +97,7 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
         <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.pause'), `Pausa enviada a ${target!.label}. Esperando confirmación.`)}>Pausar</button>
         <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.stop'), `Detención enviada a ${target!.label}. Esperando confirmación.`)}>Detener contenido</button>
         {media.some(isMediaLink) && <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('webpage.clear'), `Retirada enviada a ${target!.label}. Esperando confirmación.`)}>Retirar página</button>}
-        {target && <p className="content-target-names">Destino: {displays.filter(display => target.ids.includes(display.id)).map(display => display.name).join(', ') || 'Grupo sin integrantes'}</p>}
+        {target && <p className="content-target-names">Destino: {targetDisplays.length ? <DisplayNames displays={targetDisplays} /> : 'Grupo sin integrantes'}</p>}
       </div>}
       {(feedback || notice) && <p className="workspace-feedback" role="status">{notice || feedback}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}

@@ -3,6 +3,8 @@ import { sendCommand, sendGroupCommand, type Display, type DisplayGroup } from '
 import { webPageUrlError } from '../webpages/webPage'
 import { displayTargets } from './displayTargets'
 import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayName, DisplayNames } from './DisplayName'
+import { sortByConnection } from './displayPresence'
 
 type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[] }
 
@@ -15,7 +17,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
   const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === selectedTarget)
   useEffect(() => { if (selectedTarget && !target) setSelectedTarget('') }, [selectedTarget, target])
-  const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
+  const targetDisplays = sortByConnection(displays.filter(display => target?.ids.includes(display.id)), display => display.status)
   const blackedOut = targetDisplays.filter(display => display.blackout ?? display.desiredPlaybackState === 'Blackout').length
 
   async function dispatch(type: 'webpage.show' | 'webpage.clear') {
@@ -59,7 +61,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
           </label>
           {target && !target.ids.length && <p className="announcement-notice">Agregá pantallas al grupo para proyectar.</p>}
           {blackedOut > 0 && <p className="announcement-notice">{blackedOut} con la imagen oscurecida. Usá «Restaurar imagen» en la tarjeta de la pantalla para volver a mostrar su contenido.</p>}
-          <p className="content-target-names">{targetDisplays.map(display => display.name).join(', ')}</p><div className="button-row">
+          <p className="content-target-names"><DisplayNames displays={targetDisplays} /></p><div className="button-row">
             <button className="announcement-publish" type="submit" disabled={!eventId || !target?.ids.length}>{pending ? 'Enviando…' : target ? `Mostrar página en ${target.label}` : 'Mostrar página · elegí destino'}</button>
             <button type="button" disabled={!target?.ids.length} onClick={() => void dispatch('webpage.clear')}>Retirar página</button>
           </div>
@@ -73,7 +75,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
         {targetDisplays.length > 0 && <div className="announcement-assigned">
           <h3>Páginas asignadas</h3>
           <ul>{targetDisplays.map(display => <li key={display.id}>
-            <strong>{display.name}</strong><span>{display.webPage?.url ?? 'Sin página web'}</span>
+            <strong><DisplayName display={display} /></strong><span>{display.webPage?.url ?? 'Sin página web'}</span>
           </li>)}</ul>
         </div>}
       </div>

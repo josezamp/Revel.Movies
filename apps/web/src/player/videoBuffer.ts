@@ -31,22 +31,32 @@ export function bufferVideoPlayback(video: HTMLVideoElement, onBuffering: (buffe
   let disposed = false
   let waiting = false
   let waitStartedAt = 0
+  let nativeBuffering = false
 
   const checkBuffer = () => {
-    if (disposed || !waiting || video.error || video.seeking || video.readyState < 3) return
-    if (!hasPlaybackBuffer(video) && performance.now() - waitStartedAt < maxBufferWaitMs) return
+    if (disposed || !waiting || video.error) return
+    const timedOut = performance.now() - waitStartedAt >= maxBufferWaitMs
+    if (!timedOut && (video.seeking || !hasPlaybackBuffer(video))) return
 
     waiting = false
-    void video.play().catch(() => {
-      // Autoplay policy or an interrupted play request must not create a retry loop.
-    })
+    // Some TVs cannot finish preloading or seeking until play() is requested.
+    // After the deadline, leave subsequent buffering to the browser as well.
+    if (timedOut) nativeBuffering = true
+    try {
+      void Promise.resolve(video.play()).catch(() => {
+        // Autoplay policy or an interrupted play request must not create a retry loop.
+      })
+    } catch {
+      // Older browsers may throw synchronously instead of returning a rejected promise.
+    }
   }
 
   const waitForBuffer = () => {
     if (disposed || video.ended || video.error) return
+    onBuffering(true)
+    if (nativeBuffering) return
     if (!waiting) waitStartedAt = performance.now()
     waiting = true
-    onBuffering(true)
     video.pause()
     checkBuffer()
   }

@@ -7,7 +7,7 @@ import { MediaWorkspace } from './MediaWorkspace'
 import { DisplayCard } from './DisplayCard'
 import { NameDialog } from './NameDialog'
 import { ScenesPanel } from './ScenesPanel'
-import { displayPresence } from './displayPresence'
+import { displayPresence, sortByConnection } from './displayPresence'
 import { ageLabel } from './liveState'
 import './operations.css'
 
@@ -98,7 +98,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     return () => { disposed = true; refreshRevision.current++; window.clearTimeout(timer); window.clearInterval(clock) }
   }, [])
   useEffect(() => { void refreshMedia(selectedEventId); return () => { mediaRevision.current++ } }, [selectedEventId])
-  const visibleDisplays = displays.filter(display => display.eventId === selectedEventId)
+  const visibleDisplays = sortByConnection(displays.filter(display => display.eventId === selectedEventId), display => display.status)
   const eventMedia = media.filter(item => item.eventId === selectedEventId)
   const eventPlaylists = playlists.filter(item => item.eventId === selectedEventId)
   const eventGroups = groups.filter(item => item.eventId === selectedEventId)
@@ -145,7 +145,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
       </section>
     </div>
     <div hidden={section !== 'scenes'}><ScenesPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} playlists={eventPlaylists} onChanged={refresh} active={section === 'scenes' || section === 'live'} onPreparedChange={setPrepared} onSchedule={id => { setScheduleSceneId(id); setSection('schedule') }} /></div>
-    {section === 'schedule' && <Suspense fallback={<p role="status">Cargando programación…</p>}><SchedulePanel key={selectedEventId} eventId={selectedEventId} timeZone={events.find(item => item.id === selectedEventId)?.timeZone ?? 'UTC'} initialSceneId={scheduleSceneId} onEditorClosed={() => setScheduleSceneId(undefined)} onScenes={() => setSection('scenes')} /></Suspense>}
+    {section === 'schedule' && <Suspense fallback={<p role="status">Cargando programación…</p>}><SchedulePanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} timeZone={events.find(item => item.id === selectedEventId)?.timeZone ?? 'UTC'} initialSceneId={scheduleSceneId} onEditorClosed={() => setScheduleSceneId(undefined)} onScenes={() => setSection('scenes')} /></Suspense>}
     <div hidden={section !== 'configuration'}><section><div className="workspace-heading"><div><h2>Agregar pantalla</h2><p>Abrí <a href="/player" target="_blank" rel="noreferrer">el reproductor</a> en la TV. Su código aparecerá acá.</p></div></div>
       {pending.length === 0 && <p className="muted">No hay pantallas esperando vinculación.</p>}<div className="card-grid">{pending.map(item => <article className="card" key={item.code}><strong className="pair-code">{item.code.slice(0, 3)} {item.code.slice(3)}</strong><button disabled={!selectedEventId} onClick={() => setDialog(item)}>Vincular al evento {eventName}</button></article>)}</div>
       <p className="muted">Orientación, nombre, mantenimiento y diagnóstico están en “Detalles” de cada pantalla en En vivo.</p>

@@ -13,12 +13,13 @@ class Video extends EventTarget {
   error = null
   ranges = [[0, 2]]
   playCount = 0
+  pauseCount = 0
 
   get buffered() {
     return { length: this.ranges.length, start: index => this.ranges[index][0], end: index => this.ranges[index][1] }
   }
 
-  pause() { this.paused = true }
+  pause() { this.pauseCount++; this.paused = true }
   play() {
     this.playCount++
     this.paused = false
@@ -94,13 +95,67 @@ test('a stall pauses playback until the reserve is rebuilt', t => {
   assert.equal(states.at(-1), false)
 })
 
-test('limited preload falls back after the deadline, but only with playable data', t => {
-  const { video, tick } = control(t)
-  video.readyState = 2
-  tick(maxBufferWaitMs)
+for (const readyState of [0, 1, 2]) {
+  test(`limited preload delegates to native playback at the deadline with readyState ${readyState}`, t => {
+    const video = new Video()
+    video.readyState = readyState
+    video.ranges = []
+    const { tick } = control(t, video)
+    tick(maxBufferWaitMs - 1)
+    assert.equal(video.playCount, 0)
+    tick(1)
+    assert.equal(video.playCount, 1)
+    assert.equal(video.paused, false)
+    tick(maxBufferWaitMs)
+    assert.equal(video.playCount, 1)
+  })
+}
+
+test('a pending seek cannot prevent the native fallback at the deadline', t => {
+  const video = new Video()
+  video.seeking = true
+  video.ranges = [[0, 30]]
+  const { tick } = control(t, video)
+  tick(maxBufferWaitMs - 1)
   assert.equal(video.playCount, 0)
-  video.readyState = 3
-  video.emit('canplay')
+  tick(1)
+  assert.equal(video.playCount, 1)
+})
+
+test('native fallback keeps playback running through further waiting and seeking events', t => {
+  const { video, tick, states } = control(t)
+  tick(maxBufferWaitMs)
+  assert.equal(video.playCount, 1)
+  const pauses = video.pauseCount
+  video.readyState = 2
+  for (const event of ['waiting', 'waiting', 'seeking']) {
+    video.emit(event)
+    assert.equal(video.pauseCount, pauses)
+    assert.equal(video.paused, false)
+    assert.equal(states.at(-1), true)
+  }
+  tick(maxBufferWaitMs * 2)
+  assert.equal(video.playCount, 1)
+  video.emit('playing')
+  assert.equal(states.at(-1), false)
+})
+
+test('native fallback supports a legacy play method that returns no promise', t => {
+  const video = new Video()
+  video.play = () => { video.playCount++; video.paused = false }
+  const { tick } = control(t, video)
+  assert.doesNotThrow(() => tick(maxBufferWaitMs))
+  assert.equal(video.playCount, 1)
+  assert.equal(video.paused, false)
+})
+
+test('a synchronous play failure does not escape the timer or create a retry loop', t => {
+  const video = new Video()
+  video.play = () => { video.playCount++; throw new Error('Playback unavailable') }
+  const { tick } = control(t, video)
+  assert.doesNotThrow(() => tick(maxBufferWaitMs))
+  video.emit('waiting')
+  tick(maxBufferWaitMs * 2)
   assert.equal(video.playCount, 1)
 })
 
@@ -138,6 +193,24 @@ test('pause, stop or source change disposes listeners and pending buffer timers'
   video.emit('waiting')
   tick(maxBufferWaitMs * 2)
   assert.equal(video.playCount, 0)
+})
+
+test('disposing native fallback prevents later events from changing playback or telemetry', t => {
+  const { video, stop, tick, states } = control(t)
+  tick(maxBufferWaitMs)
+  stop()
+  video.pause()
+  const pauses = video.pauseCount
+  const reports = states.length
+  video.emit('waiting')
+  video.emit('seeking')
+  video.emit('canplay')
+  video.emit('playing')
+  tick(maxBufferWaitMs * 2)
+  assert.equal(video.playCount, 1)
+  assert.equal(video.pauseCount, pauses)
+  assert.equal(video.paused, true)
+  assert.equal(states.length, reports)
 })
 
 test('synchronization only seeks into a buffered destination with a reserve', () => {
