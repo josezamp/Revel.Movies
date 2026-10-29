@@ -66,6 +66,35 @@ export function finishPlaylistItem(
   return { progress: next, playlistIndex: index, mediaId: item.mediaId, mediaType: item.mediaType, ended }
 }
 
+export function getUpcomingVideoIds(
+  playlist: { items: PlaybackItem[]; loop: boolean }, playlistIndex: number,
+  progress: PromotionProgress, policy: PromotionPolicy | null, currentMediaId: string, limit = 2,
+): string[] {
+  if (!Number.isInteger(playlistIndex) || playlistIndex < 0 || playlistIndex >= playlist.items.length ||
+    !Number.isFinite(limit) || limit < 1) return []
+
+  const upcoming: string[] = []
+  const seen = new Set([currentMediaId])
+  let simulatedProgress = { ...progress }
+  let index = playlistIndex
+  let mainAdvances = 0
+  const maxMainAdvances = playlist.loop ? playlist.items.length : playlist.items.length - playlistIndex
+  // Follow the real transitions, including promotions, but scan at most one main
+  // playlist cycle. Repeated videos must not expand into an entire promotion cycle.
+  while (upcoming.length < Math.floor(limit) && mainAdvances < maxMainAdvances) {
+    const next = finishPlaylistItem(simulatedProgress, policy, playlist, index)
+    if (next.ended) break
+    simulatedProgress = next.progress
+    index = next.playlistIndex
+    if (!next.progress.activeMediaId) mainAdvances++
+    if (next.mediaType === 'Video' && !seen.has(next.mediaId)) {
+      seen.add(next.mediaId)
+      upcoming.push(next.mediaId)
+    }
+  }
+  return upcoming
+}
+
 export function parsePromotionPolicy(value: unknown): PromotionPolicy | null {
   if (!value || typeof value !== 'object') return null
   const p = value as PromotionPolicy

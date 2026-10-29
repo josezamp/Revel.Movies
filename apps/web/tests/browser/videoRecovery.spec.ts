@@ -202,7 +202,8 @@ for (const action of ['media.stop', 'media.play']) {
       const v = (window as unknown as { frozenVideo: HTMLVideoElement }).frozenVideo
       return { paused: v.paused, reloads: v.dataset.reloads }
     })
-    expect(old).toEqual({ paused: true, reloads: '1' })
+    // One recovery load plus the source-free teardown load that cancels downloads.
+    expect(old).toEqual({ paused: true, reloads: '2' })
     if (action === 'media.stop') await expect(page.locator('video')).toHaveCount(0)
     else await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => !v.paused)).toBeTruthy()
   })

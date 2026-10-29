@@ -39,7 +39,7 @@ The Player registers a Service Worker when the browser supports it and the page 
 
 When Service Workers are unavailable (for example, an older Smart TV or plain HTTP on a LAN IP), playback falls back to the normal network URL. Cache support is never required for playback.
 
-The API also emits long-lived immutable cache headers for `/api/media/{id}/content`, since a MediaAsset ID points to immutable binary content.
+The API emits `public, no-cache` with a content checksum ETag for `/api/media/{id}/content`, so replaced or optimized content can be revalidated.
 
 ### Video buffering
 
@@ -50,6 +50,14 @@ Native browser buffers cannot be assigned a fixed size. After 15 seconds of wait
 While waiting, telemetry reports `Buffering`. The server keeps the desired playback clock but does not request drift correction in this state. Once playback resumes, the Player only applies corrections whose destination has the same buffer reserve. Late telemetry responses from a previous video or playback control are ignored. A slow device can start later or stay behind the group until a safe correction is possible.
 
 Preparation commands share in-flight downloads per URL, and the play command does not start a second cache download. Cache writes consume the response directly to avoid retaining an unread copy of a large video in memory.
+
+### Upcoming playlist videos
+
+While a playlist runs, the Player keeps native video elements for up to two distinct upcoming videos, in addition to the current video. Lookahead follows playlist order, skips images, wraps looping playlists and includes promotional breaks. Repeated media IDs share an element. Recovery and changes to the playlist or promotion policy recalculate this window.
+
+New background requests start after the current video begins playing (or the current image loads). Upcoming elements stay hidden, muted and paused, and retain their buffered data when they become active. This works with ordinary HTTP media URLs, including LAN Players without Service Workers and videos larger than the full-file cache limit. It complements the existing preparation cache; native preload remains a browser hint, so TV memory limits and network throughput can still delay transitions.
+
+Stopping, replacing or finishing a playlist releases obsolete elements and their sources. A background load error does not interrupt the current video; the Player retries the source when it becomes active. Browser tests in `tests/browser/playlistPreload.spec.ts` verify native preloading and element reuse with Service Workers disabled.
 
 ### Automatic video recovery
 

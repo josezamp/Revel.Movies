@@ -9,10 +9,11 @@ import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import { parseWebPage, type WebPage } from '../webpages/webPage'
 import { WebPageSurface } from '../webpages/WebPageSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
+import { PreloadedVideo } from './PreloadedVideo'
 import { needsVideoCanvas } from './videoCanvas'
 import { isSceneExpired, PlayerOperationGuard, resolveSceneReturn, type SceneComposition } from './preparationStatus'
 import {
-  configurePromotions, finishPlaylistItem, parsePromotionPolicy, parsePromotionProgress,
+  configurePromotions, finishPlaylistItem, getUpcomingVideoIds, parsePromotionPolicy, parsePromotionProgress,
   playlistCheckpointKey, preferLocalCheckpoint, readPlaylistCheckpoint, startPromotionProgress,
   type PlaybackItem, type PromotionPolicy, type PromotionProgress,
 } from './promotionalBreaks'
@@ -85,6 +86,7 @@ export function PlayerPage() {
   const stopVideoPlaybackRef = useRef<(() => void) | undefined>(undefined)
   const setCurrentMedia = useCallback((next: ActiveMedia | undefined) => {
     stopVideoPlaybackRef.current?.()
+    videoRef.current?.pause()
     const current = next ? { ...next, instance: ++mediaInstanceRef.current } : undefined
     mediaRef.current = current
     setMediaLoadStatus('loading')
@@ -908,6 +910,9 @@ export function PlayerPage() {
     if (media?.type !== 'Video' || !videoRef.current) return
 
     const video = videoRef.current
+    // A speculative request may have failed while this video was still hidden.
+    // Retry it on activation without disturbing playback of the preceding item.
+    if (video.error) video.load()
     const applyPendingSeek = () => {
       if (mediaRef.current !== media) return
       const seek = pendingSeekSecondsRef.current
@@ -1045,30 +1050,35 @@ export function PlayerPage() {
     )
   }
 
+  const upcomingVideoIds = playlist && media && !playbackEnded ? getUpcomingVideoIds(
+    playlist, playlistIndex,
+    promotionProgressRef.current ?? startPromotionProgress(playlist.playbackId, promotionPolicy),
+    promotionPolicy, media.id,
+  ) : []
+  const videoIds = [...(media?.type === 'Video' ? [media.id] : []), ...upcomingVideoIds]
+
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
       <div className={`player-viewport rotation-${rotation}`}>
-        {media?.type === 'Video' && (
-          <video
-            key={media.instance}
-            ref={videoRef}
-            className="player-media"
+        {videoIds.map(id => (
+          <PreloadedVideo
+            key={playlist ? `${playlist.playbackId}:${id}` : `${media?.instance}:${id}`}
+            active={media?.type === 'Video' && media.id === id}
+            prepare={mediaLoadStatus === 'loaded'}
+            activeVideoRef={videoRef}
             hidden={playbackEnded && !!playlist}
-            src={mediaContentUrl(media.id)}
-            preload="auto"
+            src={mediaContentUrl(id)}
             loop={!playlist && mediaLoop}
-            muted
-            playsInline
             onEnded={() => {
               if (playlist) advancePlaylist()
               else setPlaybackEnded(true)
             }}
             onError={() => {
               setMediaLoadStatus('error')
-              if (promotionProgressRef.current?.activeMediaId === media.id) advancePlaylist()
+              if (promotionProgressRef.current?.activeMediaId === id) advancePlaylist()
             }}
           />
-        )}
+        ))}
         {useVideoCanvas && rotation !== 0 && media?.type === 'Video' && !blackout && !(playbackEnded && playlist) && (
           <VideoRotationCanvas key={`rotation-${media.instance}`} videoRef={videoRef} />
         )}
