@@ -60,6 +60,16 @@ Los duplicados se detectan por nombre completo dentro del evento, sin distinguir
 
 Editar una playlist guarda cambios sin publicarlos. **Aplicar cambios** muestra los destinos e inicia la versión guardada desde el primer archivo. Los resultados se muestran por pantalla. Para promociones, aplicar guarda la política y la envía, reiniciando el contador sin reiniciar el video actual. Una promoción en curso puede terminar antes de volver al fondo.
 
+## Limpiar los archivos de un evento
+
+En **Contenido → Biblioteca → Liberar espacio del evento**, elegí **Limpiar archivos del evento**. El resumen muestra los archivos físicos, las copias para TV, los huérfanos dentro de la carpeta del evento y sus temporales, junto con el espacio a liberar. Escribí **ELIMINAR** para confirmar el borrado irreversible. Las nuevas conversiones guardan sus temporales por evento; los temporales de versiones anteriores solo se incluyen si su archivo de origen sigue registrado y permite identificar el evento.
+
+La limpieza afecta solamente al evento seleccionado: conserva el evento, las pantallas vinculadas y los nombres de las playlists y escenas. Elimina los archivos del disco y de la biblioteca, quita sus entradas de las playlists y descarta preparaciones e historiales de retorno de escenas. Las escenas que usaban esos archivos necesitan contenido nuevo. Detiene y recarga las pantallas conectadas; las desconectadas reciben el estado detenido cuando vuelven a conectarse. La caché local de los navegadores no forma parte del almacenamiento del servidor.
+
+Esperá a que terminen las subidas y conversiones antes de limpiar. Durante la operación se bloquean temporalmente las modificaciones de la API. Si los archivos cambiaron desde el resumen, hay que revisarlo otra vez. Los archivos que no puedan borrarse por permisos o bloqueos se informan como limpieza parcial y conservan sus registros para reintentar. Un archivo ya ausente del disco se puede quitar de la biblioteca sin error.
+
+El almacenamiento local requiere una sola instancia/proceso de la API por carpeta de medios y temporales (en IIS, un worker por application pool; sin web garden). No compartir esas carpetas con otras aplicaciones ni modificarlas externamente durante la limpieza. Los enlaces simbólicos y las uniones de directorios se rechazan. No se borran binarios de la aplicación, configuración, logs ni backups.
+
 ## Despliegue y comprobaciones
 
 Publicar frontend y API juntos. La migración `20261025222149_AddScenesAndPlaybackConfirmation` agrega escenas, intentos y campos de correlación/visibilidad. Se aplica con el mecanismo EF existente: automáticamente si `Database:ApplyMigrationsOnStartup` está habilitado, o mediante el procedimiento de migraciones del despliegue. No se requiere un servicio externo adicional; el retorno temporal usa un servicio alojado en la API y persistencia SQL.

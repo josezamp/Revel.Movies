@@ -130,8 +130,10 @@ test('a manual decision survives a previous temporal scene expiry', async ({ pag
 
 test('media preparation leaves a paused background unchanged and temporary replacement returns it paused', async ({ page, request }) => {
   const { eventId, displayId, mediaId } = await setup(page, request)
+  await expect.poll(async () => (await displays(request, eventId))[0].actualPositionSeconds).toBeGreaterThan(0.5)
   await send(request, displayId, 'media.pause')
   await expect.poll(async () => (await displays(request, eventId))[0].actualPlaybackState).toBe('Paused')
+  expect((await displays(request, eventId))[0].actualPositionSeconds).toBeGreaterThan(0.5)
   await page.locator('img.player-media').evaluate(element => element.setAttribute('data-paused-background', 'yes'))
   const response = await request.post(`/api/events/${eventId}/scenes`, { data: {
     name: 'Fondo temporal', temporaryDurationSeconds: 3,

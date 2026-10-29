@@ -182,6 +182,37 @@ public sealed class DisplayPlaybackTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Pause_during_recovery_uses_the_confirmed_checkpoint_for_manual_resume(bool playlist)
+    {
+        await using var factory = new PlaybackApiFactory();
+        using var client = factory.CreateClient();
+        var id = await SeedAsync(factory, playlist);
+        using var pause = await client.PostAsJsonAsync($"/api/displays/{id}/commands", new { type = "media.pause" });
+        Assert.Equal(HttpStatusCode.Accepted, pause.StatusCode);
+        using var scope = factory.Services.CreateScope();
+        var registry = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var state = (await registry.GetAsync(id))!;
+        var pausedClockPosition = state.PausedPositionSeconds;
+        var report = new PlaybackTelemetryReport("Paused", state.MediaAssetId, state.PlaylistId,
+            playlist ? 2 : null, 2, 120, state.LastCommandId, state.Revision);
+
+        // An old, uncorrelated or different-content report must not overwrite the checkpoint.
+        await registry.ReportAsync(id, report with { CommandId = Guid.NewGuid() });
+        await registry.ReportAsync(id, report with { CommandId = null, Revision = null });
+        await registry.ReportAsync(id, playlist ? report with { PlaylistId = Guid.NewGuid() }
+            : report with { MediaAssetId = Guid.NewGuid() });
+        Assert.Equal(pausedClockPosition, (await registry.GetRecoveryAsync(id))!.ResumePositionSeconds);
+
+        await registry.ReportAsync(id, report);
+        Assert.Equal(2, (await registry.GetRecoveryAsync(id))!.ResumePositionSeconds);
+        var resumed = await registry.ResumeAsync(id, Guid.NewGuid());
+        Assert.Equal(2, resumed!.ResumePositionSeconds);
+        if (playlist) Assert.Equal(2, resumed.ResumePlaylistIndex);
+    }
+
     private static async Task<Guid> SeedAsync(PlaybackApiFactory factory, bool playlist = false)
     {
         using var scope = factory.Services.CreateScope();

@@ -12,6 +12,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using RevelMovies.Api.Hubs;
+using RevelMovies.Api.Runtime;
+using RevelMovies.Domain.Displays;
+using RevelMovies.Domain.Playback;
+using RevelMovies.Domain.Scenes;
 using RevelMovies.Application.Media;
 using RevelMovies.Infrastructure.Media;
 using RevelMovies.Infrastructure.Persistence;
@@ -122,6 +126,128 @@ public sealed class MediaUploadTests
             Assert.Empty(Directory.GetFiles(root, "*", SearchOption.AllDirectories));
         }
         finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public async Task Cleanup_deletes_physical_files_and_orphans_only_for_selected_event_and_clears_recovery()
+    {
+        await using var factory = new MediaApiFactory(); using var client = factory.CreateClient();
+        var eventId = await CreateEvent(factory, client);
+        var otherId = await CreateEvent(factory, client);
+        using var uploaded = await Upload(client, eventId, "logo.png");
+        var mediaId = (await uploaded.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        using var other = await Upload(client, otherId, "otro.png");
+        var otherMediaId = (await other.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var orphan = Path.Combine(factory.MediaRoot, eventId.ToString("N"), "orphan.mp4");
+        await File.WriteAllBytesAsync(orphan, new byte[15]);
+        var nested = Path.Combine(factory.MediaRoot, eventId.ToString("N"), "empty"); Directory.CreateDirectory(nested);
+        using var playlist = await client.PostAsJsonAsync($"/api/events/{eventId}/playlists", new { name = "Lista", isLoop = true });
+        var playlistId = (await playlist.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        (await client.PostAsJsonAsync($"/api/playlists/{playlistId}/items", new { items = new[] { new { mediaAssetId = mediaId, durationSeconds = 5 } } })).EnsureSuccessStatusCode();
+        Guid displayId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+            var display = new Display { EventId = eventId, Name = "Pantalla", DeviceTokenHash = Guid.NewGuid().ToString() };
+            displayId = display.Id; db.Displays.Add(display);
+            db.DisplayPlaybackStates.Add(new DisplayPlaybackState { DisplayId = displayId, DesiredState = "Playing", ContentType = "Media",
+                MediaAssetId = mediaId, PayloadJson = "{}", PromotionPolicyJson = "{}", Revision = 4 });
+            var scene = new Scene { EventId = eventId, Name = "Escena" }; db.Scenes.Add(scene);
+            db.SceneSessions.Add(new SceneSession { EventId = eventId, SceneId = scene.Id, Kind = "activate" });
+            await db.SaveChangesAsync();
+        }
+        var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        Assert.Equal(1, preview!.MediaCount); Assert.Equal(2, preview.FileCount); Assert.Equal(1, preview.OrphanFileCount);
+        Assert.Equal(Png.Length + 15, preview.TotalBytes);
+        using var cleaned = await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview.SnapshotToken });
+        cleaned.EnsureSuccessStatusCode();
+        var result = await cleaned.Content.ReadFromJsonAsync<MediaCleanupResult>();
+        Assert.Equal(2, result!.DeletedFileCount); Assert.Equal(0, result.FailedFileCount); Assert.Empty(result.Warnings);
+        Assert.False(Directory.Exists(Path.Combine(factory.MediaRoot, eventId.ToString("N"))));
+        Assert.Equal(Png, await client.GetByteArrayAsync($"/api/media/{otherMediaId}/content"));
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/media/{mediaId}")).StatusCode);
+        using var verify = factory.Services.CreateScope(); var database = verify.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        Assert.Empty(await database.PlaylistItems.ToListAsync()); Assert.Single(await database.Playlists.ToListAsync());
+        Assert.Empty(await database.SceneSessions.ToListAsync()); Assert.Single(await database.Scenes.ToListAsync());
+        Assert.Equal(2, await database.Events.CountAsync()); Assert.True(await database.Displays.AnyAsync(x => x.Id == displayId));
+        var state = await database.DisplayPlaybackStates.SingleAsync();
+        Assert.Equal("Stopped", state.DesiredState); Assert.Null(state.PayloadJson); Assert.Null(state.MediaAssetId);
+        Assert.Null(state.PromotionPolicyJson); Assert.Equal(5, state.Revision);
+        var empty = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        (await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", empty!.SnapshotToken })).EnsureSuccessStatusCode();
+        // The storage root stays usable after removing the event directory.
+        (await Upload(client, eventId, "nuevo.png")).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Cleanup_requires_confirmation_and_a_current_event_specific_preview()
+    {
+        await using var factory = new MediaApiFactory(); using var client = factory.CreateClient();
+        var eventId = await CreateEvent(factory, client);
+        var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        (await Upload(client, eventId, "logo.png")).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "", preview!.SnapshotToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview!.SnapshotToken })).StatusCode);
+        var otherId = await CreateEvent(factory, client);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/events/{otherId}/media-cleanup", new { confirmation = "ELIMINAR", preview!.SnapshotToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/events/{Guid.NewGuid()}/media-cleanup")).StatusCode);
+        Assert.Single(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Cleanup_conflicts_with_inflight_operations_and_blocks_new_uploads()
+    {
+        await using var factory = new MediaApiFactory(); using var client = factory.CreateClient();
+        var eventId = await CreateEvent(factory, client);
+        (await Upload(client, eventId, "logo.png")).EnsureSuccessStatusCode();
+        var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        var gate = factory.Services.GetRequiredService<MediaMaintenanceGate>();
+        using (var operation = gate.TryEnter())
+            Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview!.SnapshotToken })).StatusCode);
+        using (var cleaning = gate.TryEnter(cleanup: true))
+        {
+            Assert.NotNull(cleaning);
+            Assert.Equal(HttpStatusCode.Conflict, (await Upload(client, eventId, "nuevo.png")).StatusCode);
+        }
+        Assert.Single(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Locked_files_are_reported_and_retained_for_retry()
+    {
+        if (!OperatingSystem.IsWindows()) return; // Windows enforces FileShare.None against deletion.
+        await using var factory = new MediaApiFactory(); using var client = factory.CreateClient();
+        var eventId = await CreateEvent(factory, client);
+        (await Upload(client, eventId, "locked.png")).EnsureSuccessStatusCode();
+        (await Upload(client, eventId, "free.png")).EnsureSuccessStatusCode();
+        var path = Directory.GetFiles(Path.Combine(factory.MediaRoot, eventId.ToString("N")))[0];
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+            var response = await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview!.SnapshotToken });
+            response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<MediaCleanupResult>();
+            Assert.Equal(1, result!.FailedFileCount); Assert.Equal(1, result.DeletedMediaCount); Assert.NotEmpty(result.Warnings);
+        }
+        var remaining = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        Assert.Equal(1, remaining!.MediaCount);
+        (await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", remaining.SnapshotToken })).EnsureSuccessStatusCode();
+        Assert.Empty(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Cleanup_directory_rejects_traversal()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "revel-safe-cleanup-" + Guid.NewGuid());
+        Directory.CreateDirectory(root);
+        try
+        {
+            var directory = new MediaDirectory(root);
+            Assert.Throws<IOException>(() => directory.ListFiles("../outside"));
+            Assert.Throws<IOException>(() => directory.DeleteFile("../outside.txt"));
+            Assert.Throws<IOException>(() => directory.RemoveEmptyDirectories(".."));
+        }
+        finally { Directory.Delete(root); }
     }
 
     private sealed class FailingStream : MemoryStream

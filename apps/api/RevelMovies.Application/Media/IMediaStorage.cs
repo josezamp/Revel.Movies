@@ -12,6 +12,10 @@ public interface IMediaStorage
     Task<Stream?> OpenReadAsync(string storageKey, CancellationToken cancellationToken = default);
 
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
+
+    IReadOnlyList<MediaStorageFile> ListEventFiles(Guid eventId);
+    void RemoveEmptyEventDirectories(Guid eventId);
 }
 
 public sealed record StoredMediaFile(string StorageKey, long FileSize, string Checksum);
+public sealed record MediaStorageFile(string StorageKey, long FileSize, long LastWriteTicks);

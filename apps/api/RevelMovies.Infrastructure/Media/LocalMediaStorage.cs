@@ -85,12 +85,19 @@ public sealed class LocalMediaStorage : IMediaStorage
 
     public Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default)
     {
-        var path = ResolvePath(storageKey);
-        if (File.Exists(path))
-            File.Delete(path);
+        var path = new MediaDirectory(_rootPath).Resolve(storageKey);
+        // File.Exists also returns false on access errors; deletion must report those failures.
+        try { File.Delete(path); }
+        catch (DirectoryNotFoundException) { /* Already deleted, including its event directory. */ }
 
         return Task.CompletedTask;
     }
+
+    public IReadOnlyList<MediaStorageFile> ListEventFiles(Guid eventId) =>
+        new MediaDirectory(_rootPath).ListFiles(eventId.ToString("N"));
+
+    public void RemoveEmptyEventDirectories(Guid eventId) =>
+        new MediaDirectory(_rootPath).RemoveEmptyDirectories(eventId.ToString("N"));
 
     private string ResolvePath(string storageKey)
     {

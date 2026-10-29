@@ -12,7 +12,8 @@ namespace RevelMovies.Api.Runtime;
 
 public sealed class SceneValidationException(string message) : Exception(message);
 
-public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry playback, PlayerCommandDispatcher dispatcher)
+public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry playback, PlayerCommandDispatcher dispatcher,
+    MediaMaintenanceGate maintenance)
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record ResolvedTarget(Guid DisplayId, string Name, SceneAssignment Assignment, JsonElement? MediaPayload,
@@ -461,6 +462,8 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
 
     public async Task Expire(CancellationToken ct)
     {
+        using var activity = maintenance.TryEnter();
+        if (activity is null) return;
         var now = DateTimeOffset.UtcNow;
         var expired = await db.SceneSessions.Where(x => x.Kind == "activate" && x.ExpiresAt <= now && x.RestoredAt == null).Select(x => x.Id).ToArrayAsync(ct);
         foreach (var id in expired) await Restore(id, ct);

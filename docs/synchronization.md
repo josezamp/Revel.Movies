@@ -51,6 +51,14 @@ While waiting, telemetry reports `Buffering`. The server keeps the desired playb
 
 Preparation commands share in-flight downloads per URL, and the play command does not start a second cache download. Cache writes consume the response directly to avoid retaining an unread copy of a large video in memory.
 
+### Automatic video recovery
+
+Normal videos, both standalone and within playlists, are monitored for position progress. After 30 seconds without progress (including a stalled initial load), the Player attempts `play()` once without the buffer reserve gate. If another 30 seconds pass without progress, it reloads the same video element and seeks to its saved position after metadata loads. At most two reloads are attempted, each with a 30-second deadline. If recovery still fails, playback pauses and telemetry reports `Error`; console diagnostics include the media ID and failure. Autoplay-policy or unsupported-source errors from the recovery play attempt stop recovery immediately. Thirty seconds of sustained playback replenish the recovery budget.
+
+Operator pause, stop and media replacement cancel recovery immediately, including pending buffer callbacks and native play requests. A pending seek remains the position checkpoint while `load()` temporarily resets `currentTime` to zero. If paused during reload, metadata may restore that position but cannot start playback. The API stores the actual paused position only from telemetry correlated with the current command, revision and assigned content, so manual resume and reconnect preserve the confirmed checkpoint. Existing promotion timeout/skip behavior is unchanged.
+
+Recovery requires the page's JavaScript timers to remain responsive; it cannot restart a completely frozen browser or TV. Validate on the target Samsung model with network interruptions, rotation, pause during reload, playlist transitions and repeated stalls. Browser regression tests in `tests/browser/videoRecovery.spec.ts` use a real MP4 and SignalR with simulated decoder stalls; they require FFmpeg on PATH or `REVEL_TEST_FFMPEG` pointing to the executable.
+
 ## Command acknowledgements
 
 Players report command lifecycle acknowledgements over SignalR:

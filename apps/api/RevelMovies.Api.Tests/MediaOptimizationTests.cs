@@ -183,6 +183,49 @@ public sealed class MediaOptimizationTests
         Assert.Empty(await db.MediaOptimizationJobs.ToListAsync());
     }
 
+    [Fact]
+    public async Task Cleanup_removes_original_TV_copy_and_associated_temporary_files()
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        var original = await factory.SeedAsync(client); var id = original.GetProperty("id").GetGuid();
+        var eventId = original.GetProperty("eventId").GetGuid();
+        (await client.PostAsync($"/api/media/{id}/tv-optimization", null)).EnsureSuccessStatusCode();
+        await factory.Worker().ProcessNextAsync(default);
+        var directory = Path.Combine(factory.WorkRoot, id.ToString("N"), "interrupted");
+        Directory.CreateDirectory(directory); await File.WriteAllBytesAsync(Path.Combine(directory, "partial.mp4"), new byte[37]);
+        var orphanDirectory = Path.Combine(factory.WorkRoot, eventId.ToString("N"), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(orphanDirectory); await File.WriteAllBytesAsync(Path.Combine(orphanDirectory, "orphan.mp4"), new byte[11]);
+        var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        Assert.Equal(2, preview!.MediaCount); Assert.Equal(2, preview.TemporaryFileCount);
+        var response = await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview.SnapshotToken });
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<MediaCleanupResult>();
+        Assert.Equal(4, result!.DeletedFileCount); Assert.Equal(0, result.FailedFileCount);
+        Assert.Empty(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(factory.WorkRoot, "*", SearchOption.AllDirectories));
+        Assert.False(await factory.Worker().ProcessNextAsync(default));
+        using var scope = factory.Services.CreateScope();
+        Assert.Empty(await scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>().MediaOptimizationJobs.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Cleanup_during_conversion_is_rejected_without_deleting_source()
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        var original = await factory.SeedAsync(client); var id = original.GetProperty("id").GetGuid();
+        var eventId = original.GetProperty("eventId").GetGuid();
+        var preview = await client.GetFromJsonAsync<MediaCleanupPreview>($"/api/events/{eventId}/media-cleanup");
+        factory.Optimizer.AfterWrite = async () =>
+        {
+            var response = await client.PostAsJsonAsync($"/api/events/{eventId}/media-cleanup", new { confirmation = "ELIMINAR", preview!.SnapshotToken });
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Equal(OptimizationFactory.Source, await client.GetByteArrayAsync(original.GetProperty("contentUrl").GetString()));
+        };
+        (await client.PostAsync($"/api/media/{id}/tv-optimization", null)).EnsureSuccessStatusCode();
+        await factory.Worker().ProcessNextAsync(default);
+        Assert.Equal("Completed", (await factory.JobAsync(id)).Status);
+    }
+
     private sealed class FakeOptimizer : ITvVideoOptimizer
     {
         public bool IsAvailable { get; set; } = true;
@@ -220,6 +263,8 @@ public sealed class MediaOptimizationTests
                 services.AddDbContext<RevelMoviesDbContext>(options => options.UseSqlite(keeper.ConnectionString).ReplaceService<IModelCustomizer, SqliteDates>());
                 services.RemoveAll<IMediaStorage>(); services.AddSingleton<IMediaStorage>(new LocalMediaStorage(MediaRoot));
                 services.RemoveAll<ITvVideoOptimizer>(); services.AddSingleton<ITvVideoOptimizer>(Optimizer);
+                services.RemoveAll<TvOptimizationOptions>();
+                services.AddSingleton(new TvOptimizationOptions { Enabled = true, WorkPath = WorkRoot });
             });
         }
         public MediaOptimizationWorker Worker() => new(Services.GetRequiredService<IServiceScopeFactory>(), Optimizer,

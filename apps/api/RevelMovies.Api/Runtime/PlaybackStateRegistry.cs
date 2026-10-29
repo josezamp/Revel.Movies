@@ -302,6 +302,14 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         state.ActualDurationSeconds = report.DurationSeconds is > 0 ? report.DurationSeconds : null;
         state.ActualReportedAt = now;
 
+        // A stalled/reloading decoder can lag behind the desired clock. Once this pause
+        // is confirmed, use its actual checkpoint for manual resume and reconnection.
+        if (state.DesiredState == "Paused" && report.State == "Paused" && state.LastCommandId.HasValue &&
+            report.CommandId == state.LastCommandId && report.Revision == state.Revision &&
+            ((state.ContentType == "Media" && state.MediaAssetId == report.MediaAssetId) ||
+             (state.ContentType == "Playlist" && state.PlaylistId == report.PlaylistId)))
+            state.PausedPositionSeconds = state.ActualPositionSeconds;
+
         if ((state.LastCommandId is null || state.LastCommandId == report.CommandId) && state.DesiredState == "Playing" && report.State == "Ended" && state.StartedAt <= now &&
             ((state.ContentType == "Media" && state.MediaAssetId == report.MediaAssetId) ||
              (state.ContentType == "Playlist" && state.PlaylistId == report.PlaylistId)))

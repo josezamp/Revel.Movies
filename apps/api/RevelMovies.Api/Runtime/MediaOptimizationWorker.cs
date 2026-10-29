@@ -28,6 +28,8 @@ public sealed class MediaOptimizationWorker(IServiceScopeFactory scopes, ITvVide
     public async Task<bool> ProcessNextAsync(CancellationToken stoppingToken)
     {
         using var scope = scopes.CreateScope();
+        using var activity = scope.ServiceProvider.GetRequiredService<MediaMaintenanceGate>().TryEnter();
+        if (activity is null) return false;
         var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
         var storage = scope.ServiceProvider.GetRequiredService<IMediaStorage>();
         var now = DateTimeOffset.UtcNow;
@@ -44,7 +46,7 @@ public sealed class MediaOptimizationWorker(IServiceScopeFactory scopes, ITvVide
                 .SetProperty(x => x.UpdatedAt, now), stoppingToken);
         if (claimed == 0) return true;
         job.LeaseId = lease;
-        var workDirectory = Path.Combine(options.WorkPath, job.MediaId.ToString("N"), lease.ToString("N"));
+        var workDirectory = Path.Combine(options.WorkPath, job.EventId.ToString("N"), job.MediaId.ToString("N"), lease.ToString("N"));
         StoredMediaFile? stored = null;
         var committed = false;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);

@@ -39,6 +39,8 @@ builder.Services.AddHostedService<MediaOptimizationWorker>();
 builder.Services.AddScoped<DisplayRegistry>();
 builder.Services.AddScoped<EventRegistry>();
 builder.Services.AddScoped<MediaRegistry>();
+builder.Services.AddSingleton<MediaMaintenanceGate>();
+builder.Services.AddScoped<MediaCleanupService>();
 builder.Services.AddScoped<DisplayGroupRegistry>();
 builder.Services.AddScoped<PlaylistRegistry>();
 builder.Services.AddScoped<CommandAcknowledgementRegistry>();
@@ -69,12 +71,28 @@ if (builder.Configuration.GetValue("Database:ApplyMigrationsOnStartup", true))
 app.UsePathBase("/api");
 app.UseRouting();
 app.UseCors("web");
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method) ||
+        HttpMethods.IsOptions(context.Request.Method) || context.Request.Path.StartsWithSegments("/hubs") ||
+        context.Request.Path.Value?.TrimEnd('/').EndsWith("/media-cleanup", StringComparison.OrdinalIgnoreCase) == true)
+    { await next(context); return; }
+    using var activity = context.RequestServices.GetRequiredService<MediaMaintenanceGate>().TryEnter();
+    if (activity is null)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(new { error = "Hay una limpieza de archivos en curso. Reintentá al finalizar." });
+        return;
+    }
+    await next(context);
+});
 app.MapHealthChecks("/health");
 app.MapHub<PlayerHub>("/hubs/player");
 app.MapOrchestrationEndpoints();
 app.MapPromotionalBreakEndpoints();
 app.MapSceneEndpoints();
 app.MapMediaOptimizationEndpoints();
+app.MapMediaCleanupEndpoints();
 
 app.MapGet("/events", async (EventRegistry registry, CancellationToken cancellationToken) =>
 {

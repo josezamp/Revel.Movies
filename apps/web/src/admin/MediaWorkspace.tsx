@@ -4,6 +4,7 @@ import { MediaLibrary } from './MediaLibrary'
 import { PlaylistsPanel } from './PlaylistsPanel'
 import { PlaylistModal } from './PlaylistModal'
 import { PromotionalBreaksPanel } from './PromotionalBreaksPanel'
+import { MediaCleanupControl } from './MediaCleanupControl'
 import './content.css'
 
 export function MediaWorkspace({ eventId, displays, groups, media, onMediaChanged }: {
@@ -20,6 +21,7 @@ export function MediaWorkspace({ eventId, displays, groups, media, onMediaChange
   const [modal, setModal] = useState<'create' | 'add'>()
   const [feedback, setFeedback] = useState('')
   const [section, setSection] = useState<'playlists' | 'library' | 'promotions'>('library')
+  const [cleanupVersion, setCleanupVersion] = useState(0)
   const libraryRef = useRef<HTMLElement>(null)
   const editorRef = useRef<HTMLDivElement>(null)
   const requestRevision = useRef(0)
@@ -73,13 +75,20 @@ export function MediaWorkspace({ eventId, displays, groups, media, onMediaChange
           activeId={activeId} onActiveId={setActiveId} loading={loading} loadError={loadError} onRefresh={refresh}
           onCreate={() => setModal('create')} onAddContent={startSelection} feedback={feedback} />
       </div>
-      <div hidden={section !== 'promotions'}><PromotionalBreaksPanel key={eventId} eventId={eventId} displays={displays} groups={groups} playlists={playlists} loading={loading || !!loadError} /></div>
+      <div hidden={section !== 'promotions'}><PromotionalBreaksPanel key={`${eventId}-${cleanupVersion}`} eventId={eventId} displays={displays} groups={groups} playlists={playlists} loading={loading || !!loadError} /></div>
       <div hidden={section !== 'library'}>
         {selecting && preferredPlaylistId && <p className="content-context">Agregando contenido a <strong>{playlists.find(item => item.id === preferredPlaylistId)?.name ?? 'la playlist'}</strong>. Elegí los archivos en el orden deseado.</p>}
-        <MediaLibrary key={eventId} libraryRef={libraryRef} eventId={eventId} media={media} displays={displays} groups={groups} onMediaChanged={onMediaChanged}
+        <MediaLibrary key={`${eventId}-${cleanupVersion}`} libraryRef={libraryRef} eventId={eventId} media={media} displays={displays} groups={groups} onMediaChanged={onMediaChanged}
           selecting={selecting} selectedIds={selectedIds} onSelectedIds={setSelectedIds} onStartSelection={() => startSelection()}
           onCancelSelection={returnToEditor} onAdd={() => { setUploadedSelection(undefined); setModal('add') }}
           onAddUploaded={assets => { setUploadedSelection(assets); setPreferredPlaylistId(activeId || undefined); setModal('add') }} feedback={feedback} playlistsLoading={loading || !!loadError} />
+        <section className="media-cleanup" aria-label="Limpieza de archivos">
+          <div><h3>Liberar espacio del evento</h3><p>Eliminá sus archivos del servidor, incluidas las copias para TV y los archivos huérfanos. Podés revisar el espacio a liberar antes de confirmar.</p></div>
+          <MediaCleanupControl eventId={eventId} onCleaned={async () => {
+            setSelectedIds([]); setSelecting(false); setUploadedSelection(undefined); setModal(undefined); setFeedback('')
+            await Promise.all([onMediaChanged(), refresh()]); setCleanupVersion(value => value + 1)
+          }} />
+        </section>
       </div>
       {modal && <PlaylistModal eventId={eventId} playlists={playlists} media={modal === 'create' ? [] : selectedMedia}
         preferredPlaylistId={playlists.some(item => item.id === preferredPlaylistId) ? preferredPlaylistId : undefined}

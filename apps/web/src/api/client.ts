@@ -235,6 +235,22 @@ export async function deleteMedia(mediaId: string): Promise<void> {
   await requestVoid(`/api/media/${mediaId}`, { method: 'DELETE' })
 }
 
+export interface MediaCleanupPreview {
+  eventId: string; eventName: string; mediaCount: number; fileCount: number
+  temporaryFileCount: number; orphanFileCount: number; totalBytes: number; snapshotToken: string
+}
+export interface MediaCleanupResult {
+  deletedMediaCount: number; deletedFileCount: number; freedBytes: number; failedFileCount: number; warnings: string[]
+}
+export function getMediaCleanupPreview(eventId: string): Promise<MediaCleanupPreview> {
+  return getJson(`/api/events/${eventId}/media-cleanup`)
+}
+export function cleanEventMedia(eventId: string, snapshotToken: string, confirmation: string): Promise<MediaCleanupResult> {
+  return requestJson(`/api/events/${eventId}/media-cleanup`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snapshotToken, confirmation }),
+  })
+}
+
 export function mediaContentUrl(mediaId: string): string {
   return `/api/media/${mediaId}/content`
 }

@@ -3,7 +3,7 @@ import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
-import { bufferVideoPlayback, canCorrectPlayback } from './videoBuffer'
+import { bufferVideoPlayback, canCorrectPlayback, recoverVideoPlayback } from './videoBuffer'
 import { parseAnnouncement, type Announcement } from '../announcements/announcement'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import { parseWebPage, type WebPage } from '../webpages/webPage'
@@ -82,7 +82,9 @@ export function PlayerPage() {
   const [mediaLoadStatus, setMediaLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
   const mediaRef = useRef<ActiveMedia | undefined>(undefined)
   const mediaInstanceRef = useRef(0)
+  const stopVideoPlaybackRef = useRef<(() => void) | undefined>(undefined)
   const setCurrentMedia = useCallback((next: ActiveMedia | undefined) => {
+    stopVideoPlaybackRef.current?.()
     const current = next ? { ...next, instance: ++mediaInstanceRef.current } : undefined
     mediaRef.current = current
     setMediaLoadStatus('loading')
@@ -99,7 +101,12 @@ export function PlayerPage() {
   }, [])
   const [playlist, setPlaylist] = useState<ActivePlaylist>()
   const [playlistIndex, setPlaylistIndex] = useState(0)
-  const [playlistPaused, setPlaylistPaused] = useState(false)
+  const [playlistPaused, setPlaylistPausedState] = useState(false)
+  const setPlaylistPaused = useCallback((paused: boolean) => {
+    // Cancel before React commits; metadata/timers must not undo an operator pause.
+    if (paused) stopVideoPlaybackRef.current?.()
+    setPlaylistPausedState(paused)
+  }, [])
   const [mediaLoop, setMediaLoop] = useState(false)
   const [playbackEnded, setPlaybackEnded] = useState(false)
   const loopRef = useRef(false)
@@ -464,7 +471,7 @@ export function PlayerPage() {
               const snapshot = currentSnapshotRef.current
               const previous = snapshot ? { ...snapshot, ...activeSceneRecoveryRef.current, promotionProgress: promotionProgressRef.current,
                 resumePositionSeconds: snapshot.desiredState === 'Paused' ? pausedPositionSecondsRef.current
-                  : mediaRef.current?.type === 'Video' ? videoRef.current?.currentTime ?? 0
+                  : mediaRef.current?.type === 'Video' ? pendingSeekSecondsRef.current ?? videoRef.current?.currentTime ?? 0
                     : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000),
               } : null
               appliedRecovery = { ...recovery, sceneSessionId: sessionId,
@@ -628,7 +635,9 @@ export function PlayerPage() {
         case 'media.pause':
         case 'playlist.pause':
           clearScheduledStart()
-          pausedPositionSecondsRef.current = videoRef.current?.currentTime ?? Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
+          pausedPositionSecondsRef.current = mediaRef.current?.type === 'Video'
+            ? pendingSeekSecondsRef.current ?? videoRef.current?.currentTime ?? 0
+            : Math.max(0, (Date.now() - itemStartedAtRef.current) / 1000)
           videoRef.current?.pause()
           setPlaylistPaused(true)
           acknowledge(command, 'executed')
@@ -895,6 +904,7 @@ export function PlayerPage() {
 
     const video = videoRef.current
     const applyPendingSeek = () => {
+      if (mediaRef.current !== media) return
       const seek = pendingSeekSecondsRef.current
       if (seek !== undefined && video.readyState >= 1) {
         const maxSeek = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : seek
@@ -904,15 +914,37 @@ export function PlayerPage() {
     }
 
     video.addEventListener('loadedmetadata', applyPendingSeek)
+    const onPlaying = () => {
+      if (mediaRef.current === media) setMediaLoadStatus('loaded')
+    }
+    video.addEventListener('playing', onPlaying)
     applyPendingSeek()
     if (playlistPaused) video.pause()
-    const stopBuffering = playlistPaused ? undefined : bufferVideoPlayback(video, buffering => {
+    const onBuffering = (buffering: boolean) => {
       bufferingRef.current = buffering
-    })
+    }
+    const stopPlayback = playlistPaused ? undefined
+      : promotionProgressRef.current?.activeMediaId === media.id ? bufferVideoPlayback(video, onBuffering)
+        : recoverVideoPlayback(video, onBuffering, {
+          getPosition: () => pendingSeekSecondsRef.current ?? video.currentTime,
+          reload: position => {
+            pendingSeekSecondsRef.current = position
+            setMediaLoadStatus('loading')
+            console.warn('Reloading stalled video at its checkpoint:', media.id, position)
+            video.load()
+          },
+          onFailure: error => {
+            console.error('Video playback recovery failed:', media.id, error)
+            setMediaLoadStatus('error')
+          },
+        })
+    stopVideoPlaybackRef.current = stopPlayback
 
     return () => {
       video.removeEventListener('loadedmetadata', applyPendingSeek)
-      stopBuffering?.()
+      video.removeEventListener('playing', onPlaying)
+      stopPlayback?.()
+      if (stopVideoPlaybackRef.current === stopPlayback) stopVideoPlaybackRef.current = undefined
     }
   }, [media, playlistPaused])
 
@@ -945,7 +977,7 @@ export function PlayerPage() {
       const buffering = media?.type === 'Video' &&
         (bufferingRef.current || !video || video.paused || video.seeking || video.readyState < 3)
       const actualState = blackout ? 'Blackout' : playbackEnded ? 'Ended' : !media ? 'Idle'
-        : mediaLoadStatus === 'error' ? 'Error' : playlistPaused ? 'Paused'
+        : playlistPaused ? 'Paused' : mediaLoadStatus === 'error' ? 'Error'
           : buffering || (media.type === 'Image' && mediaLoadStatus !== 'loaded') ? 'Buffering' : 'Playing'
 
       const progress = playlist && promotionProgressRef.current

@@ -65,3 +65,10 @@
   .playlist-playback-strip .button-row button { flex:1; white-space:normal; }
   .upload-queue .workspace-heading { align-items:stretch; flex-direction:column; }
 }
+.media-cleanup { margin-top: 2rem; padding: 1.25rem; border: 1px solid #8d4650; border-radius: 12px; display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap; }
+.media-cleanup > div { flex: 1 1 260px; }
+.media-cleanup h3 { margin: 0 0 .5rem; }
+.media-cleanup p { margin: 0; line-height: 1.5; }
+.cleanup-summary { display: grid; gap: .75rem; margin: 1.5rem 0; }
+.cleanup-summary > div { display: flex; justify-content: space-between; gap: 1rem; }
+.cleanup-summary dd { margin: 0; font-weight: 700; white-space: nowrap; }

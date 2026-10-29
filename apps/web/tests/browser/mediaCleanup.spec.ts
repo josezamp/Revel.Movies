@@ -1,0 +1,52 @@
+import { test, expect } from '@playwright/test'
+
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5S8AAAAASUVORK5CYII=', 'base64')
+
+test('event cleanup requires confirmation, refreshes the library and preserves other events', async ({ page, request }, testInfo) => {
+  const events = []
+  for (const name of ['Limpiar', 'Conservar']) {
+    const created = await request.post('/api/events', { data: { name: `${name} ${Date.now()}`, timeZone: 'UTC' } })
+    expect(created.ok()).toBeTruthy()
+    const event = await created.json(); events.push(event)
+    const uploaded = await request.post(`/api/events/${event.id}/media`, { multipart: { file: { name: 'logo.png', mimeType: 'image/png', buffer: png } } })
+    expect(uploaded.ok()).toBeTruthy()
+  }
+  await page.goto(`/admin?event=${events[0].id}&section=content`)
+  await expect(page.locator('.library-card')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Limpiar archivos del evento', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Limpiar archivos del evento' })
+  await expect(dialog).toContainText(events[0].name)
+  const remove = dialog.getByRole('button', { name: 'Eliminar todos los archivos del evento' })
+  await expect(remove).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Cancelar', exact: true }).click()
+  expect((await (await request.get(`/api/events/${events[0].id}/media`)).json())).toHaveLength(1)
+  await page.getByRole('button', { name: 'Limpiar archivos del evento', exact: true }).click()
+  await dialog.getByLabel('Escribí ELIMINAR para confirmar').fill('ELIMINAR')
+  await expect(remove).toBeEnabled()
+  await page.screenshot({ path: testInfo.outputPath('cleanup-desktop.png'), fullPage: false })
+  await page.setViewportSize({ width: 360, height: 800 })
+  await expect(remove).toBeInViewport()
+  await page.screenshot({ path: testInfo.outputPath('cleanup-mobile.png'), fullPage: false })
+  await remove.click()
+  await expect(dialog).toContainText('Archivos eliminados.')
+  await dialog.getByRole('button', { name: 'Cerrar', exact: true }).click()
+  await expect(page.locator('.library-card')).toHaveCount(0)
+  expect((await (await request.get(`/api/events/${events[0].id}/media`)).json())).toHaveLength(0)
+  expect((await (await request.get(`/api/events/${events[1].id}/media`)).json())).toHaveLength(1)
+})
+
+test('a changed inventory requires a fresh review before deletion', async ({ page, request }) => {
+  const created = await request.post('/api/events', { data: { name: `Cambio ${Date.now()}`, timeZone: 'UTC' } })
+  const { id } = await created.json()
+  await page.goto(`/admin?event=${id}&section=content`)
+  await page.getByRole('button', { name: 'Limpiar archivos del evento', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Limpiar archivos del evento' })
+  await dialog.getByLabel('Escribí ELIMINAR para confirmar').fill('ELIMINAR')
+  expect((await request.post(`/api/events/${id}/media`, { multipart: { file: { name: 'nuevo.png', mimeType: 'image/png', buffer: png } } })).ok()).toBeTruthy()
+  await dialog.getByRole('button', { name: 'Eliminar todos los archivos del evento' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Los archivos cambiaron')
+  await dialog.getByRole('button', { name: 'Revisar de nuevo' }).click()
+  await expect(dialog.getByLabel('Escribí ELIMINAR para confirmar')).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Eliminar todos los archivos del evento' })).toBeDisabled()
+  expect((await (await request.get(`/api/events/${id}/media`)).json())).toHaveLength(1)
+})

@@ -66,6 +66,41 @@ En IIS, seleccioná **RevelMovies → api → Configuración avanzada…** para 
 
 ## Operación y recuperación
 
+### Si instalaste FFmpeg Essentials con WinGet
+
+`winget install --id Gyan.FFmpeg.Essentials --exact` instala una edición que incluye `ffmpeg`, `ffprobe` y `libx264`, según la [lista de bibliotecas de Gyan](https://www.gyan.dev/ffmpeg/builds/#libraries). La versión 9.0.1 informada por WinGet no está bloqueada por la aplicación; las pruebas locales se ejecutaron con 9.0.2.
+
+Abrí una nueva consola con el usuario que hizo la instalación para tomar el PATH actualizado:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+ffmpeg -hide_banner -encoders | Select-String libx264
+(Get-Command ffmpeg.exe).Source
+(Get-Command ffprobe.exe).Source
+```
+
+Que funcionen en la consola de `La Matilde` no confirma que el Application Pool pueda encontrarlos o ejecutarlos. Para mantener las rutas de configuración indicadas arriba, copiá los dos ejecutables a `C:\Tools\ffmpeg\bin`. En una consola elevada del mismo usuario, este bloque localiza la instalación por usuario de Essentials; si no encuentra un único paquete, se detiene para que elijas la ubicación correcta:
+
+```powershell
+$ffmpegPackageRoot = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+$ffmpegCandidates = @(Get-ChildItem -LiteralPath $ffmpegPackageRoot -Directory -Filter 'Gyan.FFmpeg.Essentials_*' -ErrorAction Stop |
+    ForEach-Object { Get-ChildItem -LiteralPath $_.FullName -File -Filter 'ffmpeg.exe' -Recurse })
+if ($ffmpegCandidates.Count -ne 1) {
+    throw 'No se encontró una única instalación de Essentials. Revisá las rutas mostradas por Get-Command y la ubicación del paquete.'
+}
+$ffmpegSourceBin = $ffmpegCandidates[0].Directory.FullName
+if (-not (Test-Path -LiteralPath (Join-Path $ffmpegSourceBin 'ffprobe.exe') -PathType Leaf)) {
+    throw 'No se encontró ffprobe.exe junto a ffmpeg.exe.'
+}
+New-Item -ItemType Directory -Force -Path 'C:\Tools\ffmpeg\bin' | Out-Null
+Copy-Item -LiteralPath (Join-Path $ffmpegSourceBin 'ffmpeg.exe'), (Join-Path $ffmpegSourceBin 'ffprobe.exe') -Destination 'C:\Tools\ffmpeg\bin' -Force
+```
+
+Luego seguí los pasos 3 a 8 de instalación: verificá los ejecutables copiados, asigná permisos al pool de `api`, configurá `C:\Sites\RevelMovies\api\appsettings.json` y reciclá ese pool. La carpeta `C:\Sites\RevelMovies\front` no interviene en la configuración de FFmpeg. Cuando actualices FFmpeg con WinGet, actualizá también estas copias con la cola inactiva.
+
+### Cola y resultados
+
 - Una conversión simultánea por proceso de API, con dos hilos por defecto para decodificación/codificación. El límite de tiempo abarca copia, análisis, conversión y publicación; se puede configurar entre 1 y 180 minutos.
 - Cola y resultados persistidos en SQL. Repetir una solicitud activa devuelve el mismo trabajo; una copia existente se reutiliza. Si eliminaste la copia, podés volver a generarla.
 - Un cierre ordenado cancela FFmpeg, limpia temporales y deja el trabajo en cola. Después de una caída abrupta, un trabajo se puede reclamar al vencer su reserva: como máximo `TimeoutMinutes + 2` minutos desde que comenzó. No se publica una copia si el original fue reemplazado o eliminado durante la conversión.
