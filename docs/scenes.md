@@ -12,7 +12,7 @@
 
 Cada asignación declara `media`, `webPage` y `announcement` con `action: keep | replace | remove`. Para el fondo, `replace` usa `type: media | playlist` y su ID. `blackout` es `keep | on | off`; `promotions` es `keep | suspend`. La orientación pertenece a la pantalla y nunca a una escena.
 
-- Mantener el fondo permite que la playlist siga avanzando debajo del anuncio o la web. Retirar esas capas revela su punto actual sin reiniciar.
+- Mantener el fondo permite que la playlist siga avanzando debajo del anuncio. Una página web reemplaza la multimedia; al volver de la escena se restaura el contenido anterior desde su checkpoint. Elegir multimedia retira la página anterior. No se admite reemplazar ambas fuentes a la vez en una asignación.
 - Reemplazar el fondo guarda su checkpoint. Volver restaura el archivo/playlist y la posición conocida al reemplazarlo; si estaba pausado, permanece pausado. No se promete recuperar con precisión de cuadro.
 - Retirar el fondo detiene y retira esa asignación dentro de la escena. El retorno puede restaurarla desde el checkpoint guardado.
 - Oscurecer usa una capa negra independiente. `display.restore` la retira y no ejecuta `media.stop`.

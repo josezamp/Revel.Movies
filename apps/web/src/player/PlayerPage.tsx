@@ -76,7 +76,8 @@ export function PlayerPage() {
   const [blackout, setBlackout] = useState(false)
   const [identify, setIdentify] = useState(false)
   const [displayIdentity, setDisplayIdentity] = useState({ id: '', name: 'Pantalla Revel' })
-  const [webPage, setWebPage] = useState<WebPage | null>(null)
+  const [webPage, setWebPageState] = useState<WebPage | null>(null)
+  const webPageRef = useRef<WebPage | null>(null)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
   const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
@@ -122,6 +123,23 @@ export function PlayerPage() {
   const scheduledStartTimerRef = useRef<number | undefined>(undefined)
   const pendingSeekSecondsRef = useRef<number | undefined>(undefined)
   const itemStartedAtRef = useRef(Date.now())
+  const clearMediaPlayback = useCallback(() => {
+    // Invalidate the active item and its recovery timers before mounting a web page.
+    setCurrentMedia(undefined)
+    clearPromotionProgress()
+    pendingSeekSecondsRef.current = undefined
+    pausedPositionSecondsRef.current = 0
+    itemStartedAtRef.current = Date.now()
+    setPlaylist(undefined)
+    setPlaylistIndex(0)
+    setPlaylistPaused(false)
+    setPlaybackEnded(false)
+  }, [setCurrentMedia, clearPromotionProgress, setPlaylistPaused])
+  const setWebPage = useCallback((next: WebPage | null) => {
+    if (next) clearMediaPlayback()
+    webPageRef.current = next
+    setWebPageState(next)
+  }, [clearMediaPlayback])
   const appliedCommandRef = useRef<{ commandId: string | null; revision: number | null }>({ commandId: null, revision: null })
   const operationGuardRef = useRef(new PlayerOperationGuard())
   const activeSceneRecoveryRef = useRef<Pick<PlaybackRecoveryState, 'sceneSessionId' | 'sceneExpiresAt' | 'scenePrevious' | 'sceneComposition'> | null>(null)
@@ -337,16 +355,16 @@ export function PlayerPage() {
         applyPromotionPolicy(parsePromotionPolicy(recovery.promotionPolicy))
 
       setBlackout(recovery.blackout === true || recovery.desiredState === 'Blackout')
+      // Older snapshots and scenes may contain both sources. A page owns playback
+      // exclusively, including when its media layer was marked as "keep".
+      if (webPageRef.current) {
+        clearMediaPlayback()
+        return
+      }
       if (keepMedia) return
 
       if (recovery.desiredState === 'Stopped') {
-        clearPromotionProgress()
-        videoRef.current?.pause()
-        setPlaybackEnded(false)
-        setPlaylist(undefined)
-        setPlaylistIndex(0)
-        setPlaylistPaused(false)
-        setCurrentMedia(undefined)
+        clearMediaPlayback()
         return
       }
 
@@ -503,6 +521,8 @@ export function PlayerPage() {
             break
           }
           // Playback controls leave the independent announcement untouched.
+          webPageRevision++
+          setWebPage(null)
           applyRecovery(recovery as PlaybackRecoveryState, -1, promotionRevision)
           acknowledge(command, 'executed')
           break
@@ -650,14 +670,8 @@ export function PlayerPage() {
           break
         case 'media.stop':
         case 'playlist.stop':
-          clearPromotionProgress()
           clearScheduledStart()
-          videoRef.current?.pause()
-          setPlaylist(undefined)
-          setPlaylistIndex(0)
-          setPlaylistPaused(false)
-          setPlaybackEnded(false)
-          setCurrentMedia(undefined)
+          clearMediaPlayback()
           setBlackout(false)
           acknowledge(command, 'executed')
           break

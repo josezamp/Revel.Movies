@@ -1,10 +1,10 @@
 # Proyectar páginas web
 
-En **Admin → Proyectar una web**, ingresá una URL HTTP(S), elegí una pantalla vinculada o un grupo y presioná **Mostrar página**. **Retirar página** vuelve a mostrar la multimedia que continúa reproduciéndose debajo. Un envío nuevo reemplaza la URL anterior. Los anuncios aparecen por encima de la página.
+En **Admin → Proyectar una web**, ingresá una URL HTTP(S), elegí una pantalla vinculada o un grupo y presioná **Mostrar página**. La página reemplaza la multimedia: detiene el video o la playlist y retira esa asignación, incluidos los cortes promocionales en curso. **Retirar página** la quita sin reanudar contenido anterior. Un envío nuevo reemplaza la URL anterior. Los anuncios aparecen por encima de la página.
 
 Se reutilizan el pairing, la identidad de la TV, los grupos y SignalR existentes. La URL se guarda en SQL y se recupera al reconectarse o recargar el player. No hace falta vincular Revel con el servicio que publica la página: no hay credenciales compartidas, llamadas entre APIs, SDK del concurso ni acceso a su base de datos. Cada servicio se despliega y puede funcionar por separado.
 
-La página recibe el tamaño y la rotación configurados para la TV. Blackout la oculta sin desmontarla; **Salir de blackout** en la tarjeta de la pantalla vuelve a mostrarla y detiene la multimedia de fondo. Al elegir un video, imagen o playlist y pulsar **Reproducir**, se retira automáticamente la página web y se muestra el contenido elegido. Ese cambio se conserva al recargar o reconectar la TV. Pausar, reanudar o detener la multimedia de fondo mantiene la página; **Retirar página** permite quitarla sin elegir contenido nuevo. Los tiempos internos de una web dependen de esa web: enviar a un grupo no sincroniza sus animaciones cuadro por cuadro.
+La página recibe el tamaño y la rotación configurados para la TV. Blackout la oculta sin desmontarla; **Salir de blackout** en la tarjeta de la pantalla vuelve a mostrarla. Al elegir un video, imagen o playlist y pulsar **Reproducir**, se retira automáticamente la página web y se muestra el contenido elegido. Reanudar una asignación multimedia anterior también retira la página. Los cambios se conservan al recargar o reconectar la TV: solo se reproduce una de las dos fuentes. **Retirar página** permite quitarla sin elegir contenido nuevo. Los tiempos internos de una web dependen de esa web: enviar a un grupo no sincroniza sus animaciones cuadro por cuadro.
 
 ## Concurso de disfraces
 

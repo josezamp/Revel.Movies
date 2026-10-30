@@ -16,7 +16,7 @@ El nombre del evento encabeza el panel. El evento y la sección seleccionados se
 
 ## En vivo
 
-Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios, página web y multimedia de fondo. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
+Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios y el contenido elegido, que puede ser una página web o multimedia. Solo se reproduce una de esas dos fuentes. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
 
 La miniatura es una referencia del archivo, no una captura en vivo. El progreso corresponde a la última posición reportada, sin avance estimado. Después de 15 segundos sin reportes, el estado queda marcado como desactualizado. La conexión con la TV es independiente: una TV desconectada puede seguir reproduciendo localmente. Si falla la conexión del panel con la API, se conserva la información y se muestra el aviso de actualización pendiente.
 
@@ -25,7 +25,8 @@ Las acciones de reproducción quedan esperando confirmación. La aceptación HTT
 - **Pausar / Reanudar:** cambia el estado del contenido actual.
 - **Detener contenido:** detiene la multimedia; las capas independientes conservan su configuración.
 - **Oscurecer pantalla / Restaurar imagen:** oculta o revela las capas sin detener el fondo.
-- **Retirar anuncio / Retirar página:** elimina esa capa y revela lo que seguía debajo.
+- **Retirar anuncio:** elimina el anuncio y revela el contenido elegido.
+- **Retirar página:** quita la web sin reanudar la multimedia anterior.
 - **Renombrar:** conserva la identidad, vinculación, evento, grupos, referencias y reproducción; funciona con la TV desconectada.
 - **Identificar:** muestra nombre e identificador breve durante unos segundos, con la orientación física de la pantalla.
 
@@ -70,7 +71,7 @@ La versión y los destinos se confirman al guardar: si cambiás una escena, sus 
 
 Cada activación conserva el estado anterior de sus destinos. **Volver a la configuración anterior** usa ese estado:
 
-- Cuando la escena mantuvo el fondo, retirar sus capas revela el contenido que siguió avanzando.
+- Cuando la escena mantuvo el fondo bajo un anuncio, retirar el anuncio revela el contenido que siguió avanzando. Una escena con página web detiene la multimedia; volver de la escena restaura el contenido anterior desde su checkpoint.
 - Cuando lo reemplazó, restaura la posición guardada y el estado de pausa. No es equivalente a reiniciar desde el primer archivo.
 - El retorno afecta únicamente a los destinos de esa activación. El historial permite volver sobre activaciones parciales anteriores.
 - Una decisión manual posterior tiene prioridad: el retorno automático no la sobrescribe.
@@ -83,7 +84,7 @@ Biblioteca, Playlists y Promociones tienen pestañas dentro de Contenido. Para a
 
 La biblioteca permite vista previa local, búsqueda, filtros, selección ordenada y varias subidas. Cada archivo conserva su resultado, bytes enviados, error, cancelación o posibilidad de reintento. Que se hayan enviado todos los bytes no significa que el servidor haya terminado de procesarlo. **Agregar subidos a una playlist** usa los éxitos en el orden seleccionado y conserva los fallidos para reintentar.
 
-**Agregar enlace** guarda una URL HTTP/HTTPS y un nombre opcional; si lo dejás vacío, se usa el dominio. Aparece junto a los archivos con el badge **Enlace**, y podés buscarlo por nombre o URL o filtrar por **Enlaces**. **Abrir sitio web** lo abre en una pestaña nueva de tu dispositivo. Elegí una pantalla o grupo y usá **Mostrar página** para proyectarlo; también está disponible en el selector de contenido de En vivo. El sitio necesita conexión y debe permitir su inserción en Revel. **Retirar página** revela el contenido de fondo.
+**Agregar enlace** guarda una URL HTTP/HTTPS y un nombre opcional; si lo dejás vacío, se usa el dominio. Aparece junto a los archivos con el badge **Enlace**, y podés buscarlo por nombre o URL o filtrar por **Enlaces**. **Abrir sitio web** lo abre en una pestaña nueva de tu dispositivo. Elegí una pantalla o grupo y usá **Mostrar página** para proyectarlo; también está disponible en el selector de contenido de En vivo. El enlace reemplaza y detiene la multimedia anterior. El sitio necesita conexión y debe permitir su inserción en Revel. **Retirar página** la quita sin reanudar el contenido anterior; elegí un archivo o playlist para volver a reproducir multimedia.
 
 Los enlaces se guardan por evento, se conservan al limpiar archivos y se eliminan individualmente desde su tarjeta. Eliminarlos de la biblioteca no retira las páginas ya asignadas. Al elegir y reproducir un video, imagen o playlist, se retira automáticamente la página web del destino; la TV conserva el cambio al recargar o reconectar. Las playlists siguen admitiendo videos e imágenes; los enlaces usan la capa de página web.
 

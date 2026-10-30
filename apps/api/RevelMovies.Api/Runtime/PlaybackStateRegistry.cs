@@ -34,6 +34,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         foreach (var state in await GetOrCreateAsync(displayIds, cancellationToken))
         {
             state.WebPageJson = payload?.GetRawText();
+            if (payload is not null) ClearMediaAssignment(state);
             if (commandId.HasValue) MarkMutation(state, commandId.Value);
             state.UpdatedAt = DateTimeOffset.UtcNow;
         }
@@ -42,6 +43,20 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
 
     public static JsonElement? ReadWebPage(DisplayPlaybackState? state) =>
         state?.WebPageJson is { } json ? JsonSerializer.Deserialize<JsonElement>(json) : null;
+
+    internal static void ClearMediaAssignment(DisplayPlaybackState state)
+    {
+        state.DesiredState = "Stopped";
+        state.ContentType = null;
+        state.MediaAssetId = null;
+        state.PlaylistId = null;
+        state.PayloadJson = null;
+        state.StartedAt = null;
+        state.PausedPositionSeconds = null;
+        state.PromotionProgressJson = null;
+        state.DriftMs = null;
+        state.Health = "Stopped";
+    }
 
     public async Task SetAnnouncementAsync(
         IEnumerable<Guid> displayIds,
@@ -168,6 +183,7 @@ public sealed class PlaybackStateRegistry(RevelMoviesDbContext db)
         payload["resumePositionSeconds"] = position;
         state.PayloadJson = payload.ToJsonString();
         state.DesiredState = "Playing";
+        state.WebPageJson = null;
         state.StartedAt = now.AddSeconds(-position);
         state.PausedPositionSeconds = null;
         MarkMutation(state, commandId);

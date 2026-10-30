@@ -23,6 +23,33 @@ public sealed class DisplayPlaybackTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Resuming_legacy_background_playback_removes_the_webpage(bool playlist)
+    {
+        await using var factory = new PlaybackApiFactory();
+        using var client = factory.CreateClient();
+        var id = await SeedAsync(factory, playlist);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        var state = await db.DisplayPlaybackStates.SingleAsync(x => x.DisplayId == id);
+        state.WebPageJson = "{\"url\":\"https://example.com/live\"}";
+        state.DesiredState = "Paused";
+        state.PausedPositionSeconds = 4;
+        await db.SaveChangesAsync();
+
+        using var resumed = await client.PostAsJsonAsync($"/api/displays/{id}/commands", new { type = "playback.resume" });
+        Assert.Equal(HttpStatusCode.Accepted, resumed.StatusCode);
+        var command = await resumed.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, command.GetProperty("payload").GetProperty("webPage").ValueKind);
+        var recovery = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(id);
+        Assert.Null(recovery!.WebPage);
+        Assert.Equal("Playing", recovery.DesiredState);
+        Assert.Equal(playlist ? "Playlist" : "Media", recovery.ContentType);
+        Assert.NotNull(recovery.Announcement);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Repeat_is_persisted_per_display_and_survives_stop_and_play(bool playlist)
     {
         await using var factory = new PlaybackApiFactory();

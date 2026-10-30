@@ -70,7 +70,7 @@ export function WebPagePanel({ eventId, displays, groups }: Props) {
       </form>
       <div className="webpage-details">
         <h3>La misma pantalla, otra fuente</h3>
-        <p>La página ocupa toda la pantalla y respeta su orientación. Al retirarla vuelve a verse la multimedia, que sigue reproduciéndose debajo. Los anuncios siguen apareciendo por encima.</p>
+        <p>La página ocupa toda la pantalla y detiene la multimedia anterior. Para volver a un video, imagen o playlist, elegilo y presioná Reproducir. Los anuncios siguen apareciendo por encima.</p>
         <p className="announcement-help">El sitio debe permitir que Revel lo muestre dentro de una página. Si queda en blanco, revisá sus permisos de inserción y la conexión de la TV. Guardar la URL no confirma la carga del sitio.</p>
         {targetDisplays.length > 0 && <div className="announcement-assigned">
           <h3>Páginas asignadas</h3>

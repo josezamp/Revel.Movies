@@ -98,6 +98,12 @@ public sealed partial class MediaUploadTests
         var group = new DisplayGroup { EventId = eventId, Name = "Group" };
         db.Displays.Add(display); db.DisplayGroups.Add(group);
         db.DisplayGroupMembers.Add(new DisplayGroupMember { DisplayId = display.Id, DisplayGroupId = group.Id });
+        db.DisplayPlaybackStates.Add(new()
+        {
+            DisplayId = display.Id, DesiredState = "Playing", ContentType = "Media", MediaAssetId = Guid.NewGuid(),
+            PayloadJson = "{\"mediaType\":\"Video\"}", StartedAt = DateTimeOffset.UtcNow.AddSeconds(-10),
+            PausedPositionSeconds = 3, PromotionProgressJson = "{}"
+        });
         await db.SaveChangesAsync();
         var path = groupTarget ? $"/api/display-groups/{group.Id}/commands" : $"/api/displays/{display.Id}/commands";
         using var sent = await client.PostAsJsonAsync(path, new { type = "media.play", payload = new { mediaId } });
@@ -106,6 +112,15 @@ public sealed partial class MediaUploadTests
         Assert.Equal("webpage.show", (groupTarget ? payload.GetProperty("command") : payload).GetProperty("type").GetString());
         var recovery = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(display.Id);
         Assert.Equal("https://example.com/live", recovery?.WebPage?.GetProperty("url").GetString());
+        Assert.Equal("Stopped", recovery?.DesiredState);
+        Assert.Null(recovery?.ContentType);
+        Assert.Null(recovery?.Payload);
+        Assert.Null(recovery?.PromotionProgress);
+        var state = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetAsync(display.Id);
+        Assert.Null(state!.MediaAssetId);
+        Assert.Null(state.PlaylistId);
+        Assert.Null(state.StartedAt);
+        Assert.Null(state.PausedPositionSeconds);
         var foreign = await CreateEvent(factory, client);
         using var foreignLink = await client.PostAsJsonAsync($"/api/events/{foreign}/media/links", new { url = "https://example.org" });
         var foreignMediaId = (await foreignLink.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();

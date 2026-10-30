@@ -47,7 +47,7 @@ public sealed class WebPageTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Show_replace_recover_and_clear_preserve_playback_and_announcement(bool groupTarget)
+    public async Task Show_replace_recover_and_clear_stop_background_and_preserve_announcement(bool groupTarget)
     {
         await using var factory = new WebPageApiFactory();
         using var client = factory.CreateClient();
@@ -67,11 +67,19 @@ public sealed class WebPageTests
             {
                 var recovery = await registry.GetRecoveryAsync(id);
                 Assert.Equal(url, recovery?.WebPage?.GetProperty("url").GetString());
-                Assert.Equal("Playing", recovery?.DesiredState);
-                Assert.Equal("original", recovery?.Payload?.GetProperty("marker").GetString());
+                Assert.Equal("Stopped", recovery?.DesiredState);
+                Assert.Null(recovery?.ContentType);
+                Assert.Null(recovery?.Payload);
+                Assert.Null(recovery?.PromotionProgress);
                 Assert.NotNull(recovery?.Announcement);
             }
-            if (!groupTarget) Assert.Null((await registry.GetRecoveryAsync(ids[1]))?.WebPage);
+            if (!groupTarget)
+            {
+                var untouched = await registry.GetRecoveryAsync(ids[1]);
+                Assert.Null(untouched?.WebPage);
+                Assert.Equal("Playing", untouched?.DesiredState);
+                Assert.Equal("original", untouched?.Payload?.GetProperty("marker").GetString());
+            }
             var displays = await client.GetFromJsonAsync<JsonElement>("/api/displays");
             Assert.Contains(displays.EnumerateArray(), item => item.GetProperty("webPage").ValueKind == JsonValueKind.Object);
         }
@@ -80,7 +88,8 @@ public sealed class WebPageTests
         using var clearedScope = factory.Services.CreateScope();
         var cleared = await clearedScope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(ids[0]);
         Assert.Null(cleared?.WebPage);
-        Assert.Equal("Playing", cleared?.DesiredState);
+        Assert.Equal("Stopped", cleared?.DesiredState);
+        Assert.Null(cleared?.Payload);
         Assert.NotNull(cleared?.Announcement);
     }
 
@@ -110,7 +119,7 @@ public sealed class WebPageTests
             using var scope = factory.Services.CreateScope();
             var recovery = await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(ids[0]);
             Assert.Equal(Url, recovery?.WebPage?.GetProperty("url").GetString());
-            Assert.Equal(type == "media.stop" ? "Stopped" : "Playing", recovery?.DesiredState);
+            Assert.Equal("Stopped", recovery?.DesiredState);
             Assert.Equal(type is "display.blackout" or "media.stop", recovery?.Blackout);
         }
     }

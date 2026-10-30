@@ -25,6 +25,66 @@ public sealed class SceneTests
     private static JsonElement Announcement(string text = "Sorteo") => JsonSerializer.SerializeToElement(new { kind = "message", text, layout = "banner", theme = "dark" });
     private static SceneAssignment Overlay(Guid id) => new([id], [], new(), new(), new("replace", Announcement()));
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Switching_between_webpage_and_media_is_exclusive_and_scene_return_restores_the_previous_selection(bool showPage)
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var playback = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var page = JsonSerializer.SerializeToElement(new { url = "https://example.com/live" });
+        if (!showPage) await playback.SetWebPageAsync([seed.A], page);
+        var assignment = showPage
+            ? Overlay(seed.A) with { WebPage = new("replace", page) }
+            : Overlay(seed.A) with { Media = new("replace", "media", seed.MediaId) };
+        var scene = await scenes.Save(seed.EventId, null, new("Cambio de contenido", [assignment]), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, showPage ? "network" : "ready");
+        var active = await scenes.Activate(seed.EventId, scene.Id, new(scene.Version, PreparationId: prepared.Id), default);
+        var recovery = (await playback.GetRecoveryAsync(seed.A))!;
+        Assert.Equal(showPage ? "remove" : "replace", recovery.SceneComposition!.Media);
+        Assert.Equal(showPage ? "replace" : "remove", recovery.SceneComposition.WebPage);
+        if (showPage)
+        {
+            Assert.NotNull(recovery.WebPage); Assert.Null(recovery.ContentType); Assert.Null(recovery.Payload);
+            Assert.Equal("Stopped", recovery.DesiredState);
+        }
+        else
+        {
+            Assert.Null(recovery.WebPage); Assert.Equal("Media", recovery.ContentType);
+            Assert.Equal("Playing", recovery.DesiredState);
+        }
+        await scenes.Restore(active.Id, default);
+        recovery = (await playback.GetRecoveryAsync(seed.A))!;
+        if (showPage)
+        {
+            Assert.Null(recovery.WebPage); Assert.Equal("Media", recovery.ContentType);
+            Assert.Equal(seed.MediaId, recovery.Payload!.Value.GetProperty("mediaId").GetGuid());
+            Assert.Equal("Playing", recovery.DesiredState);
+        }
+        else
+        {
+            Assert.NotNull(recovery.WebPage); Assert.Null(recovery.ContentType); Assert.Null(recovery.Payload);
+            Assert.Equal("Stopped", recovery.DesiredState);
+        }
+    }
+
+    [Fact]
+    public async Task Scene_rejects_selecting_both_multimedia_and_a_webpage()
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var assignment = Overlay(seed.A) with
+        {
+            Media = new("replace", "media", seed.MediaId),
+            WebPage = new("replace", JsonSerializer.SerializeToElement(new { url = "https://example.com/live" }))
+        };
+        await Assert.ThrowsAsync<SceneValidationException>(() => scenes.Save(seed.EventId, null, new("Inválida", [assignment]), default));
+    }
+
     [Fact]
     public async Task Replacing_media_with_the_same_size_invalidates_scene_preparation()
     {

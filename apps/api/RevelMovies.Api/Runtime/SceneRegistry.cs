@@ -74,7 +74,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
             if (!await db.Displays.AnyAsync(x => x.Id == id && x.EventId == eventId, ct)) throw new SceneValidationException("Una pantalla no pertenece al evento.");
             var state = await playback.GetAsync(id, ct);
             var recovery = await playback.GetRecoveryAsync(id, ct);
-            assignments.Add(new([id], [], state?.ContentType is "Media" or "Playlist"
+            assignments.Add(new([id], [], state?.WebPageJson is null && state?.ContentType is "Media" or "Playlist"
                 ? new("replace", state.ContentType.ToLowerInvariant(), state.MediaAssetId, state.PlaylistId, PlaybackStateRegistry.ReadLoop(state), state.DesiredState, recovery?.ResumePositionSeconds, recovery?.ResumePlaylistIndex)
                 : new("remove"), new(state?.WebPageJson is null ? "remove" : "replace", PlaybackStateRegistry.ReadWebPage(state)),
                 SnapshotAnnouncement(state),
@@ -101,13 +101,20 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
     private async Task<ResolvedTarget[]> Resolve(Guid eventId, SceneAssignment[] assignments, CancellationToken ct)
     {
         var resolved = new Dictionary<Guid, ResolvedTarget>();
-        foreach (var assignment in assignments)
+        foreach (var requested in assignments)
         {
+            var assignment = requested;
             if (assignment.DisplayIds is null || assignment.GroupIds is null || assignment.Media is null || assignment.WebPage is null || assignment.Announcement is null)
                 throw new SceneValidationException("Cada asignación debe declarar destinos y todas sus capas.");
             if (new[] { assignment.Media.Action, assignment.WebPage.Action, assignment.Announcement.Action }.Any(x => x is not ("keep" or "replace" or "remove")) ||
                 assignment.Blackout is not ("keep" or "on" or "off") || assignment.Promotions is not ("keep" or "suspend"))
                 throw new SceneValidationException("Elegí mantener, reemplazar o retirar cada capa; cortes: mantener o suspender.");
+            if (assignment.Media.Action == "replace" && assignment.WebPage.Action == "replace")
+                throw new SceneValidationException("Elegí multimedia o una página web para cada pantalla; no pueden reproducirse juntas.");
+            // Record both sides of a content switch so scene return restores the previous selection.
+            if (assignment.WebPage.Action == "replace") assignment = assignment with { Media = new("remove") };
+            else if (assignment.Media.Action == "replace" && assignment.WebPage.Action == "keep")
+                assignment = assignment with { WebPage = new("remove") };
             var ids = assignment.DisplayIds.ToHashSet();
             foreach (var groupId in assignment.GroupIds.Distinct())
             {
@@ -268,7 +275,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
             result.CommandId = command.CommandId;
             var assignment = target.Assignment;
             result.Composition = new(assignment.Media.Action, assignment.WebPage.Action, assignment.Announcement.Action, assignment.Blackout, assignment.Promotions);
-            if (assignment.Media.Action == "remove") { state.DesiredState = "Stopped"; state.ContentType = null; state.PayloadJson = null; state.MediaAssetId = null; state.PlaylistId = null; state.StartedAt = null; state.PromotionProgressJson = null; }
+            if (assignment.Media.Action == "remove") PlaybackStateRegistry.ClearMediaAssignment(state);
             if (assignment.Media.Action == "replace")
             {
                 var payload = JsonNode.Parse(target.MediaPayload!.Value.GetRawText())!.AsObject();
@@ -286,6 +293,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
                 state.PromotionProgressJson = null; state.Health = "Starting"; state.ActualDurationSeconds = null;
             }
             if (assignment.WebPage.Action != "keep") state.WebPageJson = assignment.WebPage.Action == "remove" ? null : assignment.WebPage.Payload?.GetRawText();
+            if (state.WebPageJson is not null) PlaybackStateRegistry.ClearMediaAssignment(state);
             if (assignment.Announcement.Action == "remove") state.AnnouncementJson = null;
             if (assignment.Announcement.Action == "replace")
             {
@@ -449,6 +457,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
                 }
             }
             if (composition.WebPage != "keep") state.WebPageJson = previous.WebPage?.GetRawText();
+            if (state.WebPageJson is not null) PlaybackStateRegistry.ClearMediaAssignment(state);
             if (composition.Announcement != "keep") state.AnnouncementJson = previous.Announcement?.GetRawText();
             if (composition.Blackout != "keep") state.Blackout = previous.Blackout;
             if (composition.Promotions != "keep") state.PromotionPolicyJson = previous.PromotionPolicy is null ? null : Write(previous.PromotionPolicy);
