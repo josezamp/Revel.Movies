@@ -5,7 +5,8 @@ export function TvOptimizationControl({ item, job, origin, result, available, re
   available?: boolean; requesting: string; onStart: (id: string) => Promise<void>; onPreview: (item: MediaAsset) => void
 }) {
   if (item.type !== 'Video') return null
-  if (origin) return <div className="tv-optimization"><strong>Copia para TV · Sin audio</strong>
+  if (origin) return <div className="tv-optimization"><strong>Copia TV lista · {Math.round((1 - item.fileSize / origin.fileSize) * 100)}% menos · Sin audio</strong>
+    <small>{formatSize(origin.fileSize)} → {formatSize(item.fileSize)}. El original se conserva.</small>
     <button className="quiet-button" onClick={() => onPreview(origin)}>Ver original</button></div>
   const current = job?.sourceChecksum === item.checksum ? job : undefined
   const pending = job?.status === 'Queued' || job?.status === 'Processing'

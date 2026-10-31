@@ -70,6 +70,7 @@
 .live-preview > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .live-preview > .media-video-preview { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 .live-preview .media-preview { height: 100%; object-fit: contain; }
+.live-preview.image-fit-cover > img, .live-preview.image-fit-cover .media-preview { object-fit: cover; }
 .live-preview.is-blackout { background: #000; }
 .live-symbol { color: #bbbbc5; font-size: 2.7rem; font-weight: 300; }
 .preview-caption { color: #b6b6c0; font-size: .64rem; line-height: 1.5; text-align: center; }

@@ -150,6 +150,14 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("event_id");
 
+                    b.Property<string>("ImageFit")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)")
+                        .HasColumnName("image_fit")
+                        .HasDefaultValue("contain");
+
                     b.Property<DateTimeOffset?>("LastClockSyncAt")
                         .HasColumnType("datetimeoffset")
                         .HasColumnName("last_clock_sync_at");
@@ -773,6 +781,33 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                     b.ToTable("scene_schedules", (string)null);
                 });
 
+            modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneScheduleImport", b =>
+                {
+                    b.Property<Guid>("EventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PackageHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("PreviewJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SceneCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ScheduleCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("EventId", "PackageHash");
+
+                    b.ToTable("scene_schedule_imports", (string)null);
+                });
+
             modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -936,6 +971,14 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneSchedule", b =>
+                {
+                    b.HasOne("RevelMovies.Domain.Events.Event", null)
+                        .WithMany()
+                        .HasForeignKey("EventId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+            modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneScheduleImport", b =>
                 {
                     b.HasOne("RevelMovies.Domain.Events.Event", null)
                         .WithMany()

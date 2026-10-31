@@ -6,6 +6,7 @@ import type { PromotionPolicy } from '../player/promotionalBreaks'
 export type DisplayStatus = 'Unknown' | 'Online' | 'Offline' | 'Playing' | 'Paused' | 'Error' | number
 export type EventStatus = 'Draft' | 'Active' | 'Completed' | 'Archived' | number
 export type MediaType = 'Video' | 'Image' | 'Link' | number
+export type DisplayImageFit = 'contain' | 'cover'
 
 export const isMediaLink = (item: { type: MediaType }) => item.type === 'Link' || item.type === 3
 
@@ -25,6 +26,7 @@ export interface Display {
   eventId: string
   name: string
   rotation: number
+  imageFit: DisplayImageFit
   status: DisplayStatus
   lastSeenAt: string | null
   clockOffsetMs: number | null
@@ -198,11 +200,11 @@ export async function renameDisplay(displayId: string, name: string): Promise<Di
   })
 }
 
-export async function updateDisplaySettings(displayId: string, rotation: number): Promise<Display> {
+export async function updateDisplaySettings(displayId: string, settings: { rotation?: number; imageFit?: DisplayImageFit }): Promise<Display> {
   return requestJson(`/api/displays/${displayId}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rotation }),
+    body: JSON.stringify(settings),
   })
 }
 

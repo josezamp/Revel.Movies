@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
-import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl } from '../api/client'
+import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl, type DisplayImageFit } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
 import { bufferVideoPlayback, canCorrectPlayback, recoverVideoPlayback } from './videoBuffer'
@@ -80,6 +80,7 @@ export function PlayerPage() {
   const webPageRef = useRef<WebPage | null>(null)
   const [announcement, setAnnouncement] = useState<Announcement | null>(null)
   const [rotation, setRotation] = useState<DisplayRotation>(0)
+  const [imageFit, setImageFit] = useState<DisplayImageFit>('contain')
   const [useVideoCanvas] = useState(() => needsVideoCanvas(navigator.userAgent))
   const [media, setMedia] = useState<ActiveMedia>()
   const [mediaLoadStatus, setMediaLoadStatus] = useState<'loading' | 'loaded' | 'error'>('loading')
@@ -584,11 +585,15 @@ export function PlayerPage() {
         }
         case 'display.settings': {
           const nextRotation = parseRotation(command.payload?.rotation)
-          if (nextRotation === null && typeof command.payload?.name !== 'string') {
-            acknowledge(command, 'error', 'invalid display.settings rotation')
+          const nextImageFit = parseImageFit(command.payload?.imageFit)
+          if ((command.payload?.rotation !== undefined && nextRotation === null)
+            || (command.payload?.imageFit !== undefined && nextImageFit === null)
+            || (nextRotation === null && nextImageFit === null && typeof command.payload?.name !== 'string')) {
+            acknowledge(command, 'error', 'invalid display.settings payload')
             break
           }
           if (nextRotation !== null) setRotation(nextRotation)
+          if (nextImageFit !== null) setImageFit(nextImageFit)
           if (typeof command.payload?.name === 'string') setDisplayIdentity(current => ({ ...current, name: command.payload!.name as string }))
           acknowledge(command, 'executed')
           break
@@ -775,6 +780,7 @@ export function PlayerPage() {
       }
 
       setRotation(parseRotation(identity.rotation) ?? 0)
+      setImageFit(parseImageFit(identity.imageFit) ?? 'contain')
       setDisplayIdentity({ id: identity.id, name: identity.name })
       return true
     }
@@ -831,6 +837,7 @@ export function PlayerPage() {
         }
 
         setRotation(parseRotation(identity.rotation) ?? 0)
+        setImageFit(parseImageFit(identity.imageFit) ?? 'contain')
         setDisplayIdentity({ id: identity.id, name: identity.name })
         await connection.start()
         if (cancelled) return
@@ -1079,7 +1086,7 @@ export function PlayerPage() {
 
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
-      <div className={`player-viewport rotation-${rotation}`}>
+      <div className={`player-viewport rotation-${rotation} image-fit-${imageFit}`}>
         {videoIds.map(id => (
           <PreloadedVideo
             key={playlist ? `${playlist.playbackId}:${id}` : `${media?.instance}:${id}`}
@@ -1112,6 +1119,10 @@ export function PlayerPage() {
       </div>
     </main>
   )
+}
+
+function parseImageFit(value: unknown): DisplayImageFit | null {
+  return value === 'contain' || value === 'cover' ? value : null
 }
 
 function parseRotation(value: unknown): DisplayRotation | null {

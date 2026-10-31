@@ -2,6 +2,8 @@
 
 En **Programación**, elegí **Programar escena**, una escena guardada, fecha, hora y zona horaria. También podés empezar desde **Escenas → Programar por fecha y hora**. La agenda muestra el próximo cambio, las entradas pendientes y el historial con preparación y resultado por pantalla.
 
+También podés [armar el cronograma con ChatGPT e importar un JSON](schedule-import.md), con contexto del evento, validación y vista previa de las escenas y horarios antes de guardarlos juntos.
+
 Cada entrada se ejecuta una sola vez. Una escena puede programarse varias veces. Para un cambio después de medianoche, elegí la fecha del día siguiente. La zona inicial es la del evento; podés cambiarla en cada entrada. Las horas ambiguas o inexistentes por cambios de horario se rechazan. El servidor convierte la fecha local a UTC al guardar.
 
 Guardar o editar la agenda no modifica la emisión. Podés editar o cancelar entradas mientras su hora aún no haya llegado. La cancelación queda en el historial. Las entradas terminadas se conservan; para repetirlas, creá otra programación.
@@ -53,6 +55,8 @@ Ejemplo de creación:
 ## Despliegue
 
 Publicar API y frontend juntos. Aplicar la migración `20261029132437_AddSceneSchedules` con el mecanismo EF existente (automático si `Database:ApplyMigrationsOnStartup=true`). Agrega `scene_schedules`; no modifica las escenas guardadas.
+
+La importación de JSON también requiere `20261031130000_AddSceneScheduleImports`, que agrega los comprobantes persistentes de importación. Ver [formato, validación y reintentos](schedule-import.md).
 
 La ejecución requiere **una sola instancia/proceso de la API**, igual que el almacenamiento local de medios. En IIS: `Maximum Worker Processes=1`, `Start Mode=AlwaysRunning`, `Idle Time-out=0` y **Preload Enabled=True en la aplicación api**, con Application Initialization instalado. Así el servidor sigue ejecutando la agenda aunque nadie tenga abierto el panel. No es un servicio Windows independiente. Ver [despliegue](deployment.md).
 

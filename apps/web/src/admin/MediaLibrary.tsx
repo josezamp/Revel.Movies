@@ -3,7 +3,8 @@ import { deleteMedia, isMediaLink, sendCommand, sendGroupCommand, type Display, 
 import { MediaLinkDialog } from './MediaLinkDialog'
 import { LinkThumbnail } from './LinkThumbnail'
 import { MediaUploadQueue } from './MediaUploadQueue'
-import { useTvOptimization } from './useTvOptimization'
+import type { useTvOptimization } from './useTvOptimization'
+import type { groupLibraryMedia } from './mediaLibraryGrouping'
 import { TvOptimizationControl } from './TvOptimizationControl'
 import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
@@ -14,9 +15,10 @@ import './content.css'
 
 type Preview = { name: string; type: 'Video' | 'Image'; url?: string; file?: File }
 
-export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onMediaChanged, selecting, selectedIds, onSelectedIds,
+export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays, groups, onMediaChanged, selecting, selectedIds, onSelectedIds,
   onStartSelection, onCancelSelection, onAdd, onAddUploaded, feedback, playlistsLoading }: {
   libraryRef: RefObject<HTMLElement | null>; eventId: string; media: MediaAsset[]; displays: Display[]; groups: DisplayGroup[]; onMediaChanged: () => Promise<void>
+  library: ReturnType<typeof groupLibraryMedia>; tv: ReturnType<typeof useTvOptimization>
   selecting: boolean; selectedIds: string[]; onSelectedIds: Dispatch<SetStateAction<string[]>>
   onStartSelection: () => void; onCancelSelection: () => void; onAdd: () => void; onAddUploaded: (assets: MediaAsset[]) => void; feedback: string; playlistsLoading: boolean
 }) {
@@ -30,11 +32,8 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
   const [removing, setRemoving] = useState<MediaAsset>()
   const [addingLink, setAddingLink] = useState(false)
   const sending = useRef(false)
-  const tv = useTvOptimization(eventId, media, onMediaChanged)
   const optimizationByMedia = new Map(tv.jobs.map(job => [job.mediaId, job]))
-  const originalByCopy = new Map(tv.jobs.filter(job => job.resultMediaId).map(job => [job.resultMediaId,
-    media.find(item => item.id === job.mediaId && item.checksum === job.sourceChecksum)]))
-  const mediaById = new Map(media.map(item => [item.id, item]))
+  const { items, originalByCopy, mediaById } = library
   const previewAsset = (item: MediaAsset) => setPreview({ name: item.name, type: item.type === 'Image' ? 'Image' as const : 'Video' as const, url: item.contentUrl })
   const targets = displayTargets(displays, groups)
   const target = targets.find(item => item.value === targetId)
@@ -42,7 +41,7 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
   const canOperate = !!target?.ids.length
   useEffect(() => { setNotice(''); setError('') }, [feedback])
   useEffect(() => { if (targetId && !target) setTargetId('') }, [targetId, target])
-  const visible = media.filter(item => (filter === 'all' || item.type === filter) && `${item.name} ${item.fileName} ${isMediaLink(item) ? item.contentUrl : ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()))
+  const visible = items.filter(item => (filter === 'all' || item.type === filter) && `${item.name} ${item.fileName} ${originalByCopy.get(item.id)?.name ?? ''} ${originalByCopy.get(item.id)?.fileName ?? ''} ${isMediaLink(item) ? item.contentUrl : ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()))
   const selectable = visible.filter(item => !isMediaLink(item))
   const selected = selectedIds.filter(id => media.some(item => item.id === id && !isMediaLink(item)))
   const allVisibleSelected = selectable.length > 0 && selectable.every(item => selected.includes(item.id))
@@ -81,7 +80,7 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
         <label className="workspace-field"><span className="visually-hidden">Tipo de contenido</span><select aria-label="Tipo de contenido" value={filter} onChange={event => setFilter(event.target.value)}>
           <option value="all">Todo el contenido</option><option value="Video">Videos</option><option value="Image">Imágenes</option><option value="Link">Enlaces</option>
         </select></label>
-        <span className="workspace-help">{visible.length} de {media.length} elementos</span>
+        <span className="workspace-help">{visible.length} de {items.length} elementos</span>
       </div>
       {selecting ? <div className="library-selection-bar">
         <div><strong role="status">{selected.length} {selected.length === 1 ? 'seleccionado' : 'seleccionados'}</strong><small>Videos e imágenes, en el orden que los elijas.</small></div>
@@ -116,7 +115,7 @@ export function MediaLibrary({ libraryRef, eventId, media, displays, groups, onM
           <div className="library-card-info"><small>{isMediaLink(item) ? 'Sitio web' : `Miniatura · ${item.type === 'Image' ? 'Imagen' : 'Video'} · ${formatBytes(item.fileSize)}`}</small><strong title={item.name}>{item.name}</strong><span title={isMediaLink(item) ? item.contentUrl : item.fileName}>{isMediaLink(item) ? item.contentUrl : item.fileName}</span></div>
           {isMediaLink(item) ? <a className="library-link-open" href={item.contentUrl} target="_blank" rel="noopener noreferrer">Abrir sitio web <span aria-hidden="true">↗</span><span className="visually-hidden"> (nueva pestaña)</span></a>
             : <button className="quiet-button" onClick={() => previewAsset(item)}>Vista previa local</button>}
-          <TvOptimizationControl item={item} job={optimizationByMedia.get(item.id)} origin={originalByCopy.get(item.id)}
+          <TvOptimizationControl item={item} job={optimizationByMedia.get(originalByCopy.get(item.id)?.id ?? item.id)} origin={originalByCopy.get(item.id)}
             result={mediaById.get(optimizationByMedia.get(item.id)?.resultMediaId ?? '')} available={tv.available}
             requesting={tv.requesting} onStart={tv.start} onPreview={previewAsset} />
           {selecting ? isMediaLink(item) ? <p className="workspace-help">Los enlaces se muestran como páginas web, fuera de las playlists.</p> : <button type="button" className="library-select-text" aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}>{selected.includes(item.id) ? 'Quitar de la selección' : 'Seleccionar archivo'}</button> : <div className="button-row">

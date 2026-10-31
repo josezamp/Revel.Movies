@@ -2,7 +2,7 @@
 
 En **Contenido → Biblioteca**, cada video ofrece **Reducir tamaño para TV** cuando el servidor tiene habilitada la función. El trabajo continúa aunque cierres el navegador; la tarjeta muestra la cola, el progreso y el resultado.
 
-Se genera otro archivo con nombre terminado en **· TV** y un identificador propio. El original conserva sus bytes, URL, referencias en playlists y escenas. Abrí **Ver copia TV** para revisarlo y seleccioná esa copia al armar una playlist o enviarla a una pantalla. **Ver original** abre la vista previa del original. Las pantallas no cambian automáticamente.
+Se genera otro archivo con nombre terminado en **· TV** y un identificador propio. Cuando la copia está lista, la biblioteca muestra una sola tarjeta para ese video: la versión TV. **Vista previa local** permite revisar esa versión y **Ver original** abre la vista previa del original. Al seleccionarla para una playlist o enviarla a una pantalla desde la biblioteca, se usa la copia TV. El original conserva sus bytes, URL y referencias existentes en playlists y escenas. Si eliminás la copia TV, el original vuelve a aparecer en la biblioteca. Las pantallas no cambian automáticamente.
 
 El perfil genera MP4 H.264 Main, `yuv420p`, sin audio, CRF 24, hasta 30 FPS y un rectángulo de 1920×1080 (1080×1920 en vertical), sin ampliar videos más pequeños. Respeta la rotación del archivo, las proporciones de visualización y las tasas inferiores, incluidas las fraccionarias. Usa `faststart` y limita el bitrate de video a 5 Mbit/s. Los videos HDR se rechazan con un mensaje para exportarlos previamente en SDR.
 

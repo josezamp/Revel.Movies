@@ -37,6 +37,7 @@ Revel Movies currently supports:
 - Per-event floor plans in Live, with shapes, labels, draggable displays, versioned server saves and separate editing/operation modes
 - Event scenes with persisted versions, per-screen preparation and activation, explicit layer policies and guarded temporary restoration
 - Per-event scene schedules with explicit dates and time zones, automatic server-side preparation, and per-screen execution history; see [scheduling](docs/scheduling.md)
+- ChatGPT-ready event context and JSON import of scenes and schedules, with preview, atomic saving and duplicate protection; see [schedule import (Spanish)](docs/schedule-import.md)
 - Mobile operation navigation, explicit destinations, playlist publishing and multiple-file upload queues with local previews
 
 See the [operator guide (Spanish)](docs/operator-guide.md) for the live / scenes / content / configuration workflow and the [scene protocol](docs/scenes.md) for persistence, preparation and recovery semantics.

@@ -25,7 +25,7 @@ export function DisplayLiveState({ display, media, playlists, now }: { display: 
   return <div className={`live-state${stale ? ' is-stale' : ''}`}>
     <figure className="live-preview-figure" aria-label={`TV ${portrait ? 'vertical · 9:16' : 'horizontal · 16:9'}`}>
       <div className="live-preview-stage">
-        <div className={`live-preview${portrait ? ' is-portrait' : ''}${blackout ? ' is-blackout' : ''}`}>
+        <div className={`live-preview image-fit-${display.imageFit ?? 'contain'}${portrait ? ' is-portrait' : ''}${blackout ? ' is-blackout' : ''}`}>
           {!blackout && !announcement && !web && asset && (asset.type === 'Image' || asset.type === 2
             ? <img loading="lazy" src={mediaContentUrl(asset.id)} alt={`Miniatura de ${asset.name}`} />
             : <VideoThumbnail src={mediaContentUrl(asset.id)} />)}

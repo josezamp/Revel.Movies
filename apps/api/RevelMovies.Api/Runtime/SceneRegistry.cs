@@ -31,13 +31,7 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
 
     public async Task<SceneResponse> Save(Guid eventId, Guid? id, SaveSceneRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200)
-            throw new SceneValidationException("El nombre debe tener entre 1 y 200 caracteres.");
-        if (request.Assignments is null || request.Assignments.Length > 100 || request.Assignments.Any(x => x is null))
-            throw new SceneValidationException("La escena admite hasta 100 asignaciones.");
-        if (request.TemporaryDurationSeconds is < 1 or > 604800)
-            throw new SceneValidationException("La duración temporal debe ser de 1 segundo a 7 días.");
-        if (!await db.Events.AnyAsync(x => x.Id == eventId, ct)) throw new SceneValidationException("El evento no existe.");
+        await ValidateDefinition(eventId, request, ct);
         await Resolve(eventId, request.Assignments, ct);
         var scene = id.HasValue ? await Find(eventId, id.Value, ct) : new Scene { EventId = eventId };
         if (id.HasValue && request.Version != scene.Version)
@@ -50,6 +44,17 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
         scene.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return View(scene);
+    }
+
+    private async Task ValidateDefinition(Guid eventId, SaveSceneRequest request, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200)
+            throw new SceneValidationException("El nombre debe tener entre 1 y 200 caracteres.");
+        if (request.Assignments is null || request.Assignments.Length > 100 || request.Assignments.Any(x => x is null))
+            throw new SceneValidationException("La escena admite hasta 100 asignaciones.");
+        if (request.TemporaryDurationSeconds is < 1 or > 604800)
+            throw new SceneValidationException("La duración temporal debe ser de 1 segundo a 7 días.");
+        if (!await db.Events.AnyAsync(x => x.Id == eventId, ct)) throw new SceneValidationException("El evento no existe.");
     }
 
     public async Task Delete(Guid eventId, Guid sceneId, CancellationToken ct)
@@ -191,6 +196,18 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
             if (AnnouncementCommand.Validate(target.Assignment.Announcement.Payload, startsAt, out _) is { } error)
                 throw new SceneValidationException(error);
         return (View(scene), Fingerprint(targets), targets.Select(x => new SceneTargetResponse(x.DisplayId, x.Name, Guid.Empty, "pending", null, null, 0)).ToArray());
+    }
+
+    // Import previews resolve the same resources and layers as a scheduled scene, without saving a draft.
+    internal async Task<(string Fingerprint, SceneTargetResponse[] Targets)> DescribeDraftSchedule(
+        Guid eventId, SaveSceneRequest request, DateTimeOffset startsAt, CancellationToken ct)
+    {
+        await ValidateDefinition(eventId, request, ct);
+        var targets = SelectTargets(await Resolve(eventId, request.Assignments, ct), null);
+        foreach (var target in targets.Where(x => x.Assignment.Announcement.Action == "replace"))
+            if (AnnouncementCommand.Validate(target.Assignment.Announcement.Payload, startsAt, out _) is { } error)
+                throw new SceneValidationException(error);
+        return (Fingerprint(targets), targets.Select(x => new SceneTargetResponse(x.DisplayId, x.Name, Guid.Empty, "pending", null, null, 0)).ToArray());
     }
 
     public async Task<SceneSessionResponse> Prepare(Guid eventId, Guid sceneId, SceneOperationRequest request, CancellationToken ct,

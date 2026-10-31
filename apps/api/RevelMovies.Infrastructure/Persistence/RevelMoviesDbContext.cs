@@ -28,6 +28,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
     public DbSet<Scene> Scenes => Set<Scene>();
     public DbSet<SceneSession> SceneSessions => Set<SceneSession>();
     public DbSet<SceneSchedule> SceneSchedules => Set<SceneSchedule>();
+    public DbSet<SceneScheduleImport> SceneScheduleImports => Set<SceneScheduleImport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +61,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
             builder.Property(x => x.DeviceTokenHash).HasColumnName("device_token_hash").HasMaxLength(64).IsRequired();
             builder.Property(x => x.Rotation).HasColumnName("rotation").IsRequired();
+            builder.Property(x => x.ImageFit).HasColumnName("image_fit").HasMaxLength(16).HasDefaultValue("contain").IsRequired();
             builder.Property(x => x.Status).HasColumnName("status").IsRequired();
             builder.Property(x => x.LastSeenAt).HasColumnName("last_seen_at");
             builder.Property(x => x.ClockOffsetMs).HasColumnName("clock_offset_ms");
@@ -265,6 +267,13 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.HasIndex(x => new { x.EventId, x.StartsAt });
             builder.HasOne<RevelEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
             // Keep the execution history if its scene is deleted. Sessions have independent lifetimes.
+        });
+        modelBuilder.Entity<SceneScheduleImport>(builder =>
+        {
+            builder.ToTable("scene_schedule_imports");
+            builder.HasKey(x => new { x.EventId, x.PackageHash });
+            builder.Property(x => x.PackageHash).HasMaxLength(64);
+            builder.HasOne<RevelEvent>().WithMany().HasForeignKey(x => x.EventId).OnDelete(DeleteBehavior.Cascade);
         });
         modelBuilder.Entity<SceneSession>(builder =>
         {

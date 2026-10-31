@@ -29,6 +29,12 @@ Deleting a paired display through `DELETE /api/displays/{displayId}` removes its
 
 After deletion, `display.unpaired` tells connected players to stop playback, clear their saved identity and announcements, and request a new pairing code. This command is not acknowledged because the display no longer exists. Offline players detect the revoked identity when they reconnect; existing hub connections are also checked on heartbeat and telemetry calls.
 
+## Display settings
+
+`PUT /api/displays/{displayId}/settings` accepts partial updates to `rotation` (0, 90, 180 or 270), `name`, and `imageFit` (`contain` or `cover`). Omitted fields retain their saved values. The server persists the settings and sends `display.settings` with the complete current values; player identity includes them for reconnect recovery.
+
+`contain` shows the entire image or video with letterboxing as needed and is the default for existing displays. `cover` fills the oriented viewport with a centered crop, preserving source proportions. Both native media and the Tizen rotation canvas use this setting without restarting playback. Announcements and web pages keep their own layouts.
+
 ## Announcements
 
 - `announcement.show`: show a message or synchronized countdown over the current content.

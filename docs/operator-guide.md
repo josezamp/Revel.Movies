@@ -30,7 +30,9 @@ Las acciones de reproducción quedan esperando confirmación. La aceptación HTT
 - **Renombrar:** conserva la identidad, vinculación, evento, grupos, referencias y reproducción; funciona con la TV desconectada.
 - **Identificar:** muestra nombre e identificador breve durante unos segundos, con la orientación física de la pantalla.
 
-En **Detalles** se encuentran orientación, diagnóstico, recarga y desvinculación. La recarga interrumpe brevemente el reproductor; desvincular requiere confirmación y una nueva vinculación para volver a usarlo.
+En **Detalles** se encuentran orientación, ajuste de imagen, diagnóstico, recarga y desvinculación. La recarga interrumpe brevemente el reproductor; desvincular requiere confirmación y una nueva vinculación para volver a usarlo.
+
+En **Ajuste de imagen**, elegí **Mostrar completo** para ver toda la foto o el video, con franjas negras si su formato no coincide con la TV, o **Rellenar con recorte** para llenar la pantalla sin deformar. El recorte es centrado: por ejemplo, un video horizontal 4:3 o 16:9 en una TV vertical 9:16 pierde parte de los laterales. La miniatura refleja el ajuste seleccionado. Se guarda por pantalla, se aplica sin reiniciar el contenido y se recupera al reconectarse. No modifica anuncios ni páginas web. Las pantallas existentes conservan **Mostrar completo** hasta que lo cambies.
 
 ### Mapa del evento
 
@@ -60,6 +62,8 @@ Las cuentas regresivas por duración comienzan al activar; guardar y preparar no
 **Guardar configuración actual** captura las pantallas elegidas y sus capas solicitadas. El nombre de la pantalla nunca es su identificador de destino. Una captura conserva el estado y posición del fondo cuando corresponde. La vista previa describe una configuración futura; no representa la emisión actual.
 
 ## Programación por fecha y hora
+
+Para armar escenas y horarios desde un chat, usá **Copiar contexto para ChatGPT** y **Importar JSON** en Programación. La vista previa permite revisar todo antes de guardarlo. Ver [importación de cronogramas](schedule-import.md).
 
 En **Programación → Programar escena**, elegí una escena guardada, fecha, hora, zona horaria y la política para pantallas no disponibles. También podés programar desde cada tarjeta de Escenas. Las entradas se preparan automáticamente dos minutos antes y se activan desde el servidor aunque cierres el panel. El servidor y las pantallas deben permanecer encendidos y conectados.
 
@@ -109,6 +113,8 @@ El almacenamiento local requiere una sola instancia/proceso de la API por carpet
 Publicar frontend y API juntos. La migración `20261025222149_AddScenesAndPlaybackConfirmation` agrega escenas, intentos y campos de correlación/visibilidad. Se aplica con el mecanismo EF existente: automáticamente si `Database:ApplyMigrationsOnStartup` está habilitado, o mediante el procedimiento de migraciones del despliegue. No se requiere un servicio externo adicional; el retorno temporal usa un servicio alojado en la API y persistencia SQL.
 
 La vista Mapa requiere también la migración `20261029123444_AddEventMap`, que agrega el croquis y su versión al evento. Los eventos existentes comienzan con un croquis vacío. Se aplica con el mismo mecanismo de migraciones, antes de usar la nueva vista.
+
+El ajuste de imagen requiere publicar frontend y API junto con la migración `20261031120000_AddDisplayImageFit`, que guarda la preferencia por pantalla y usa `contain` (Mostrar completo) para las pantallas existentes.
 
 Ver [escenas y protocolo](scenes.md), [despliegue IIS](deployment.md) y [protocolo del Player](player-protocol.md).
 

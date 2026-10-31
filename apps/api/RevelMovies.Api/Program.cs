@@ -52,6 +52,7 @@ builder.Services.AddHostedService<SceneExpiryService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<SceneScheduleGate>();
 builder.Services.AddScoped<SceneScheduleRegistry>();
+builder.Services.AddScoped<SceneScheduleImportService>();
 builder.Services.AddHostedService<SceneScheduleService>();
 builder.Services.AddSignalR();
 builder.Services.AddHealthChecks();
@@ -374,13 +375,16 @@ app.MapPut("/displays/{displayId:guid}/settings", async (
     if (request.Rotation.HasValue && request.Rotation is not (0 or 90 or 180 or 270))
         return Results.BadRequest(new { error = "Rotation must be 0, 90, 180 or 270 degrees." });
 
+    if (request.ImageFit is not null and not ("contain" or "cover"))
+        return Results.BadRequest(new { error = "Image fit must be contain or cover." });
+
     if (request.Name is not null && (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200))
         return Results.BadRequest(new { error = "El nombre debe tener entre 1 y 200 caracteres." });
-    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken, request.Name);
+    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken, request.Name, request.ImageFit);
     if (display is null)
         return Results.NotFound();
 
-    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation, name = display.Name });
+    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation, name = display.Name, imageFit = display.ImageFit });
     var command = dispatcher.Create("display.settings", payload);
     await dispatcher.SendAsync([display.Id], command, cancellationToken);
 
@@ -489,7 +493,7 @@ public sealed record CreateEventRequest(
     DateTimeOffset? EndsAt);
 
 public sealed record PairDisplayRequest(string Code, string Name, Guid EventId);
-public sealed record UpdateDisplaySettingsRequest(int? Rotation = null, string? Name = null);
+public sealed record UpdateDisplaySettingsRequest(int? Rotation = null, string? Name = null, string? ImageFit = null);
 
 public sealed record EventResponse(
     Guid Id,
@@ -517,6 +521,7 @@ public sealed record DisplayResponse(
     Guid EventId,
     string Name,
     int Rotation,
+    string ImageFit,
     DisplayStatus Status,
     DateTimeOffset? LastSeenAt,
     double? ClockOffsetMs,
@@ -546,6 +551,7 @@ public sealed record DisplayResponse(
         item.EventId,
         item.Name,
         item.Rotation,
+        item.ImageFit,
         item.Status,
         item.LastSeenAt,
         item.ClockOffsetMs,
