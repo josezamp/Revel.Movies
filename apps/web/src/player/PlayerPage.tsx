@@ -10,6 +10,7 @@ import { parseWebPage, type WebPage } from '../webpages/webPage'
 import { WebPageSurface } from '../webpages/WebPageSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
 import { PreloadedVideo } from './PreloadedVideo'
+import { PlayerFullscreenControl } from './PlayerFullscreenControl'
 import { needsVideoCanvas } from './videoCanvas'
 import { isSceneExpired, PlayerOperationGuard, resolveSceneReturn, type SceneComposition } from './preparationStatus'
 import {
@@ -1069,6 +1070,7 @@ export function PlayerPage() {
   if (!deviceToken) {
     return (
       <main className="player-shell pairing-screen">
+        <PlayerFullscreenControl />
         <p className="eyebrow">REVEL MOVIES</p>
         <h1>Vincular esta pantalla</h1>
         <div className="pairing-code">{pairingCode ? `${pairingCode.slice(0, 3)} ${pairingCode.slice(3)}` : '··· ···'}</div>
@@ -1086,6 +1088,7 @@ export function PlayerPage() {
 
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
+      <PlayerFullscreenControl autoHide />
       <div className={`player-viewport rotation-${rotation} image-fit-${imageFit}`}>
         {videoIds.map(id => (
           <PreloadedVideo

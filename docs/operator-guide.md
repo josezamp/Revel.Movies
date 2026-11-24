@@ -14,6 +14,14 @@ Desde el inicio, **Controlar mi evento** abre el panel para la computadora o el 
 
 El nombre del evento encabeza el panel. El evento y la sección seleccionados se conservan en la dirección del navegador: podés recargar, guardar el enlace o usar Atrás sin perder ese contexto. Si un enlace apunta a un evento que ya no está disponible, el panel pide elegir uno; nunca cambia a otro automáticamente. **Panel conectado** indica que el panel recibe datos del servidor; la conexión de cada TV se muestra por separado en su tarjeta.
 
+## Pantalla completa en el reproductor
+
+En `/player`, tocá **Pantalla completa** en la esquina superior derecha; también podés usar la tecla **F**. Está disponible antes y después de vincular la pantalla y mantiene visibles los videos, imágenes, páginas y anuncios. La vinculación no interrumpe la pantalla completa.
+
+Durante la proyección o en pantalla completa, el control se oculta tras 4 segundos sin actividad. Para recuperarlo, mové el mouse o tocá la esquina superior derecha; funciona incluso sobre una página web proyectada. Usá **Salir de pantalla completa**, **F** o la salida del propio navegador para volver.
+
+La activación requiere un toque o una tecla en ese dispositivo; no se puede iniciar desde el panel remoto ni conservar automáticamente al recargar. Si el navegador no admite esta función, el reproductor lo informa: probá abrirlo en otro navegador del dispositivo.
+
 ## En vivo
 
 Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios y el contenido elegido, que puede ser una página web o multimedia. Solo se reproduce una de esas dos fuentes. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
