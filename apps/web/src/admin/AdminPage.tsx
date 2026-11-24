@@ -5,6 +5,7 @@ import { createEvent, getDisplays, getEvents, getMedia, getPendingPairings, getP
 import { OrchestrationPanel } from './OrchestrationPanel'
 import { MediaWorkspace } from './MediaWorkspace'
 import { DisplayCard } from './DisplayCard'
+import { DisplayAudioControl } from './DisplayAudioControl'
 import { NameDialog } from './NameDialog'
 import { ScenesPanel } from './ScenesPanel'
 import { displayPresence, sortByConnection } from './displayPresence'
@@ -149,6 +150,11 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     <div hidden={section !== 'configuration'}><section><div className="workspace-heading"><div><h2>Agregar pantalla</h2><p>Abrí <a href="/player" target="_blank" rel="noreferrer">el reproductor</a> en la TV. Su código aparecerá acá.</p></div></div>
       {pending.length === 0 && <p className="muted">No hay pantallas esperando vinculación.</p>}<div className="card-grid">{pending.map(item => <article className="card" key={item.code}><strong className="pair-code">{item.code.slice(0, 3)} {item.code.slice(3)}</strong><button disabled={!selectedEventId} onClick={() => setDialog(item)}>Vincular al evento {eventName}</button></article>)}</div>
       <p className="muted">Orientación, nombre, mantenimiento y diagnóstico están en “Detalles” de cada pantalla en En vivo.</p>
+    </section>
+    <section aria-label="Audio de las pantallas"><div className="workspace-heading"><div><h2>Audio de las pantallas</h2><p>Activá o silenciá cada pantalla. La elección se conserva al reconectar.</p></div></div>
+      {visibleDisplays.length === 0 ? <p className="muted">Vinculá una pantalla para configurar su audio.</p> : <div className="card-grid">{visibleDisplays.map(display => <article className="card" key={display.id}>
+        <h3>{display.name}</h3><DisplayAudioControl display={display} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} />
+      </article>)}</div>}
     </section></div>
     <div hidden={section !== 'content'}><MediaWorkspace key={selectedEventId + '-media'} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} onMediaChanged={refreshMedia} /></div>
     <div hidden={section !== 'content' && section !== 'configuration'}><OrchestrationPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} onGroupsChanged={setGroups} section={section === 'configuration' ? 'configuration' : 'content'} /></div>

@@ -27,9 +27,10 @@ Revel Movies currently supports:
 - Saved website links in the event library, with an Enlace badge, URL search, and display/group projection
 - Media metadata persisted in SQL Server while binary files remain in media storage
 - MP4, JPG/JPEG, PNG, WEBP and GIF validation
-- Optional background TV video optimization with xFFmpeg.NET, preserving originals; see [FFmpeg setup](docs/ffmpeg-tv.md)
+- Automatic background optimization on upload, enabled by default in the UI: smaller MP4 videos up to 1080p/30 FPS with audio, replacing the uploaded file after validation; switch off to keep originals. Manual TV copies remain available; see [FFmpeg setup](docs/ffmpeg-tv.md)
 - Remote playback by `mediaId`
 - Play, pause, stop, blackout, identify and player reload commands
+- Per-display audio settings, with persisted mute and local audio activation when the browser requires it
 - Byte-range media responses for browser video seeking/playback
 - Web pages by URL on paired displays or groups, with persisted reconnect recovery
 - Live messages and synchronized countdown announcements for displays or groups, with preview and reconnect recovery

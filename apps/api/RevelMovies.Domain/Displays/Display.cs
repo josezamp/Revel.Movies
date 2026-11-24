@@ -8,6 +8,7 @@ public sealed class Display
     public string DeviceTokenHash { get; set; } = string.Empty;
     public int Rotation { get; set; }
     public string ImageFit { get; set; } = "contain";
+    public bool AudioEnabled { get; set; } = true;
     public DisplayStatus Status { get; set; } = DisplayStatus.Unknown;
     public DateTimeOffset? LastSeenAt { get; set; }
     public double? ClockOffsetMs { get; set; }

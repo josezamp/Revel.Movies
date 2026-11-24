@@ -7,13 +7,14 @@ type Props = {
   activeVideoRef: RefObject<HTMLVideoElement | null>
   hidden: boolean
   loop: boolean
+  muted: boolean
   onEnded: () => void
   onError: () => void
 }
 
 // Keep the same native element when a queued video becomes active: its decoded
 // frames and buffered ranges are useful even on HTTP TVs without a service worker.
-export function PreloadedVideo({ src, active, prepare, activeVideoRef, hidden, loop, onEnded, onError }: Props) {
+export function PreloadedVideo({ src, active, prepare, activeVideoRef, hidden, loop, muted, onEnded, onError }: Props) {
   const ref = useRef<HTMLVideoElement>(null)
   const sourceAssignedRef = useRef(false)
 
@@ -52,6 +53,6 @@ export function PreloadedVideo({ src, active, prepare, activeVideoRef, hidden, l
 
   return <video ref={ref} className={active ? 'player-media' : 'player-preload'}
     hidden={!active || hidden} aria-hidden={!active || hidden} preload="auto"
-    loop={active && loop} muted playsInline
+    loop={active && loop} muted={!active || muted} playsInline
     onEnded={active ? onEnded : undefined} onError={active ? onError : undefined} />
 }

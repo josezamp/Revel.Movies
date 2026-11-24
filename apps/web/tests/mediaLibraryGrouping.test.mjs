@@ -7,6 +7,17 @@ const copy = { id: 'tv', checksum: 'converted' }
 const image = { id: 'image', checksum: 'image' }
 const completed = { mediaId: original.id, sourceChecksum: original.checksum, resultMediaId: copy.id, status: 'Completed' }
 
+test('automatic replacement remains visible and selected under its original identity', () => {
+  const optimized = { ...original, checksum: 'optimized' }
+  const job = { ...completed, resultMediaId: original.id, replaceOriginal: true, resultChecksum: optimized.checksum }
+  for (const asset of [original, optimized]) {
+    const library = groupLibraryMedia([asset, image], [job])
+    assert.deepEqual(library.items, [asset, image])
+    assert.equal(library.originalByCopy.size, 0)
+    assert.deepEqual(resolveLibrarySelection([original.id], library), [original.id])
+  }
+})
+
 test('only a completed TV copy of the current original hides the original', () => {
   const media = [original, image, copy]
   const library = groupLibraryMedia(media, [completed])

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { isMediaLink, type MediaAsset } from '../api/client'
 import { DuplicateUploadError, uploadMediaWithProgress } from '../api/uploads'
 import { Dialog } from './Dialog'
+import { Switch } from '../components/ui/switch'
 
 type Upload = {
   id: string; file: File; status: 'queued' | 'uploading' | 'complete' | 'error' | 'cancelled' | 'conflict' | 'skipped'
@@ -17,12 +18,15 @@ function validate(file: File) {
   if (file.size > 1024 ** 3) return 'Supera el límite de 1 GB.'
 }
 
-export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded, playlistsLoading, onPreview }: {
+export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded, playlistsLoading, onPreview, optimizationAvailable }: {
   eventId: string; media: MediaAsset[]; onMediaChanged: () => Promise<void>; onAddUploaded: (assets: MediaAsset[]) => void
-  playlistsLoading: boolean; onPreview: (file: File) => void
+  playlistsLoading: boolean; onPreview: (file: File) => void; optimizationAvailable?: boolean
 }) {
   const [uploads, setUploads] = useState<Upload[]>([])
   const [automatic, setAutomatic] = useState(false)
+  const [optimize, setOptimize] = useState(() => {
+    try { return localStorage.getItem('revel.optimize-uploads.v1') !== 'false' } catch { return true }
+  })
   const [dragging, setDragging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [applyAll, setApplyAll] = useState(false)
@@ -72,7 +76,7 @@ export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded
   async function transfer(item: Upload, controller: AbortController, replaceMediaId?: string) {
     try {
       const asset = await uploadMediaWithProgress(eventId, item.file, controller.signal,
-        (loaded, total) => update(item.id, { loaded, total }), replaceMediaId)
+        (loaded, total) => update(item.id, { loaded, total }), replaceMediaId, optimize)
       known.current.set(nameKey(asset.fileName), asset)
       unrefreshed.current.set(nameKey(asset.fileName), asset)
       dirty.current = true
@@ -157,6 +161,18 @@ export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded
       <label className="upload-picker">Elegir archivos<input className="visually-hidden" type="file" multiple aria-label="Agregar archivos a la cola"
         accept=".mp4,.jpg,.jpeg,.png,.webp,.gif" disabled={!eventId} onChange={event => { enqueue(Array.from(event.target.files ?? [])); event.target.value = '' }} /></label>
       <small>MP4, JPG, PNG, WEBP o GIF · Hasta 1 GB por archivo · Se conserva el orden de selección</small>
+    </div>
+    <div className="upload-optimization">
+      <label className="upload-optimization-toggle"><Switch checked={optimize} disabled={automatic || active.current.size > 0}
+        onCheckedChange={checked => {
+          setOptimize(checked)
+          try { localStorage.setItem('revel.optimize-uploads.v1', String(checked)) } catch { /* This session still remembers the choice. */ }
+        }} aria-describedby="upload-optimization-help" />Optimizar videos al subir</label>
+      <p id="upload-optimization-help">{optimize
+        ? 'El servidor reduce tamaño, resolución y FPS, conserva el audio y reemplaza el video cuando está listo. Hasta 1080p y 30 FPS. Las imágenes no se modifican.'
+        : 'Se guardan los archivos originales, sin procesamiento automático.'}</p>
+      {optimize && optimizationAvailable === false && <p className="workspace-error" role="status">La optimización no está disponible en el servidor. Habilitá FFmpeg y FFprobe o desactivá el switch para subir videos originales.</p>}
+      {optimize && <small>El progreso aparece en la biblioteca. Si falla o no hay ahorro, se conserva el archivo subido.</small>}
     </div>
     {uploads.length > 0 && <div className="upload-queue">
       <div className="workspace-heading"><div><strong role="status">{completed.length} de {uploads.length} archivos subidos</strong>

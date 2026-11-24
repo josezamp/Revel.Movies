@@ -96,10 +96,10 @@ public sealed class MediaOptimizationWorker(IServiceScopeFactory scopes, ITvVide
 
             // Publishing and finishing are atomic. An upload that replaces/deletes the source cannot publish a stale copy.
             await using var transaction = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, timeout.Token);
-            var source = await db.MediaAssets.AsNoTracking().FirstOrDefaultAsync(x => x.Id == job.MediaId, timeout.Token);
+            var source = await db.MediaAssets.FirstOrDefaultAsync(x => x.Id == job.MediaId, timeout.Token);
             if (source is null || source.Checksum != job.SourceChecksum || source.StorageKey != job.SourceStorageKey)
                 throw new VideoOptimizationException("El original cambió durante la conversión. Volvé a reducir el archivo actualizado.");
-            var result = new MediaAsset
+            var result = job.ReplaceOriginal ? source : new MediaAsset
             {
                 EventId = source.EventId, Name = source.Name[..Math.Min(source.Name.Length, 190)] + " · TV",
                 FileName = Path.GetFileNameWithoutExtension(source.FileName)[..Math.Min(Path.GetFileNameWithoutExtension(source.FileName).Length, 210)] + $"__TV_{lease:N}.mp4",
@@ -107,16 +107,31 @@ public sealed class MediaOptimizationWorker(IServiceScopeFactory scopes, ITvVide
                 FileSize = stored.FileSize, Checksum = stored.Checksum,
                 DurationSeconds = details.DurationSeconds, Width = details.Width, Height = details.Height
             };
+            if (job.ReplaceOriginal)
+            {
+                result.StorageKey = stored.StorageKey; result.FileSize = stored.FileSize; result.Checksum = stored.Checksum;
+                result.DurationSeconds = details.DurationSeconds; result.Width = details.Width; result.Height = details.Height;
+                var playlistIds = db.PlaylistItems.Where(x => x.MediaAssetId == source.Id).Select(x => x.PlaylistId);
+                await db.Playlists.Where(x => playlistIds.Contains(x.Id))
+                    .ExecuteUpdateAsync(update => update.SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), timeout.Token);
+            }
             if (await db.MediaOptimizationJobs.Where(x => x.MediaId == job.MediaId && x.LeaseId == lease && x.Status == "Processing")
                 .ExecuteUpdateAsync(update => update.SetProperty(x => x.Status, "Completed").SetProperty(x => x.Progress, 100)
                     .SetProperty(x => x.ResultMediaId, result.Id).SetProperty(x => x.OptimizedSize, stored.FileSize)
+                    .SetProperty(x => x.ResultChecksum, stored.Checksum)
                     .SetProperty(x => x.Error, (string?)null).SetProperty(x => x.LeaseExpiresAt, (DateTimeOffset?)null)
                     .SetProperty(x => x.UpdatedAt, DateTimeOffset.UtcNow), timeout.Token) == 0)
                 throw new VideoOptimizationException("La solicitud fue eliminada o reemplazada.");
-            db.MediaAssets.Add(result);
+            if (!job.ReplaceOriginal) db.MediaAssets.Add(result);
             await db.SaveChangesAsync(timeout.Token);
             await transaction.CommitAsync(timeout.Token);
             committed = true;
+            if (job.ReplaceOriginal)
+            {
+                // Never remove the source before both the asset and job result are committed.
+                try { await storage.DeleteAsync(job.SourceStorageKey, CancellationToken.None); }
+                catch (Exception ex) { logger.LogWarning(ex, "Could not remove optimized upload source {StorageKey}", job.SourceStorageKey); }
+            }
         }
         catch (OperationCanceledException)
         {

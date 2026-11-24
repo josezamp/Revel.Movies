@@ -147,7 +147,7 @@ public sealed class DisplayRegistry(RevelMoviesDbContext db)
     public async Task<Display?> UpdateSettingsAsync(
         Guid id,
         int? rotation,
-        CancellationToken cancellationToken = default, string? name = null, string? imageFit = null)
+        CancellationToken cancellationToken = default, string? name = null, string? imageFit = null, bool? audioEnabled = null)
     {
         var display = await db.Displays.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (display is null)
@@ -155,6 +155,7 @@ public sealed class DisplayRegistry(RevelMoviesDbContext db)
 
         if (rotation.HasValue) display.Rotation = rotation.Value;
         if (imageFit is not null) display.ImageFit = imageFit;
+        if (audioEnabled.HasValue) display.AudioEnabled = audioEnabled.Value;
         if (name is not null) display.Name = name.Trim();
         display.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);

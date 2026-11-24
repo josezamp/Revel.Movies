@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from './adminFixture'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import type { MediaAsset, MediaOptimization } from '../../src/api/client'
 
 async function openLibrary(page: Page, id: string) {
@@ -56,6 +56,7 @@ test('completed TV copy replaces the library card and selection while keeping bo
   await expect(copyCard.getByRole('button', { name: 'Quitar de la selección', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.library-selection-bar')).toContainText('1 seleccionado')
   await expect(copyCard).toContainText('75% menos')
+  await expect(copyCard).not.toContainText(/Sin audio|audio conservado/)
   await copyCard.getByRole('button', { name: 'Vista previa local', exact: true }).click()
   await expect(page.getByRole('dialog').locator('video')).toHaveAttribute('src', copy.contentUrl)
   await page.keyboard.press('Escape')
@@ -72,11 +73,14 @@ test('completed TV copy replaces the library card and selection while keeping bo
   expect(playlists[0].items.map((item: { mediaAssetId: string }) => item.mediaAssetId)).toEqual([copy.id])
 
   await page.getByRole('button', { name: 'Biblioteca 1', exact: true }).click()
-  await copyCard.getByRole('button', { name: 'Eliminar', exact: true }).click()
+  await copyCard.getByRole('button', { name: /^Más opciones/ }).click()
+  await page.getByRole('menuitem', { name: 'Eliminar', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Eliminar archivo', exact: true }).click()
   await expect(originalCard).toBeVisible()
   await expect(cards).toHaveCount(1)
-  await expect(originalCard.getByRole('button', { name: 'Reducir tamaño para TV', exact: true })).toBeEnabled()
+  await originalCard.getByRole('button', { name: /^Más opciones/ }).click()
+  await expect(page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ })).toBeEnabled()
+  await page.keyboard.press('Escape')
   expect((await request.get(original.contentUrl)).ok()).toBeTruthy()
   await page.reload()
   await expect(originalCard).toBeVisible()
@@ -103,10 +107,14 @@ test('replacing the original shows the new video separately from its older TV co
   await expect(page.locator('.library-card')).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Ver original', exact: true })).toHaveCount(0)
   await expect(page.getByText('2 de 2 elementos', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Reducir tamaño para TV', exact: true })).toHaveCount(2)
+  for (const card of await page.locator('.library-card').all()) {
+    await card.getByRole('button', { name: /^Más opciones/ }).click()
+    await expect(page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ })).toBeEnabled()
+    await page.keyboard.press('Escape')
+  }
 })
 
-test('real FFmpeg conversion survives navigation and preserves the original, previews and playlist choice', async ({ page, request }, testInfo) => {
+test('real FFmpeg conversion preserves audio, original, previews and playlist choice across navigation', async ({ page, request }, testInfo) => {
   test.setTimeout(60_000)
   const eventId = await createEvent(request)
   const capabilities = await (await request.get(`/api/events/${eventId}/media-optimizations`)).json()
@@ -121,8 +129,9 @@ test('real FFmpeg conversion survives navigation and preserves the original, pre
   const original = await upload.json()
   await openLibrary(page, eventId)
   const originalCard = page.locator('.library-card').filter({ has: page.locator('strong[title="Anuncio"]') })
-  await expect(originalCard.getByRole('button', { name: 'Reducir tamaño para TV', exact: true })).toBeEnabled()
-  await originalCard.getByRole('button', { name: 'Reducir tamaño para TV', exact: true }).click()
+  await originalCard.getByRole('button', { name: /^Más opciones/ }).click()
+  await expect(page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ })).toBeEnabled()
+  await page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ }).click()
   await expect(page.locator('#media-library')).toContainText(/En cola para TV|Reduciendo para TV|Copia TV lista|Copia para TV/)
   await openLibrary(page, eventId)
   const copyCard = page.locator('.library-card').filter({ has: page.locator('strong[title="Anuncio · TV"]') })
@@ -134,6 +143,12 @@ test('real FFmpeg conversion survives navigation and preserves the original, pre
   const copy = library.find((item: { id: string }) => item.id !== original.id)
   expect(copy.fileSize).toBeLessThan(original.fileSize)
   expect((await (await request.get(original.contentUrl)).body()).equals(bytes)).toBeTruthy()
+  const output = testInfo.outputPath('tv-copy.mp4')
+  writeFileSync(output, await (await request.get(copy.contentUrl)).body())
+  const audio = JSON.parse(execFileSync(process.env.REVEL_TEST_FFPROBE || 'ffprobe',
+    ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_name', '-of', 'json', output],
+    { windowsHide: true, timeout: 30_000, encoding: 'utf8' })) as { streams: { codec_name: string }[] }
+  expect(audio.streams.map(stream => stream.codec_name)).toEqual(['aac'])
   await copyCard.getByRole('button', { name: 'Vista previa local' }).click()
   await expect(page.getByRole('dialog')).toContainText('Anuncio · TV')
   await expect(page.getByRole('dialog').locator('video')).toHaveAttribute('src', copy.contentUrl)
@@ -162,6 +177,50 @@ test('missing server tools disable the action with an explanation', async ({ pag
   expect((await request.post(`/api/events/${eventId}/media`, { multipart: { file: { name: 'Pendiente.mp4', mimeType: 'video/mp4', buffer: bytes } } })).ok()).toBeTruthy()
   await page.route(`**/api/events/${eventId}/media-optimizations`, route => route.fulfill({ json: { available: false, jobs: [] } }))
   await openLibrary(page, eventId)
-  await expect(page.getByRole('button', { name: 'Reducir tamaño para TV', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: /^Más opciones/ }).click()
+  await expect(page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ })).toBeDisabled()
   await expect(page.getByText('Reducir tamaño para TV requiere habilitar FFmpeg en el servidor.')).toBeVisible()
+})
+
+test('TV tools stay in the options menu, support keyboard and show retry progress without playing', async ({ page, request }, testInfo) => {
+  const eventId = await createEvent(request)
+  const original = await uploadVideo(request, eventId, 'Anuncio.mp4')
+  let jobs: MediaOptimization[] = []
+  let starts = 0
+  let plays = 0
+  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/commands')) plays++ })
+  await page.route(`**/api/events/${eventId}/media-optimizations`, route => route.fulfill({ json: { available: true, jobs } }))
+  await page.route(`**/api/media/${original.id}/tv-optimization`, route => {
+    starts++
+    jobs = [{ ...optimization(original), status: starts === 1 ? 'Failed' : 'Processing', error: starts === 1 ? 'No se pudo procesar el video.' : null }]
+    return route.fulfill({ json: jobs[0] })
+  })
+  await openLibrary(page, eventId)
+  const card = page.locator('.library-card')
+  const trigger = card.getByRole('button', { name: /^Más opciones/ })
+  await expect(card.getByRole('button', { name: /^Reproducir/ })).toBeDisabled()
+  await expect(page.getByText('Reducir tamaño para TV', { exact: true })).toHaveCount(0)
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const reduce = page.getByRole('menuitem', { name: /^Reducir tamaño para TV/ })
+  await expect(reduce).toBeFocused()
+  await expect(reduce).toContainText('conservando el audio')
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+  expect(starts).toBe(0)
+  await trigger.click()
+  await page.screenshot({ path: testInfo.outputPath('media-options-desktop.png'), fullPage: true })
+  await page.setViewportSize({ width: 360, height: 800 })
+  await expect(page.getByRole('menu')).toBeVisible()
+  expect(await page.getByRole('menu').evaluate(element => { const rect = element.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth })).toBeTruthy()
+  await page.screenshot({ path: testInfo.outputPath('media-options-mobile.png'), fullPage: true })
+  await reduce.click()
+  await expect(card.getByRole('alert')).toContainText('No se pudo procesar')
+  await trigger.click()
+  await page.getByRole('menuitem', { name: /^Reintentar reducción/ }).click()
+  await expect(card.getByRole('progressbar')).toHaveAttribute('value', '40')
+  await trigger.click()
+  await expect(page.getByRole('menuitem', { name: /^Reducción para TV en curso/ })).toBeDisabled()
+  expect(starts).toBe(2)
+  expect(plays).toBe(0)
 })

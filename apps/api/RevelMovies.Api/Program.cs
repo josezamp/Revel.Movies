@@ -179,6 +179,12 @@ app.MapPost("/events/{eventId:guid}/media", async (
         replaceMediaId = parsed;
     }
 
+    // Older API clients that omit this field retain their existing upload behavior.
+    var optimize = false;
+    if (form.TryGetValue("optimize", out var optimizeValue) &&
+        (optimizeValue.Count != 1 || !bool.TryParse(optimizeValue[0], out optimize)))
+        return Results.BadRequest(new { error = "optimize must be true or false." });
+
     await using var stream = file.OpenReadStream();
     var result = await mediaRegistry.UploadAsync(
         eventId,
@@ -188,7 +194,7 @@ app.MapPost("/events/{eventId:guid}/media", async (
         file.Length,
         stream,
         maxMediaUploadBytes,
-        cancellationToken, replaceMediaId);
+        cancellationToken, replaceMediaId, optimize);
 
     if (result.Existing is not null)
         return Results.Conflict(new { error = result.Error, existing = MediaResponse.From(result.Existing) });
@@ -380,11 +386,11 @@ app.MapPut("/displays/{displayId:guid}/settings", async (
 
     if (request.Name is not null && (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 200))
         return Results.BadRequest(new { error = "El nombre debe tener entre 1 y 200 caracteres." });
-    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken, request.Name, request.ImageFit);
+    var display = await displayRegistry.UpdateSettingsAsync(displayId, request.Rotation, cancellationToken, request.Name, request.ImageFit, request.AudioEnabled);
     if (display is null)
         return Results.NotFound();
 
-    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation, name = display.Name, imageFit = display.ImageFit });
+    var payload = JsonSerializer.SerializeToElement(new { rotation = display.Rotation, name = display.Name, imageFit = display.ImageFit, audioEnabled = display.AudioEnabled });
     var command = dispatcher.Create("display.settings", payload);
     await dispatcher.SendAsync([display.Id], command, cancellationToken);
 
@@ -493,7 +499,7 @@ public sealed record CreateEventRequest(
     DateTimeOffset? EndsAt);
 
 public sealed record PairDisplayRequest(string Code, string Name, Guid EventId);
-public sealed record UpdateDisplaySettingsRequest(int? Rotation = null, string? Name = null, string? ImageFit = null);
+public sealed record UpdateDisplaySettingsRequest(int? Rotation = null, string? Name = null, string? ImageFit = null, bool? AudioEnabled = null);
 
 public sealed record EventResponse(
     Guid Id,
@@ -522,6 +528,7 @@ public sealed record DisplayResponse(
     string Name,
     int Rotation,
     string ImageFit,
+    bool AudioEnabled,
     DisplayStatus Status,
     DateTimeOffset? LastSeenAt,
     double? ClockOffsetMs,
@@ -552,6 +559,7 @@ public sealed record DisplayResponse(
         item.Name,
         item.Rotation,
         item.ImageFit,
+        item.AudioEnabled,
         item.Status,
         item.LastSeenAt,
         item.ClockOffsetMs,

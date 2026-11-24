@@ -1,3 +1,23 @@
+type AudioPlaybackOptions = {
+  isCancelled: () => boolean
+  onAudioBlocked?: () => void
+}
+
+// Keep the picture playing when a browser requires a local gesture for sound.
+// Only retry a policy rejection, once, and never revive an obsolete/paused item.
+export async function playVideoWithAudioFallback(video: HTMLVideoElement, options: AudioPlaybackOptions): Promise<void> {
+  const startedMuted = video.muted
+  try {
+    await video.play()
+  } catch (error) {
+    if (options.isCancelled()) return
+    if (!options.onAudioBlocked || startedMuted || (error as { name?: string })?.name !== 'NotAllowedError') throw error
+    video.muted = true
+    options.onAudioBlocked()
+    if (!options.isCancelled()) await video.play()
+  }
+}
+
 // Native video buffers are browser-managed. Wait for a useful reserve before
 // playback, with a time limit for devices that cap preloading while paused.
 export const playbackBufferSeconds = 15
@@ -31,6 +51,7 @@ type VideoBufferOptions = {
   // Playlist transitions already had a chance to preload. Ask the browser to
   // consume that buffer instead of pausing again to build a fifteen-second reserve.
   startImmediately?: boolean
+  onAudioBlocked?: () => void
 }
 
 export function bufferVideoPlayback(
@@ -43,7 +64,9 @@ export function bufferVideoPlayback(
 
   const requestPlayback = () => {
     try {
-      void Promise.resolve(video.play()).catch(() => {
+      void playVideoWithAudioFallback(video, {
+        isCancelled: () => disposed, onAudioBlocked: options.onAudioBlocked,
+      }).catch(() => {
         // Autoplay policy or an interrupted play request must not create a retry loop.
       })
     } catch {
@@ -193,7 +216,10 @@ export function recoverVideoPlayback(
       if (attempt === 0) {
         // Bypass the reserve gate once: some TVs stop preloading while paused.
         // Leave native buffering running even if another waiting event arrives.
-        void Promise.resolve(video.play()).catch(error => {
+        void playVideoWithAudioFallback(video, {
+          isCancelled: () => stopped || currentGeneration !== generation,
+          onAudioBlocked: options.onAudioBlocked,
+        }).catch(error => {
           if (stopped || currentGeneration !== generation) return
           if (error?.name === 'NotAllowedError' || error?.name === 'NotSupportedError') fail(error)
           // Other failures (or a never-settling promise) escalate on the next deadline.
@@ -201,7 +227,7 @@ export function recoverVideoPlayback(
       } else {
         const position = options.getPosition()
         options.reload(Number.isFinite(position) ? Math.max(0, position) : 0)
-        if (!stopped) stopBuffering = bufferVideoPlayback(video, onBuffering)
+        if (!stopped) stopBuffering = bufferVideoPlayback(video, onBuffering, { onAudioBlocked: options.onAudioBlocked })
       }
     } catch (error) { fail(error) }
   }

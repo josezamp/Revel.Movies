@@ -1,7 +1,57 @@
 import { test, expect, type APIRequestContext, type Page } from './adminFixture'
+import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5S8AAAAASUVORK5CYII=', 'base64')
 const file = (name: string, buffer = png) => ({ name, mimeType: 'image/png', buffer })
+
+test('automatic upload replaces the video with audio and the disabled switch persists and keeps original bytes', async ({ page, request }, testInfo) => {
+  test.setTimeout(90_000)
+  const eventId = await openLibrary(page, request)
+  const availability = await (await request.get(`/api/events/${eventId}/media-optimizations`)).json()
+  test.skip(!availability.available, 'FFmpeg and FFprobe are required for the complete automatic upload flow.')
+  const buffer = execFileSync(process.env.REVEL_TEST_FFMPEG || 'ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=60',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100', '-t', '2', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '8',
+    '-threads', '2', '-c:a', 'aac', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'], { maxBuffer: 10 * 1024 * 1024 })
+  const toggle = page.getByRole('switch', { name: 'Optimizar videos al subir' })
+  await expect(toggle).toBeChecked()
+  await page.getByLabel('Agregar archivos a la cola').setInputFiles({ name: 'Automatico.mp4', mimeType: 'video/mp4', buffer })
+  const uploaded = page.waitForResponse(response => response.url().endsWith(`/api/events/${eventId}/media`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Subir archivos pendientes' }).click()
+  const original = await (await uploaded).json()
+  const card = page.locator('.library-card').filter({ has: page.locator('strong[title="Automatico"]') })
+  await expect(card).toContainText('Video optimizado', { timeout: 60_000 })
+  await expect(card).toContainText('audio conservado')
+  await expect(page.locator('.library-card')).toHaveCount(1)
+  const library = await (await request.get(`/api/events/${eventId}/media`)).json()
+  expect(library[0].id).toBe(original.id)
+  expect(library[0].fileSize).toBeLessThan(buffer.length)
+  expect(library[0].checksum).not.toBe(original.checksum)
+  await card.getByRole('button', { name: 'Vista previa local' }).click()
+  await expect(page.getByRole('dialog').locator('video')).toHaveAttribute('src', library[0].contentUrl)
+  await page.keyboard.press('Escape')
+  const bytes = await (await request.get(library[0].contentUrl)).body()
+  const optimizedPath = testInfo.outputPath('optimized.mp4')
+  writeFileSync(optimizedPath, bytes)
+  const probe = JSON.parse(execFileSync(process.env.REVEL_TEST_FFPROBE || 'ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', optimizedPath]).toString())
+  expect(probe.streams.some((stream: { codec_type: string }) => stream.codec_type === 'audio')).toBeTruthy()
+  expect(probe.streams.find((stream: { codec_type: string }) => stream.codec_type === 'video').avg_frame_rate).toBe('30/1')
+  await page.screenshot({ path: testInfo.outputPath('automatic-upload-desktop.png'), fullPage: true })
+  await toggle.uncheck()
+  await page.reload()
+  await expect(toggle).not.toBeChecked()
+  await page.getByLabel('Agregar archivos a la cola').setInputFiles({ name: 'Original.mp4', mimeType: 'video/mp4', buffer })
+  await page.getByRole('button', { name: 'Subir archivos pendientes' }).click()
+  await expect(page.locator('.upload-queue')).toContainText('1 de 1 archivos subidos')
+  const unprocessed = (await (await request.get(`/api/events/${eventId}/media`)).json()).find((asset: { fileName: string }) => asset.fileName === 'Original.mp4')
+  expect(await (await request.get(unprocessed.contentUrl)).body()).toEqual(buffer)
+  const jobs = (await (await request.get(`/api/events/${eventId}/media-optimizations`)).json()).jobs
+  expect(jobs).toHaveLength(1)
+  await page.setViewportSize({ width: 360, height: 800 })
+  await expect(toggle).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy()
+  await page.screenshot({ path: testInfo.outputPath('automatic-upload-mobile.png'), fullPage: true })
+})
 
 async function openLibrary(page: Page, request: APIRequestContext) {
   const created = await request.post('/api/events', { data: { name: `Subidas ${Date.now()}`, timeZone: 'UTC' } })

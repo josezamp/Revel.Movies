@@ -25,6 +25,113 @@ namespace RevelMovies.Api.Tests;
 
 public sealed class MediaOptimizationTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Upload_switch_controls_replacement_and_keeps_identity_references_and_cache_fresh(bool optimize)
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        var original = await factory.SeedAsync(client, optimize);
+        var id = original.GetProperty("id").GetGuid(); var eventId = original.GetProperty("eventId").GetGuid();
+        using var playlist = await client.PostAsJsonAsync($"/api/events/{eventId}/playlists", new
+            { name = "Uploaded", items = new[] { new { mediaAssetId = id, durationSeconds = 12 } } });
+        playlist.EnsureSuccessStatusCode();
+        var beforePlaylist = await playlist.Content.ReadFromJsonAsync<JsonElement>();
+        using var beforeContent = await client.GetAsync($"/api/media/{id}/content");
+        string sourceKey;
+        using (var scope = factory.Services.CreateScope())
+            sourceKey = (await scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>().MediaAssets.SingleAsync()).StorageKey;
+        Assert.Equal(optimize, await factory.Worker().ProcessNextAsync(default));
+        var current = await client.GetFromJsonAsync<JsonElement>($"/api/media/{id}");
+        Assert.Equal(id, current.GetProperty("id").GetGuid());
+        Assert.Equal(original.GetProperty("name").GetString(), current.GetProperty("name").GetString());
+        Assert.Equal("clip.mp4", current.GetProperty("fileName").GetString());
+        Assert.Equal(optimize ? 4 : OptimizationFactory.Source.Length, current.GetProperty("fileSize").GetInt64());
+        using var content = await client.GetAsync($"/api/media/{id}/content");
+        var playlists = await client.GetFromJsonAsync<JsonElement>($"/api/events/{eventId}/playlists");
+        Assert.Equal(id, playlists[0].GetProperty("items")[0].GetProperty("mediaAssetId").GetGuid());
+        Assert.Equal(12, playlists[0].GetProperty("items")[0].GetProperty("durationSeconds").GetDouble());
+        if (optimize)
+        {
+            var job = await factory.JobAsync(id);
+            Assert.True(job.ReplaceOriginal); Assert.Equal(1, factory.Optimizer.Calls);
+            Assert.Equal("Completed", job.Status); Assert.Equal(id, job.ResultMediaId);
+            Assert.Equal(current.GetProperty("checksum").GetString(), job.ResultChecksum);
+            Assert.NotEqual(beforeContent.Headers.ETag, content.Headers.ETag);
+            Assert.NotEqual(original.GetProperty("contentUrl").GetString(), current.GetProperty("contentUrl").GetString());
+            Assert.NotEqual(beforePlaylist.GetProperty("updatedAt").GetString(), playlists[0].GetProperty("updatedAt").GetString());
+            using var scope = factory.Services.CreateScope();
+            Assert.Null(await scope.ServiceProvider.GetRequiredService<IMediaStorage>().OpenReadAsync(sourceKey));
+            Assert.Equal(HttpStatusCode.OK, (await client.PostAsync($"/api/media/{id}/tv-optimization", null)).StatusCode);
+        }
+        else
+        {
+            Assert.Equal(OptimizationFactory.Source, await content.Content.ReadAsByteArrayAsync());
+            Assert.Equal(beforeContent.Headers.ETag, content.Headers.ETag);
+            Assert.Equal(0, factory.Optimizer.Calls);
+        }
+        Assert.Single(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        Assert.Single((await client.GetFromJsonAsync<JsonElement>($"/api/events/{eventId}/media")).EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Automatic_failure_or_no_saving_preserves_upload_and_retry_keeps_replacement(bool noSaving)
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        factory.Optimizer.OutputSize = noSaving ? 2048 : 4;
+        factory.Optimizer.AfterWrite = noSaving ? null : () => throw new IOException("Failed");
+        var original = await factory.SeedAsync(client, true); var id = original.GetProperty("id").GetGuid();
+        await factory.Worker().ProcessNextAsync(default);
+        Assert.Equal(noSaving ? "NoSaving" : "Failed", (await factory.JobAsync(id)).Status);
+        Assert.Equal(OptimizationFactory.Source, await client.GetByteArrayAsync($"/api/media/{id}/content"));
+        Assert.Single(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        if (!noSaving)
+        {
+            factory.Optimizer.AfterWrite = null;
+            (await client.PostAsync($"/api/media/{id}/tv-optimization", null)).EnsureSuccessStatusCode();
+            await factory.Worker().ProcessNextAsync(default);
+            Assert.Equal(id, (await factory.JobAsync(id)).ResultMediaId);
+            Assert.True((await factory.JobAsync(id)).ReplaceOriginal);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_new_upload_invalidates_inflight_automatic_work_and_uses_its_own_switch(bool optimizeAgain)
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        var original = await factory.SeedAsync(client, true);
+        var id = original.GetProperty("id").GetGuid(); var eventId = original.GetProperty("eventId").GetGuid();
+        factory.Optimizer.AfterWrite = async () =>
+        {
+            (await OptimizationFactory.UploadAsync(client, eventId, id, optimizeAgain)).EnsureSuccessStatusCode();
+        };
+        await factory.Worker().ProcessNextAsync(default);
+        Assert.Equal(OptimizationFactory.Source.Concat(new byte[] { 1 }), await client.GetByteArrayAsync($"/api/media/{id}/content"));
+        factory.Optimizer.AfterWrite = null;
+        Assert.Equal(optimizeAgain, await factory.Worker().ProcessNextAsync(default));
+        Assert.Single(Directory.GetFiles(factory.MediaRoot, "*", SearchOption.AllDirectories));
+        if (optimizeAgain) Assert.Equal(id, (await factory.JobAsync(id)).ResultMediaId);
+    }
+
+    [Fact]
+    public async Task Missing_encoder_does_not_silently_accept_requested_optimization_or_modify_existing_upload()
+    {
+        await using var factory = new OptimizationFactory(); using var client = factory.CreateClient();
+        var original = await factory.SeedAsync(client);
+        var id = original.GetProperty("id").GetGuid(); var eventId = original.GetProperty("eventId").GetGuid();
+        factory.Optimizer.IsAvailable = false;
+        using var response = await OptimizationFactory.UploadAsync(client, eventId, id, true);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("FFmpeg", await response.Content.ReadAsStringAsync());
+        Assert.Equal(OptimizationFactory.Source, await client.GetByteArrayAsync($"/api/media/{id}/content"));
+        (await OptimizationFactory.UploadAsync(client, eventId, id, false)).EnsureSuccessStatusCode();
+        Assert.False(await factory.Worker().ProcessNextAsync(default));
+    }
+
     [Fact]
     public async Task Creates_independent_smaller_copy_preserves_original_and_playlist_and_deduplicates_requests()
     {
@@ -236,7 +343,7 @@ public sealed class MediaOptimizationTests
         {
             Calls++; await File.WriteAllBytesAsync(outputPath, new byte[OutputSize], token); progress(.5);
             if (AfterWrite is not null) await AfterWrite();
-            return new(640, 360, 10, 30, false, "h264", "yuv420p");
+            return new(640, 360, 10, 30, true, "h264", "yuv420p", 1);
         }
     }
 
@@ -270,14 +377,14 @@ public sealed class MediaOptimizationTests
         }
         public MediaOptimizationWorker Worker() => new(Services.GetRequiredService<IServiceScopeFactory>(), Optimizer,
             new TvOptimizationOptions { Enabled = true, WorkPath = WorkRoot }, NullLogger<MediaOptimizationWorker>.Instance);
-        public async Task<JsonElement> SeedAsync(HttpClient client)
+        public async Task<JsonElement> SeedAsync(HttpClient client, bool optimize = false)
         {
             using var scope = Services.CreateScope();
             await scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>().Database.EnsureCreatedAsync();
             using var created = await client.PostAsJsonAsync("/api/events", new { name = "TV " + Guid.NewGuid(), timeZone = "UTC" });
             created.EnsureSuccessStatusCode();
             var eventId = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-            using var uploaded = await UploadAsync(client, eventId); uploaded.EnsureSuccessStatusCode();
+            using var uploaded = await UploadAsync(client, eventId, optimize: optimize); uploaded.EnsureSuccessStatusCode();
             return await uploaded.Content.ReadFromJsonAsync<JsonElement>();
         }
         public async Task<MediaOptimizationJob> JobAsync(Guid id)
@@ -285,12 +392,13 @@ public sealed class MediaOptimizationTests
             using var scope = Services.CreateScope();
             return await scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>().MediaOptimizationJobs.AsNoTracking().SingleAsync(x => x.MediaId == id);
         }
-        public static async Task<HttpResponseMessage> UploadAsync(HttpClient client, Guid eventId, Guid? replace = null)
+        public static async Task<HttpResponseMessage> UploadAsync(HttpClient client, Guid eventId, Guid? replace = null, bool optimize = false)
         {
             using var form = new MultipartFormDataContent();
             var file = new ByteArrayContent(replace.HasValue ? Source.Concat(new byte[] { 1 }).ToArray() : Source);
             file.Headers.ContentType = new MediaTypeHeaderValue("video/mp4"); form.Add(file, "file", "clip.mp4");
             if (replace.HasValue) form.Add(new StringContent(replace.Value.ToString()), "replaceMediaId");
+            form.Add(new StringContent(optimize.ToString()), "optimize");
             return await client.PostAsync($"/api/events/{eventId}/media", form);
         }
         public override async ValueTask DisposeAsync()

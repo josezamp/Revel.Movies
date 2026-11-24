@@ -413,7 +413,7 @@ test('autoplay refusal is reported once instead of reloading in a loop', async t
   const { video, tick, reloads, failures } = recoveryControl(t)
   video.play = () => Promise.reject(new DOMException('User gesture required', 'NotAllowedError'))
   tick(videoStallTimeoutMs)
-  await Promise.resolve()
+  await new Promise(resolve => setImmediate(resolve))
   tick(videoStallTimeoutMs * 5)
   assert.deepEqual(reloads, [])
   assert.equal(failures.length, 1)

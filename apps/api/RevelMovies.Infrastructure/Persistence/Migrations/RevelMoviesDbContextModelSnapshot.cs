@@ -132,6 +132,12 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .HasColumnType("uniqueidentifier")
                         .HasColumnName("id");
 
+                    b.Property<bool>("AudioEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("audio_enabled");
+
                     b.Property<double?>("ClockOffsetMs")
                         .HasColumnType("float")
                         .HasColumnName("clock_offset_ms");
@@ -155,8 +161,8 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)")
-                        .HasColumnName("image_fit")
-                        .HasDefaultValue("contain");
+                        .HasDefaultValue("contain")
+                        .HasColumnName("image_fit");
 
                     b.Property<DateTimeOffset?>("LastClockSyncAt")
                         .HasColumnType("datetimeoffset")
@@ -377,6 +383,12 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Progress")
                         .HasColumnType("int");
+
+                    b.Property<bool>("ReplaceOriginal")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ResultChecksum")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid?>("ResultMediaId")
                         .HasColumnType("uniqueidentifier");
@@ -978,6 +990,7 @@ namespace RevelMovies.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
+
             modelBuilder.Entity("RevelMovies.Domain.Scenes.SceneScheduleImport", b =>
                 {
                     b.HasOne("RevelMovies.Domain.Events.Event", null)

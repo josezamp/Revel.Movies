@@ -2,7 +2,7 @@ namespace RevelMovies.Domain.Media;
 
 public sealed class MediaOptimizationJob
 {
-    // One current request per original. The output is an independent library asset.
+    // One current request per original. Uploads replace it; manual TV requests create a copy.
     public Guid MediaId { get; set; }
     public Guid EventId { get; set; }
     public string SourceChecksum { get; set; } = "";
@@ -11,6 +11,8 @@ public sealed class MediaOptimizationJob
     public string Status { get; set; } = "Queued";
     public int Progress { get; set; }
     public Guid? ResultMediaId { get; set; }
+    public bool ReplaceOriginal { get; set; }
+    public string? ResultChecksum { get; set; }
     public long? OptimizedSize { get; set; }
     public string? Error { get; set; }
     public Guid? LeaseId { get; set; }

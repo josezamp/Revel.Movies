@@ -1,0 +1,48 @@
+import { test, expect } from './adminFixture'
+
+test('configuration saves audio separately for offline screens and shares the setting with live controls', async ({ page, request }, testInfo) => {
+  const created = await request.post('/api/events', { data: { name: `Audio settings ${Date.now()}`, timeZone: 'UTC' } })
+  expect(created.ok()).toBeTruthy()
+  const { id: eventId } = await created.json()
+  const ids: string[] = []
+  for (const name of ['TV Salón', 'TV Patio']) {
+    const pairing = await request.post('/api/player/pairing-session')
+    expect(pairing.ok()).toBeTruthy()
+    const { code } = await pairing.json()
+    const paired = await request.post('/api/displays/pair', { data: { eventId, code, name } })
+    expect(paired.ok()).toBeTruthy()
+    ids.push((await paired.json()).id)
+  }
+
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto(`/admin?event=${eventId}&section=configuration`)
+  const panel = page.getByRole('region', { name: 'Audio de las pantallas', exact: true })
+  const salon = panel.getByRole('switch', { name: 'Audio de TV Salón', exact: true })
+  const patio = panel.getByRole('switch', { name: 'Audio de TV Patio', exact: true })
+  await expect(salon).toBeChecked()
+  await expect(patio).toBeChecked()
+  await salon.click()
+  await expect(salon).not.toBeChecked()
+  await expect(salon).toBeEnabled()
+  await expect(patio).toBeChecked()
+  const displays = await (await request.get(`/api/displays?eventId=${eventId}`)).json()
+  expect(displays.find((item: { id: string }) => item.id === ids[0]).audioEnabled).toBe(false)
+  expect(displays.find((item: { id: string }) => item.id === ids[1]).audioEnabled).toBe(true)
+  await page.reload()
+  await expect(salon).not.toBeChecked()
+  await expect(patio).toBeChecked()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+  await panel.screenshot({ path: testInfo.outputPath('audio-settings-mobile.png') })
+
+  await page.getByRole('button', { name: 'En vivo', exact: true }).click()
+  const card = page.locator('.display-card').filter({ has: page.getByRole('heading', { name: 'TV Salón', exact: true }) })
+  await card.locator('.display-details > summary').click()
+  const liveAudio = card.getByRole('switch', { name: 'Audio de TV Salón', exact: true })
+  await expect(liveAudio).not.toBeChecked()
+  await liveAudio.click()
+  await expect(liveAudio).toBeChecked()
+  await expect(liveAudio).toBeEnabled()
+  await page.getByRole('button', { name: 'Configuración', exact: true }).click()
+  await expect(salon).toBeChecked()
+  await expect(patio).toBeChecked()
+})

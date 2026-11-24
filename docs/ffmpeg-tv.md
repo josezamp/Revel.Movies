@@ -1,12 +1,34 @@
-# Reducir tamaño para TV
+# Optimización de videos
+
+## Optimización automática al subir
+
+En **Contenido → Biblioteca**, el switch **Optimizar videos al subir** está activado por defecto. La elección se guarda en ese navegador y se mantiene al recargar o cambiar de evento. Se aplica al iniciar las transferencias; durante una tanda en curso queda bloqueado. Desactivarlo conserva el comportamiento anterior: se guardan los bytes originales sin crear trabajos automáticos. Las imágenes no se procesan.
+
+Con el switch activado, cada MP4 se guarda y se encola en una misma transacción. La subida termina sin esperar la conversión; la tarjeta de la biblioteca muestra el progreso en segundo plano, incluso después de cerrar y reabrir el panel. El servidor procesa un video a la vez. El perfil limita la resolución a 1920×1080 o 1080×1920 y los FPS a 30, sin ampliar imágenes pequeñas ni elevar tasas inferiores; usa H.264 Main, CRF 24, bitrate de video máximo de 5 Mbit/s y faststart. **Conserva todas las pistas de audio**, recodificadas a AAC de 128 kbit/s por pista. Los videos sin audio siguen sin audio. La selección opcional de pistas sigue la [documentación de FFmpeg](https://ffmpeg.org/ffmpeg.html#Advanced-options).
+
+Si la salida pasa las validaciones de video y cantidad de pistas de audio y pesa menos, reemplaza el archivo del mismo elemento: conserva ID, nombre y referencias de playlists/escenas; actualiza tamaño, duración, resolución, checksum, URL versionada y fecha de las playlists afectadas. No crea una copia «· TV». El archivo físico anterior se elimina después de confirmar el reemplazo en la base de datos. Si esa eliminación falla, se registra en logs y puede limpiarse como huérfano con **Liberar espacio del evento**. No se interrumpe automáticamente una reproducción ya iniciada.
+
+Si falla la conversión, el video es HDR o no hay ahorro, se conserva el archivo subido y se muestra el resultado. Reintentar una optimización automática fallida mantiene el audio y el modo de reemplazo. Un nuevo archivo subido sobre el mismo elemento invalida el trabajo anterior; ninguna conversión pendiente puede sobrescribir esa nueva versión. Desactivar el switch afecta las siguientes subidas, no cancela los trabajos ya aceptados.
+
+Si FFmpeg/FFprobe no están disponibles o `TvOptimization:Enabled=false`, el panel lo informa y las subidas de videos con optimización activada se rechazan sin reemplazar archivos existentes. Podés desactivar el switch para subir los originales o configurar las herramientas como se indica abajo. La transferencia desde el navegador conserva su tamaño original; el ahorro se produce en el servidor y en las descargas posteriores.
+
+Para integraciones, `POST /api/events/{eventId}/media` acepta el campo multipart `optimize=true|false`. El panel siempre envía la elección. Omitirlo mantiene la compatibilidad con clientes anteriores (sin optimización). Otros valores se rechazan. Los trabajos exponen `replaceOriginal` y `resultChecksum` para distinguir reemplazos y refrescar el contenido publicado.
+
+## Reducción manual para TV
 
 En **Contenido → Biblioteca**, cada video ofrece **Reducir tamaño para TV** cuando el servidor tiene habilitada la función. El trabajo continúa aunque cierres el navegador; la tarjeta muestra la cola, el progreso y el resultado.
 
 Se genera otro archivo con nombre terminado en **· TV** y un identificador propio. Cuando la copia está lista, la biblioteca muestra una sola tarjeta para ese video: la versión TV. **Vista previa local** permite revisar esa versión y **Ver original** abre la vista previa del original. Al seleccionarla para una playlist o enviarla a una pantalla desde la biblioteca, se usa la copia TV. El original conserva sus bytes, URL y referencias existentes en playlists y escenas. Si eliminás la copia TV, el original vuelve a aparecer en la biblioteca. Las pantallas no cambian automáticamente.
 
-El perfil genera MP4 H.264 Main, `yuv420p`, sin audio, CRF 24, hasta 30 FPS y un rectángulo de 1920×1080 (1080×1920 en vertical), sin ampliar videos más pequeños. Respeta la rotación del archivo, las proporciones de visualización y las tasas inferiores, incluidas las fraccionarias. Usa `faststart` y limita el bitrate de video a 5 Mbit/s. Los videos HDR se rechazan con un mensaje para exportarlos previamente en SDR.
+El perfil genera MP4 H.264 Main, `yuv420p`, CRF 24, hasta 30 FPS y un rectángulo de 1920×1080 (1080×1920 en vertical), sin ampliar videos más pequeños. **Conserva todas las pistas de audio**, recodificadas a AAC de 128 kbit/s por pista, igual que la optimización automática. Un original sin audio sigue sin audio. Respeta la rotación del archivo, las proporciones de visualización y las tasas inferiores, incluidas las fraccionarias. Usa `faststart` y limita el bitrate de video a 5 Mbit/s. Los videos HDR se rechazan con un mensaje para exportarlos previamente en SDR.
 
-La copia solo se agrega si pasa la validación de formato, duración y perfil y **pesa menos que el original**. Si no hay ahorro, se descarta el resultado temporal y se informa en la tarjeta. El porcentaje mostrado es el ahorro real de bytes. Conservar ambos archivos aumenta el almacenamiento total del servidor; el ahorro corresponde al video que descargarán las TVs. La subida inicial conserva su tamaño original.
+La copia solo se agrega si pasa la validación de formato, duración, cantidad de pistas de audio y perfil y **pesa menos que el original**. Si no hay ahorro, se descarta el resultado temporal y se informa en la tarjeta. El porcentaje mostrado es el ahorro real de bytes. Conservar ambos archivos aumenta el almacenamiento total del servidor; el ahorro corresponde al video que descargarán las TVs. La subida inicial conserva su tamaño original.
+
+### Copias TV generadas antes de conservar el audio
+
+Las versiones anteriores eliminaban las pistas de audio en las copias TV manuales. Actualizar la aplicación o activar el sonido de una pantalla no recupera esas pistas: hay que partir del original con audio. **Ver original** permite comprobarlo. La etiqueta **Copia TV lista** no certifica si una copia antigua tiene audio.
+
+Para regenerar una copia desde la biblioteca, primero registrá sus usos en playlists y escenas. Eliminá únicamente la copia TV desde **Más opciones → Eliminar**: el original vuelve a aparecer y podés ejecutar **Reducir tamaño para TV** otra vez. La nueva copia tiene otro ID; eliminar la anterior quita sus elementos de las playlists, y las referencias de escenas también deben actualizarse. Revisá las playlists y escenas antes de volver a reproducirlas. La aplicación no elimina ni regenera automáticamente copias existentes al actualizar.
 
 ## Instalar en Windows Server / IIS
 
@@ -58,11 +80,11 @@ En IIS, seleccioná **RevelMovies → api → Configuración avanzada…** para 
    }
    ```
 
-   También podés configurar variables de entorno del proceso IIS: `TvOptimization__Enabled`, `TvOptimization__FFmpegPath`, `TvOptimization__FFprobePath`, `TvOptimization__WorkPath`, `TvOptimization__TimeoutMinutes` y `TvOptimization__Threads`. Usá rutas absolutas: el PATH del usuario interactivo puede ser distinto al del Application Pool. La función está deshabilitada por defecto; activar `Enabled` requiere que ambos ejecutables existan. Los permisos y codecs se comprueban ejecutando una conversión.
+   También podés configurar variables de entorno del proceso IIS: `TvOptimization__Enabled`, `TvOptimization__FFmpegPath`, `TvOptimization__FFprobePath`, `TvOptimization__WorkPath`, `TvOptimization__TimeoutMinutes` y `TvOptimization__Threads`. Usá rutas absolutas: el PATH del usuario interactivo puede ser distinto al del Application Pool. El repositorio ahora incluye `Enabled=true`; revisá las configuraciones existentes que todavía lo sobrescriban con `false`. La disponibilidad requiere que ambos ejecutables existan. Los permisos y codecs se comprueban ejecutando una conversión.
 
-6. Publicá **API y frontend** siguiendo [deployment.md](deployment.md). Conservá `C:\Sites\RevelMovies\api\media` al publicar: contiene los archivos cargados y no debe eliminarse al limpiar el destino. Conservá también la configuración del servidor. Esta versión incluye la migración **AddMediaOptimizationJobs**. Si `Database:ApplyMigrationsOnStartup=true`, la API la aplica al arrancar. Si administrás las migraciones por separado, generá y aplicá el script SQL con tu procedimiento habitual antes de iniciar esta versión.
+6. Publicá **API y frontend** siguiendo [deployment.md](deployment.md). Conservá `C:\Sites\RevelMovies\api\media` al publicar: contiene los archivos cargados y no debe eliminarse al limpiar el destino. Conservá también la configuración del servidor. Esta versión requiere **AddMediaOptimizationJobs** y la nueva migración **AddAutomaticUploadOptimization**. Si `Database:ApplyMigrationsOnStartup=true`, la API las aplica al arrancar. Si administrás las migraciones por separado, generá y aplicá el script SQL con tu procedimiento habitual antes de iniciar esta versión.
 7. Reciclá el Application Pool de **api** para que tome la configuración. Para trabajos continuos, usá un solo proceso del pool (`Maximum Worker Processes=1`), `Start Mode=AlwaysRunning`, `Idle Time-out=0` y **Preload Enabled=True en la aplicación api**, con Application Initialization instalado. IIS configura el [preload por aplicación](https://learn.microsoft.com/en-us/iis/configuration/system.applicationhost/sites/site/application/). La cola se ejecuta mientras la API está activa; no es un servicio Windows independiente.
-8. Subí un MP4 con audio y 60 FPS, pulsá **Reducir tamaño para TV** y verificá la copia: tamaño menor, sin audio, duración completa, orientación correcta y reproducción en la TV real. El original debe seguir disponible. La compatibilidad final depende del modelo y navegador de cada TV.
+8. Subí un MP4 con audio y 60 FPS con **Optimizar videos al subir** activado. Verificá que quede un solo elemento con menos bytes, hasta 30 FPS, audio, duración completa y orientación correcta. Desactivá el switch y subí otro video: debe conservar sus bytes. Para comprobar la función manual, usá **Reducir tamaño para TV** sobre ese segundo video; su copia debe conservar las pistas de audio y mantener intacto el original. Verificá la reproducción en la TV real: la compatibilidad final depende del modelo y navegador.
 
 ## Operación y recuperación
 
@@ -110,7 +132,7 @@ Luego seguí los pasos 3 a 8 de instalación: verificá los ejecutables copiados
 
 ## Desarrollo y Docker
 
-En desarrollo podés usar `ffmpeg` y `ffprobe` en PATH con `TvOptimization__Enabled=true`. Para Docker, instalá ambos ejecutables en la imagen de la API y configurá las rutas Linux y una carpeta de trabajo escribible; la imagen base del repositorio no los incluye y conserva la función deshabilitada.
+En desarrollo podés usar `ffmpeg` y `ffprobe` en PATH con `TvOptimization__Enabled=true`. Para Docker, instalá ambos ejecutables en la imagen de la API y configurá las rutas Linux y una carpeta de trabajo escribible; la imagen base del repositorio no los incluye, por lo que la optimización no estará disponible hasta instalarlos.
 
 Las pruebas de API usan una base SQLite temporal para comprobar cola, preservación del original, errores, reemplazos y recuperación. Las pruebas `FFmpegTvVideoOptimizerTests` usan los ejecutables reales en PATH, o las rutas de `REVEL_TEST_FFMPEG` y `REVEL_TEST_FFPROBE`. Si no están disponibles, esas pruebas se informan como omitidas.
 

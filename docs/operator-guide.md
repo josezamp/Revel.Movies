@@ -22,6 +22,14 @@ Durante la proyección o en pantalla completa, el control se oculta tras 4 segun
 
 La activación requiere un toque o una tecla en ese dispositivo; no se puede iniciar desde el panel remoto ni conservar automáticamente al recargar. Si el navegador no admite esta función, el reproductor lo informa: probá abrirlo en otro navegador del dispositivo.
 
+## Audio de las pantallas
+
+En **Configuración → Audio de las pantallas**, activá o desactivá **Audio** para cada dispositivo. También está en **En vivo → Detalles → Audio**. Se guarda por pantalla, funciona con pantallas desconectadas y se recupera al reconectar o recargar. El audio está activado por defecto, incluidas las pantallas existentes después de actualizar. Silenciar no reinicia el video ni cambia su posición; los videos precargados permanecen en silencio.
+
+Si el navegador necesita permiso local, el video continúa sin sonido y aparece **Activar audio** en el reproductor. Tocá ese botón con el mouse, la pantalla táctil o el control remoto del dispositivo. Activarlo desde el panel remoto no puede sustituir ese permiso; el navegador puede pedirlo otra vez después de una recarga. La opción controla los videos del reproductor; las páginas web externas administran su propio sonido.
+
+Todas las nuevas optimizaciones conservan las pistas de audio. Las copias TV antiguas creadas sin audio necesitan regenerarse desde el original: activar el sonido no reconstruye una pista eliminada. Consultá [optimización de videos](ffmpeg-tv.md) antes de reemplazar copias usadas por playlists o escenas.
+
 ## En vivo
 
 Cada tarjeta muestra el último reporte recibido del reproductor: archivo actual, playlist e índice, posición, duración, repetición y capas. Pantalla negra tiene prioridad; después anuncios y el contenido elegido, que puede ser una página web o multimedia. Solo se reproduce una de esas dos fuentes. Una página externa se identifica como asignación de iframe: no es posible garantizar que el sitio externo haya cargado o permitido su inserción.
@@ -101,6 +109,8 @@ La biblioteca permite vista previa local, búsqueda, filtros, selección ordenad
 Los enlaces se guardan por evento, se conservan al limpiar archivos y se eliminan individualmente desde su tarjeta. Eliminarlos de la biblioteca no retira las páginas ya asignadas. Al elegir y reproducir un video, imagen o playlist, se retira automáticamente la página web del destino; la TV conserva el cambio al recargar o reconectar. Las playlists siguen admitiendo videos e imágenes; los enlaces usan la capa de página web.
 
 Podés arrastrar archivos o usar **Elegir archivos**, seleccionar más de 50 en una tanda y comenzar con **Subir archivos pendientes**. La cola procesa hasta tres transferencias simultáneas, sin límite de cantidad, con un máximo de 1 GB por archivo. Se puede cancelar cada archivo o todos los pendientes y reintentar los fallidos sin volver a subir los exitosos. Mantené la página abierta durante la carga; cambiar de evento o cerrar la página cancela las transferencias locales. La cola no se conserva al recargar.
+
+**Optimizar videos al subir** está activado por defecto y recuerda tu elección en este navegador. Reduce los MP4 hasta 1080p/30 FPS conservando el audio; el servidor procesa en segundo plano y muestra el progreso en la biblioteca. Cuando hay ahorro y el resultado es válido, reemplaza el archivo manteniendo su identidad y referencias. Si falla o no reduce el tamaño, conserva el archivo subido. Las imágenes no se modifican. Desactivá el switch antes de comenzar la tanda para guardar los originales sin procesamiento. Si falta FFmpeg, el panel lo informa y necesitás desactivar el switch o configurar el servidor para subir videos. Consultá [configuración y recuperación](ffmpeg-tv.md).
 
 Los duplicados se detectan por nombre completo dentro del evento, sin distinguir mayúsculas, tanto en la biblioteca como en la misma cola. **Omitir** conserva el existente; **Reemplazar** guarda el nuevo contenido conservando el identificador y las referencias en playlists y escenas. La decisión puede aplicarse a todos los duplicados pendientes. Un mismo contenido con otro nombre se considera un archivo distinto. Si falla el reemplazo, se conserva el archivo anterior. Las escenas preparadas con el contenido anterior deben prepararse de nuevo; el reproductor conectado verifica la versión de su caché al volver a solicitar el recurso. Un reproductor sin conexión conserva la última copia preparada.
 

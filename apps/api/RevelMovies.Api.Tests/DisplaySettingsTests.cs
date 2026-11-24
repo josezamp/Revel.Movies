@@ -37,6 +37,17 @@ public sealed class DisplaySettingsTests
     }
 
     [Fact]
+    public void Migration_enables_audio_for_existing_displays()
+    {
+        using var db = new RevelMoviesDbContext(new DbContextOptionsBuilder<RevelMoviesDbContext>()
+            .UseSqlServer("Server=localhost;Database=ScriptOnly;Integrated Security=true;TrustServerCertificate=true").Options);
+        var script = db.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>()
+            .GenerateScript("20261124134352_AddAutomaticUploadOptimization", "20261124160000_AddDisplayAudioEnabled");
+        Assert.Contains("ALTER TABLE [displays] ADD [audio_enabled] bit NOT NULL DEFAULT CAST(1 AS bit)", script);
+        Assert.False(db.Database.HasPendingModelChanges());
+    }
+
+    [Fact]
     public async Task Displays_default_to_contain_and_player_identity_exposes_the_setting()
     {
         await using var factory = new Factory();
@@ -47,9 +58,81 @@ public sealed class DisplaySettingsTests
         var display = Assert.Single(displays.EnumerateArray());
         Assert.Equal(displayId, display.GetProperty("id").GetGuid());
         Assert.Equal("contain", display.GetProperty("imageFit").GetString());
+        Assert.True(display.GetProperty("audioEnabled").GetBoolean());
         client.DefaultRequestHeaders.Add("X-Device-Token", DeviceToken);
         var identity = await client.GetFromJsonAsync<JsonElement>("/api/player/identity");
         Assert.Equal("contain", identity.GetProperty("imageFit").GetString());
+        Assert.True(identity.GetProperty("audioEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Audio_setting_is_saved_dispatched_and_recovered_without_resetting_playback_or_other_settings()
+    {
+        await using var factory = new Factory();
+        using var client = factory.CreateClient();
+        var displayId = await Seed(factory);
+
+        using var muted = await client.PutAsJsonAsync($"/api/displays/{displayId}/settings", new { audioEnabled = false });
+        Assert.Equal(HttpStatusCode.OK, muted.StatusCode);
+        var response = await muted.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(response.GetProperty("audioEnabled").GetBoolean());
+        Assert.Equal(90, response.GetProperty("rotation").GetInt32());
+        Assert.Equal("contain", response.GetProperty("imageFit").GetString());
+        Assert.Equal("TV vertical", response.GetProperty("name").GetString());
+
+        var notification = Assert.Single(factory.Services.GetRequiredService<RecordingHubLifetimeManager>().Sent);
+        Assert.Equal(PlayerHub.GroupName(displayId), notification.Group);
+        Assert.Equal("display.settings", notification.Command.Type);
+        Assert.False(notification.Command.Payload!.Value.GetProperty("audioEnabled").GetBoolean());
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+            Assert.False((await db.Displays.SingleAsync()).AudioEnabled);
+            var playback = await db.DisplayPlaybackStates.SingleAsync();
+            Assert.Equal("Playing", playback.DesiredState);
+            Assert.Equal(7, playback.Revision);
+            Assert.Equal("{\"mediaId\":\"unchanged\"}", playback.PayloadJson);
+        }
+        client.DefaultRequestHeaders.Add("X-Device-Token", DeviceToken);
+        var identity = await client.GetFromJsonAsync<JsonElement>("/api/player/identity");
+        Assert.False(identity.GetProperty("audioEnabled").GetBoolean());
+
+        // Older clients and unrelated edits must preserve a deliberately muted device.
+        using var updated = await client.PutAsJsonAsync($"/api/displays/{displayId}/settings", new { rotation = 270, imageFit = "cover", name = "Patio" });
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        Assert.False((await updated.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("audioEnabled").GetBoolean());
+        using var omitted = await client.PutAsJsonAsync($"/api/displays/{displayId}/settings", new { audioEnabled = (bool?)null });
+        Assert.Equal(HttpStatusCode.OK, omitted.StatusCode);
+        Assert.False((await omitted.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("audioEnabled").GetBoolean());
+
+        using var enabled = await client.PutAsJsonAsync($"/api/displays/{displayId}/settings", new { audioEnabled = true });
+        Assert.Equal(HttpStatusCode.OK, enabled.StatusCode);
+        var restored = await enabled.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(restored.GetProperty("audioEnabled").GetBoolean());
+        Assert.Equal(270, restored.GetProperty("rotation").GetInt32());
+        Assert.Equal("cover", restored.GetProperty("imageFit").GetString());
+        Assert.Equal("Patio", restored.GetProperty("name").GetString());
+        var sent = factory.Services.GetRequiredService<RecordingHubLifetimeManager>().Sent;
+        Assert.True(sent.Last().Command.Payload!.Value.GetProperty("audioEnabled").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Explicitly_muted_new_displays_do_not_get_overridden_by_the_database_default()
+    {
+        await using var factory = new Factory();
+        await Seed(factory);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+            var eventId = await db.Events.Select(item => item.Id).SingleAsync();
+            db.Displays.Add(new Display { EventId = eventId, Name = "Muted", DeviceTokenHash = "muted-device", AudioEnabled = false });
+            await db.SaveChangesAsync();
+        }
+        using var verificationScope = factory.Services.CreateScope();
+        var persisted = await verificationScope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>()
+            .Displays.SingleAsync(display => display.DeviceTokenHash == "muted-device");
+        Assert.False(persisted.AudioEnabled);
     }
 
     [Fact]

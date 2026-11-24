@@ -29,9 +29,10 @@ public sealed class FFmpegTvVideoOptimizer(TvOptimizationOptions options) : ITvV
             VideoCodec = VideoCodec.libx264,
             VideoCodecPreset = VideoCodecPreset.fast,
             VideoCodecProfile = VideoCodecProfile.main,
-            PixelFormat = "yuv420p", RemoveAudio = true, MapMetadata = false,
+            PixelFormat = "yuv420p", MapMetadata = false,
             Threads = Math.Clamp(options.Threads, 1, 16),
-            ExtraArguments = $"-map 0:V:0 -sn -dn -map_metadata -1 -map_chapters -1 -crf 24 " +
+            ExtraArguments = "-map 0:V:0 -map 0:a? -c:a aac -b:a 128k " +
+                "-sn -dn -map_metadata -1 -map_chapters -1 -crf 24 " +
                 $"-maxrate 5M -bufsize 10M -level:v 4.0 -threads {Math.Clamp(options.Threads, 1, 16)} " +
                 $"-filter_threads 1 -movflags +faststart -vf \"{filters}\""
         };
@@ -68,7 +69,8 @@ public sealed class FFmpegTvVideoOptimizer(TvOptimizationOptions options) : ITvV
         if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
             throw new VideoOptimizationException("FFmpeg no generó un video válido.");
         var result = await ProbeAsync(outputPath, cancellationToken);
-        if (result.Codec != "h264" || result.PixelFormat != "yuv420p" || result.HasAudio ||
+        if (result.Codec != "h264" || result.PixelFormat != "yuv420p" ||
+            result.AudioTrackCount != source.AudioTrackCount ||
             result.FramesPerSecond > 30.01 || Math.Max(result.Width, result.Height) > 1920 ||
             Math.Min(result.Width, result.Height) > 1080 ||
             Math.Abs(result.DurationSeconds - source.DurationSeconds) > Math.Max(.5, 2 / result.FramesPerSecond))
@@ -110,7 +112,8 @@ public sealed class FFmpegTvVideoOptimizer(TvOptimizationOptions options) : ITvV
             if (!double.IsFinite(duration) || duration <= 0 || !double.IsFinite(fps) || fps <= 0 || width < 2 || height < 2)
                 throw new VideoOptimizationException("No se pudo determinar la duración, resolución o FPS del video.");
             return new(width, height, duration, fps, streams.Any(x => Text(x, "codec_type") == "audio"),
-                Text(video, "codec_name") ?? "", Text(video, "pix_fmt") ?? "");
+                Text(video, "codec_name") ?? "", Text(video, "pix_fmt") ?? "",
+                streams.Count(x => Text(x, "codec_type") == "audio"));
         }
         finally
         {

@@ -36,6 +36,8 @@ public static class MediaOptimizationEndpoints
             {
                 if (job.Status is "Queued" or "Processing")
                     return Results.Accepted(value: MediaOptimizationResponse.From(job));
+                if (job.ReplaceOriginal && job.Status == "Completed" && job.ResultChecksum == media.Checksum)
+                    return Results.Ok(MediaOptimizationResponse.From(job));
                 if (job.SourceChecksum == media.Checksum && job.SourceStorageKey == media.StorageKey &&
                     (job.Status == "NoSaving" || (job.Status == "Completed" &&
                         await db.MediaAssets.AnyAsync(x => x.Id == job.ResultMediaId, token))))
@@ -43,9 +45,11 @@ public static class MediaOptimizationEndpoints
             }
             else { job = new MediaOptimizationJob { MediaId = mediaId, EventId = media.EventId }; db.MediaOptimizationJobs.Add(job); }
 
+            // Retrying a failed automatic conversion must keep replacement and audio semantics.
+            job.ReplaceOriginal = job.ReplaceOriginal && job.SourceChecksum == media.Checksum && job.SourceStorageKey == media.StorageKey;
             job.SourceChecksum = media.Checksum; job.SourceStorageKey = media.StorageKey;
             job.OriginalSize = media.FileSize; job.Status = "Queued"; job.Progress = 0;
-            job.ResultMediaId = null; job.OptimizedSize = null; job.Error = null;
+            job.ResultMediaId = null; job.ResultChecksum = null; job.OptimizedSize = null; job.Error = null;
             // A new token also protects concurrent retries of an already-finished request.
             job.LeaseId = Guid.NewGuid(); job.LeaseExpiresAt = null; job.UpdatedAt = DateTimeOffset.UtcNow;
             try { await db.SaveChangesAsync(token); }
@@ -62,8 +66,8 @@ public static class MediaOptimizationEndpoints
 }
 
 public sealed record MediaOptimizationResponse(Guid MediaId, string SourceChecksum, string Status, int Progress,
-    long OriginalSize, Guid? ResultMediaId, long? OptimizedSize, string? Error)
+    long OriginalSize, Guid? ResultMediaId, long? OptimizedSize, string? Error, bool ReplaceOriginal, string? ResultChecksum)
 {
     public static MediaOptimizationResponse From(MediaOptimizationJob job) => new(job.MediaId, job.SourceChecksum,
-        job.Status, job.Progress, job.OriginalSize, job.ResultMediaId, job.OptimizedSize, job.Error);
+        job.Status, job.Progress, job.OriginalSize, job.ResultMediaId, job.OptimizedSize, job.Error, job.ReplaceOriginal, job.ResultChecksum);
 }

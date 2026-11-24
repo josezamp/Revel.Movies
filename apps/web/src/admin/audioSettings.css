@@ -1,0 +1,7 @@
+.display-audio-toggle { display:flex; align-items:center; gap:10px; min-height:44px; font-size:.85rem; }
+.display-audio-setting .godui-switch { position:relative; display:inline-flex; flex-shrink:0; align-items:center; width:44px; height:44px; min-height:44px; padding:5px; border:0; border-radius:10px; background:transparent; cursor:pointer; }
+/* Keep a 44px touch target around the centered 40 × 24px track. */
+.display-audio-setting .godui-switch::before { inset:10px 2px; border-radius:999px; background:#55555e; opacity:1; transition:background 160ms; }
+.display-audio-setting .godui-switch[data-state="checked"]::before { background:#c8dcff; }
+.display-audio-setting .godui-switch:disabled { cursor:wait; opacity:.5; }
+@media(prefers-reduced-motion:reduce) { .display-audio-setting .godui-switch::before { transition:none; } }

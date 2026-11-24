@@ -27,7 +27,7 @@ public sealed class FFmpegTvVideoOptimizerTests
     [InlineData("2560x1440", "60", false, 1920, 1080, 30)]
     [InlineData("360x640", "24000/1001", false, 360, 640, 23.976)]
     [InlineData("640x360", "25", true, 360, 640, 25)]
-    public async Task Real_conversion_preserves_source_and_orientation_and_limits_resolution_fps_and_audio(
+    public async Task Real_conversion_preserves_source_orientation_and_audio_and_limits_resolution_and_fps(
         string size, string rate, bool rotate, int width, int height, double fps)
     {
         var root = Path.Combine(Path.GetTempPath(), "revel-encoder-test-" + Guid.NewGuid()); Directory.CreateDirectory(root);
@@ -46,10 +46,37 @@ public sealed class FFmpegTvVideoOptimizerTests
             var details = await optimizer.OptimizeAsync(input, output, _ => { }, default);
             Assert.Equal(width, details.Width); Assert.Equal(height, details.Height);
             Assert.InRange(details.FramesPerSecond, fps - .01, fps + .01);
-            Assert.Equal("h264", details.Codec); Assert.Equal("yuv420p", details.PixelFormat); Assert.False(details.HasAudio);
+            Assert.Equal("h264", details.Codec); Assert.Equal("yuv420p", details.PixelFormat);
+            Assert.True(details.HasAudio); Assert.Equal(1, details.AudioTrackCount);
             Assert.InRange(details.DurationSeconds, 1, 1.6);
             Assert.Equal(originalHash, SHA256.HashData(await File.ReadAllBytesAsync(input)));
             Assert.True(new FileInfo(output).Length < new FileInfo(input).Length);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [FFmpegTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Optimization_preserves_all_audio_tracks_and_handles_silent_video(bool hasAudio)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "revel-encoder-test-" + Guid.NewGuid()); Directory.CreateDirectory(root);
+        try
+        {
+            var input = Path.Combine(root, "source.mp4"); var output = Path.Combine(root, "optimized.mp4");
+            await GenerateAsync(input, "640x360", "60");
+            var prepared = Path.Combine(root, "prepared.mp4");
+            if (hasAudio) await RunFFmpegAsync("-i", input, "-map", "0:v", "-map", "0:a", "-map", "0:a", "-c", "copy", prepared);
+            else await RunFFmpegAsync("-i", input, "-an", "-c:v", "copy", prepared);
+            var optimizer = new FFmpegTvVideoOptimizer(Options);
+            var originalHash = SHA256.HashData(await File.ReadAllBytesAsync(prepared));
+            var details = await optimizer.OptimizeAsync(prepared, output, _ => { }, default);
+            Assert.Equal(hasAudio, details.HasAudio);
+            Assert.Equal(hasAudio ? 2 : 0, details.AudioTrackCount);
+            Assert.InRange(details.FramesPerSecond, 29.99, 30.01);
+            Assert.InRange(details.DurationSeconds, 1, 1.6);
+            Assert.Equal(originalHash, SHA256.HashData(await File.ReadAllBytesAsync(prepared)));
+            Assert.True(new FileInfo(output).Length < new FileInfo(prepared).Length);
         }
         finally { Directory.Delete(root, true); }
     }

@@ -31,7 +31,9 @@ After deletion, `display.unpaired` tells connected players to stop playback, cle
 
 ## Display settings
 
-`PUT /api/displays/{displayId}/settings` accepts partial updates to `rotation` (0, 90, 180 or 270), `name`, and `imageFit` (`contain` or `cover`). Omitted fields retain their saved values. The server persists the settings and sends `display.settings` with the complete current values; player identity includes them for reconnect recovery.
+`PUT /api/displays/{displayId}/settings` accepts partial updates to `rotation` (0, 90, 180 or 270), `name`, `imageFit` (`contain` or `cover`), and `audioEnabled` (boolean). Omitted fields retain their saved values. The server persists the settings and sends `display.settings` with the complete current values; player identity includes them for reconnect recovery.
+
+`audioEnabled` defaults to `true`, including existing displays after migration. `false` mutes player videos without restarting them; queued videos remain muted in either mode. Browser autoplay policy may require a local click on **Activar audio** even when audio is enabled remotely. In that case the player continues muted and retries audible playback only on local activation. Disabling audio hides that prompt. The setting applies to player videos, not audio inside external web pages. Files previously optimized without audio must be regenerated from an original that contains audio.
 
 `contain` shows the entire image or video with letterboxing as needed and is the default for existing displays. `cover` fills the oriented viewport with a centered crop, preserving source proportions. Both native media and the Tizen rotation canvas use this setting without restarting playback. Announcements and web pages keep their own layouts.
 

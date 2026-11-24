@@ -3,7 +3,7 @@ import { HubConnectionState, type HubConnection } from '@microsoft/signalr'
 import { createPairingSession, getPairingResult, getPlayerIdentity, mediaContentUrl, type DisplayImageFit } from '../api/client'
 import { createPlayerConnection, type PlayerCommand } from '../signalr/playerConnection'
 import { prepareMediaAssets, registerMediaCache, type CacheCandidate } from './mediaCache'
-import { bufferVideoPlayback, canCorrectPlayback, recoverVideoPlayback } from './videoBuffer'
+import { bufferVideoPlayback, canCorrectPlayback, playVideoWithAudioFallback, recoverVideoPlayback } from './videoBuffer'
 import { parseAnnouncement, type Announcement } from '../announcements/announcement'
 import { AnnouncementSurface } from '../announcements/AnnouncementSurface'
 import { parseWebPage, type WebPage } from '../webpages/webPage'
@@ -11,6 +11,7 @@ import { WebPageSurface } from '../webpages/WebPageSurface'
 import { VideoRotationCanvas } from './VideoRotationCanvas'
 import { PreloadedVideo } from './PreloadedVideo'
 import { PlayerFullscreenControl } from './PlayerFullscreenControl'
+import './audio.css'
 import { needsVideoCanvas } from './videoCanvas'
 import { isSceneExpired, PlayerOperationGuard, resolveSceneReturn, type SceneComposition } from './preparationStatus'
 import {
@@ -118,6 +119,49 @@ export function PlayerPage() {
   const loopRef = useRef(false)
   const pausedPositionSecondsRef = useRef(0)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [audioEnabled, setAudioEnabledState] = useState(true)
+  const audioEnabledRef = useRef(true)
+  const [audioBlocked, setAudioBlocked] = useState(false)
+  const audioBlockedRef = useRef(false)
+  const markAudioBlocked = useCallback(() => {
+    audioBlockedRef.current = true
+    setAudioBlocked(true)
+  }, [])
+  const setAudioEnabled = useCallback((enabled: boolean) => {
+    audioEnabledRef.current = enabled
+    setAudioEnabledState(enabled)
+    const video = videoRef.current
+    if (!video) return
+    const wasPlaying = !video.paused && !video.ended
+    const wasMuted = video.muted
+    video.muted = !enabled || audioBlockedRef.current
+    // Unmuting a playing element can make the browser pause it. Catch that policy
+    // rejection immediately, without loading/seeking or resuming an operator pause.
+    if (wasPlaying && wasMuted && !video.muted) {
+      const revision = playbackControlRevisionRef.current
+      const activeMedia = mediaRef.current
+      void playVideoWithAudioFallback(video, {
+        isCancelled: () => videoRef.current !== video || mediaRef.current !== activeMedia || playbackControlRevisionRef.current !== revision,
+        onAudioBlocked: markAudioBlocked,
+      }).catch(() => { /* Buffering/recovery handles non-policy playback errors. */ })
+    }
+  }, [markAudioBlocked])
+  const activateAudio = () => {
+    const video = videoRef.current
+    if (!video || !audioEnabledRef.current || playlistPaused || playbackEnded) return
+    const revision = playbackControlRevisionRef.current
+    const activeMedia = mediaRef.current
+    const isCancelled = () => videoRef.current !== video || !audioEnabledRef.current
+      || mediaRef.current !== activeMedia || playbackControlRevisionRef.current !== revision
+    // Call play directly inside the click handler to retain the local user gesture.
+    video.muted = false
+    void playVideoWithAudioFallback(video, { isCancelled, onAudioBlocked: markAudioBlocked }).then(() => {
+      if (!isCancelled() && !video.muted) {
+        audioBlockedRef.current = false
+        setAudioBlocked(false)
+      }
+    }).catch(() => { if (!isCancelled()) { video.muted = true; markAudioBlocked() } })
+  }
   const bufferingRef = useRef(false)
   const connectionRef = useRef<HubConnection | null>(null)
   const clockOffsetMsRef = useRef(0)
@@ -213,6 +257,7 @@ export function PlayerPage() {
     let webPageRevision = 0
     let announcementRevision = 0
     let promotionRevision = 0
+    let displaySettingsRevision = 0
     let reconcileAfterScheduled = false
     let scheduledSceneSessionId: string | null = null
     const guard = operationGuardRef.current
@@ -587,14 +632,18 @@ export function PlayerPage() {
         case 'display.settings': {
           const nextRotation = parseRotation(command.payload?.rotation)
           const nextImageFit = parseImageFit(command.payload?.imageFit)
+          const nextAudioEnabled = command.payload?.audioEnabled
           if ((command.payload?.rotation !== undefined && nextRotation === null)
             || (command.payload?.imageFit !== undefined && nextImageFit === null)
-            || (nextRotation === null && nextImageFit === null && typeof command.payload?.name !== 'string')) {
+            || (nextAudioEnabled !== undefined && typeof nextAudioEnabled !== 'boolean')
+            || (nextRotation === null && nextImageFit === null && nextAudioEnabled === undefined && typeof command.payload?.name !== 'string')) {
             acknowledge(command, 'error', 'invalid display.settings payload')
             break
           }
           if (nextRotation !== null) setRotation(nextRotation)
           if (nextImageFit !== null) setImageFit(nextImageFit)
+          displaySettingsRevision++
+          if (typeof nextAudioEnabled === 'boolean') setAudioEnabled(nextAudioEnabled)
           if (typeof command.payload?.name === 'string') setDisplayIdentity(current => ({ ...current, name: command.payload!.name as string }))
           acknowledge(command, 'executed')
           break
@@ -773,6 +822,7 @@ export function PlayerPage() {
     }
 
     async function refreshDisplaySettings() {
+      const revision = displaySettingsRevision
       const identity = await getPlayerIdentity(currentDeviceToken)
       if (cancelled) return false
       if (!identity) {
@@ -780,8 +830,11 @@ export function PlayerPage() {
         return false
       }
 
+      // A remote settings command received during this GET is newer than its snapshot.
+      if (revision !== displaySettingsRevision) return true
       setRotation(parseRotation(identity.rotation) ?? 0)
       setImageFit(parseImageFit(identity.imageFit) ?? 'contain')
+      setAudioEnabled(identity.audioEnabled !== false)
       setDisplayIdentity({ id: identity.id, name: identity.name })
       return true
     }
@@ -839,6 +892,7 @@ export function PlayerPage() {
 
         setRotation(parseRotation(identity.rotation) ?? 0)
         setImageFit(parseImageFit(identity.imageFit) ?? 'contain')
+        setAudioEnabled(identity.audioEnabled !== false)
         setDisplayIdentity({ id: identity.id, name: identity.name })
         await connection.start()
         if (cancelled) return
@@ -886,7 +940,7 @@ export function PlayerPage() {
       connectionRef.current = null
       void connection.stop().catch(error => console.error('Player connection failed to stop:', error))
     }
-  }, [deviceToken])
+  }, [deviceToken, setAudioEnabled])
 
   const advancePlaylist = useCallback(() => {
     if (!playlist || playlistPaused || playlist.items.length === 0 || mediaRef.current !== media) return
@@ -961,9 +1015,10 @@ export function PlayerPage() {
     }
     const stopPlayback = playlistPaused ? undefined
       : promotionProgressRef.current?.activeMediaId === media.id
-        ? bufferVideoPlayback(video, onBuffering, { startImmediately: media.playlistTransition })
+        ? bufferVideoPlayback(video, onBuffering, { startImmediately: media.playlistTransition, onAudioBlocked: markAudioBlocked })
         : recoverVideoPlayback(video, onBuffering, {
           startImmediately: media.playlistTransition,
+          onAudioBlocked: markAudioBlocked,
           getPosition: () => pendingSeekSecondsRef.current ?? video.currentTime,
           reload: position => {
             pendingSeekSecondsRef.current = position
@@ -984,7 +1039,7 @@ export function PlayerPage() {
       stopPlayback?.()
       if (stopVideoPlaybackRef.current === stopPlayback) stopVideoPlaybackRef.current = undefined
     }
-  }, [media, playlistPaused])
+  }, [media, playlistPaused, markAudioBlocked])
 
   useEffect(() => {
     if (!playlist || playlistPaused || media?.type !== 'Image') return
@@ -1089,6 +1144,12 @@ export function PlayerPage() {
   return (
     <main className={`player-shell ${blackout ? 'is-blackout' : ''}`}>
       <PlayerFullscreenControl autoHide />
+      {audioEnabled && audioBlocked && media?.type === 'Video' && !playlistPaused && !playbackEnded && !blackout && (
+        <div className="player-audio-unlock">
+          <button type="button" onClick={activateAudio}>Activar audio</button>
+          <p>Este navegador necesita un toque o clic en esta pantalla para reproducir sonido.</p>
+        </div>
+      )}
       <div className={`player-viewport rotation-${rotation} image-fit-${imageFit}`}>
         {videoIds.map(id => (
           <PreloadedVideo
@@ -1099,6 +1160,7 @@ export function PlayerPage() {
             hidden={playbackEnded && !!playlist}
             src={mediaContentUrl(id)}
             loop={!playlist && mediaLoop}
+            muted={!audioEnabled || audioBlocked}
             onEnded={() => {
               if (playlist) advancePlaylist()
               else setPlaybackEnded(true)

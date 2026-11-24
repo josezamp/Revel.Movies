@@ -5,7 +5,7 @@ export function groupLibraryMedia(media: MediaAsset[], jobs: MediaOptimization[]
   const originalByCopy = new Map<string, MediaAsset>()
   const copyByOriginal = new Map<string, MediaAsset>()
   for (const job of jobs) {
-    if (job.status !== 'Completed' || !job.resultMediaId) continue
+    if (job.status !== 'Completed' || !job.resultMediaId || job.replaceOriginal || job.resultMediaId === job.mediaId) continue
     const original = mediaById.get(job.mediaId)
     const copy = mediaById.get(job.resultMediaId)
     // A replaced original and its old TV copy are separate content again.

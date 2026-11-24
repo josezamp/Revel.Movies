@@ -9,7 +9,8 @@ import { TvOptimizationControl } from './TvOptimizationControl'
 import { VideoThumbnail } from './VideoThumbnail'
 import { Dialog } from './Dialog'
 import { displayTargets } from './displayTargets'
-import { DisplayTargetSelect } from './DisplayTargetSelect'
+import { DisplayTargetCards } from './DisplayTargetCards'
+import { MediaActionsMenu } from './MediaActionsMenu'
 import { DisplayNames } from './DisplayName'
 import './content.css'
 
@@ -25,6 +26,7 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [targetId, setTargetId] = useState('')
+  const [onlineOnly, setOnlineOnly] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -36,11 +38,12 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
   const { items, originalByCopy, mediaById } = library
   const previewAsset = (item: MediaAsset) => setPreview({ name: item.name, type: item.type === 'Image' ? 'Image' as const : 'Video' as const, url: item.contentUrl })
   const targets = displayTargets(displays, groups)
-  const target = targets.find(item => item.value === targetId)
+  const target = targets.find(item => item.value === targetId && (!onlineOnly || item.connected))
   const targetDisplays = displays.filter(display => target?.ids.includes(display.id))
   const canOperate = !!target?.ids.length
   useEffect(() => { setNotice(''); setError('') }, [feedback])
-  useEffect(() => { if (targetId && !target) setTargetId('') }, [targetId, target])
+  const targetValue = target?.value
+  useEffect(() => { if (targetId && !targetValue) setTargetId('') }, [targetId, targetValue])
   const visible = items.filter(item => (filter === 'all' || item.type === filter) && `${item.name} ${item.fileName} ${originalByCopy.get(item.id)?.name ?? ''} ${originalByCopy.get(item.id)?.fileName ?? ''} ${isMediaLink(item) ? item.contentUrl : ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase().trim()))
   const selectable = visible.filter(item => !isMediaLink(item))
   const selected = selectedIds.filter(id => media.some(item => item.id === id && !isMediaLink(item)))
@@ -72,6 +75,7 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
         </div>
       </div>
       <MediaUploadQueue eventId={eventId} media={media} onMediaChanged={onMediaChanged} onAddUploaded={onAddUploaded}
+        optimizationAvailable={tv.available}
         playlistsLoading={playlistsLoading} onPreview={file => setPreview({ name: file.name, file, type: /\.(jpe?g|png|webp|gif)$/i.test(file.name) ? 'Image' : 'Video' })} />
       <div className="library-tools">
         <label className="workspace-field library-search"><span className="visually-hidden">Buscar contenido</span>
@@ -90,13 +94,14 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
         </button>
         <button type="button" className="workspace-primary" disabled={!selected.length || playlistsLoading} onClick={onAdd}>Agregar a playlist</button>
       </div> : <div className="library-play-target">
-        <label className="workspace-field">Destino de reproducción
-          <DisplayTargetSelect targets={targets} value={target?.value ?? ''} onChange={event => setTargetId(event.target.value)} />
-        </label>
+        <DisplayTargetCards targets={targets} value={target?.value ?? ''} onChange={setTargetId} onlineOnly={onlineOnly} onOnlineOnlyChange={setOnlineOnly} />
+        <div className="destination-controls">
+        <p className="content-target-names" role="status">{target ? <>Destino: {targetDisplays.length ? <DisplayNames displays={targetDisplays} /> : 'Grupo sin integrantes'}</> : 'Sin destino seleccionado'}</p>
+        <div className="button-row">
         <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.pause'), `Pausa enviada a ${target!.label}. Esperando confirmación.`)}>Pausar</button>
         <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.stop'), `Detención enviada a ${target!.label}. Esperando confirmación.`)}>Detener contenido</button>
         {media.some(isMediaLink) && <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('webpage.clear'), `Retirada enviada a ${target!.label}. Esperando confirmación.`)}>Retirar página</button>}
-        {target && <p className="content-target-names">Destino: {targetDisplays.length ? <DisplayNames displays={targetDisplays} /> : 'Grupo sin integrantes'}</p>}
+        </div></div>
       </div>}
       {(feedback || notice) && <p className="workspace-feedback" role="status">{notice || feedback}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
@@ -112,15 +117,17 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
               <span>{selected.includes(item.id) ? selected.indexOf(item.id) + 1 : '+'}</span>
             </button>}
           </div>
-          <div className="library-card-info"><small>{isMediaLink(item) ? 'Sitio web' : `Miniatura · ${item.type === 'Image' ? 'Imagen' : 'Video'} · ${formatBytes(item.fileSize)}`}</small><strong title={item.name}>{item.name}</strong><span title={isMediaLink(item) ? item.contentUrl : item.fileName}>{isMediaLink(item) ? item.contentUrl : item.fileName}</span></div>
+          <div className="library-card-heading"><div className="library-card-info"><small>{isMediaLink(item) ? 'Sitio web' : `${item.type === 'Image' ? 'Imagen' : 'Video'} · ${formatBytes(item.fileSize)}`}</small><strong title={item.name}>{item.name}</strong><span title={isMediaLink(item) ? item.contentUrl : item.fileName}>{isMediaLink(item) ? item.contentUrl : item.fileName}</span></div>
+            {!selecting && <MediaActionsMenu item={item} job={optimizationByMedia.get(originalByCopy.get(item.id)?.id ?? item.id)} origin={originalByCopy.get(item.id)}
+              result={mediaById.get(optimizationByMedia.get(item.id)?.resultMediaId ?? '')} available={tv.available} requesting={tv.requesting} busy={busy}
+              onStart={tv.start} onRemove={() => { setRemoving(item); setError('') }} />}
+          </div>
           {isMediaLink(item) ? <a className="library-link-open" href={item.contentUrl} target="_blank" rel="noopener noreferrer">Abrir sitio web <span aria-hidden="true">↗</span><span className="visually-hidden"> (nueva pestaña)</span></a>
             : <button className="quiet-button" onClick={() => previewAsset(item)}>Vista previa local</button>}
           <TvOptimizationControl item={item} job={optimizationByMedia.get(originalByCopy.get(item.id)?.id ?? item.id)} origin={originalByCopy.get(item.id)}
-            result={mediaById.get(optimizationByMedia.get(item.id)?.resultMediaId ?? '')} available={tv.available}
-            requesting={tv.requesting} onStart={tv.start} onPreview={previewAsset} />
-          {selecting ? isMediaLink(item) ? <p className="workspace-help">Los enlaces se muestran como páginas web, fuera de las playlists.</p> : <button type="button" className="library-select-text" aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}>{selected.includes(item.id) ? 'Quitar de la selección' : 'Seleccionar archivo'}</button> : <div className="button-row">
-            <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.play', { mediaId: item.id }), `${isMediaLink(item) ? 'Página' : 'Reproducción'} enviada a ${target!.label}. Consultá la confirmación en En vivo.`)}>{isMediaLink(item) ? 'Mostrar página' : 'Reproducir'}{target ? ` en ${target.label}` : ' · elegí destino'}</button>
-            <button className="quiet-button" disabled={busy} onClick={() => { setRemoving(item); setError('') }}>Eliminar</button>
+            result={mediaById.get(optimizationByMedia.get(item.id)?.resultMediaId ?? '')} requesting={tv.requesting} onPreview={previewAsset} />
+          {selecting ? isMediaLink(item) ? <p className="workspace-help">Los enlaces se muestran como páginas web, fuera de las playlists.</p> : <button type="button" className="library-select-text" aria-pressed={selected.includes(item.id)} onClick={() => toggle(item.id)}>{selected.includes(item.id) ? 'Quitar de la selección' : 'Seleccionar archivo'}</button> : <div className="button-row library-play-action">
+            <button className="workspace-primary" disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('media.play', { mediaId: item.id }), `${isMediaLink(item) ? 'Página' : 'Reproducción'} enviada a ${target!.label}. Consultá la confirmación en En vivo.`)}><span aria-hidden="true">{isMediaLink(item) ? '↗' : '▶'}</span> {isMediaLink(item) ? 'Mostrar página' : 'Reproducir'}{target ? ` en ${target.label}` : ' · elegí destino'}</button>
           </div>}
         </article>)}
       </div>

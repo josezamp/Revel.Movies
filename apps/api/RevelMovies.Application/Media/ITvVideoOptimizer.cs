@@ -8,6 +8,6 @@ public interface ITvVideoOptimizer
 }
 
 public sealed record VideoDetails(int Width, int Height, double DurationSeconds, double FramesPerSecond,
-    bool HasAudio, string Codec, string PixelFormat);
+    bool HasAudio, string Codec, string PixelFormat, int AudioTrackCount = 0);
 
 public sealed class VideoOptimizationException(string message) : Exception(message);

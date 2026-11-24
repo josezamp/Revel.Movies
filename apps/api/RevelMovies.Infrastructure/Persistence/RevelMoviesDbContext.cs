@@ -62,6 +62,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.DeviceTokenHash).HasColumnName("device_token_hash").HasMaxLength(64).IsRequired();
             builder.Property(x => x.Rotation).HasColumnName("rotation").IsRequired();
             builder.Property(x => x.ImageFit).HasColumnName("image_fit").HasMaxLength(16).HasDefaultValue("contain").IsRequired();
+            builder.Property(x => x.AudioEnabled).HasColumnName("audio_enabled").HasDefaultValue(true).IsRequired();
             builder.Property(x => x.Status).HasColumnName("status").IsRequired();
             builder.Property(x => x.LastSeenAt).HasColumnName("last_seen_at");
             builder.Property(x => x.ClockOffsetMs).HasColumnName("clock_offset_ms");

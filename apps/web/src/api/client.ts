@@ -27,6 +27,7 @@ export interface Display {
   name: string
   rotation: number
   imageFit: DisplayImageFit
+  audioEnabled: boolean
   status: DisplayStatus
   lastSeenAt: string | null
   clockOffsetMs: number | null
@@ -200,7 +201,7 @@ export async function renameDisplay(displayId: string, name: string): Promise<Di
   })
 }
 
-export async function updateDisplaySettings(displayId: string, settings: { rotation?: number; imageFit?: DisplayImageFit }): Promise<Display> {
+export async function updateDisplaySettings(displayId: string, settings: { rotation?: number; imageFit?: DisplayImageFit; audioEnabled?: boolean }): Promise<Display> {
   return requestJson(`/api/displays/${displayId}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -215,6 +216,7 @@ export async function getMedia(eventId: string): Promise<MediaAsset[]> {
 export interface MediaOptimization {
   mediaId: string; sourceChecksum: string; status: 'Queued' | 'Processing' | 'Completed' | 'NoSaving' | 'Failed' | 'Deleted'
   progress: number; originalSize: number; resultMediaId: string | null; optimizedSize: number | null; error: string | null
+  replaceOriginal?: boolean; resultChecksum?: string | null
 }
 
 export function getMediaOptimizations(eventId: string): Promise<{ available: boolean; jobs: MediaOptimization[] }> {

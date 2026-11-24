@@ -30,7 +30,8 @@ export function useTvOptimization(eventId: string, media: MediaAsset[], onMediaC
         setAvailable(result.available); setJobs(result.jobs); setError('')
         delay = result.available ? 3000 : 30000
         if (result.jobs.some(job => job.status === 'Completed' && job.resultMediaId &&
-            !latest.current.media.some(item => item.id === job.resultMediaId)))
+            !latest.current.media.some(item => item.id === job.resultMediaId &&
+              (!job.resultChecksum || item.checksum === job.resultChecksum))))
           await latest.current.onMediaChanged()
       } catch (cause) {
         if (active && revision === requestRevision.current)

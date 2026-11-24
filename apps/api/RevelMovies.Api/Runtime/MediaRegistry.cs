@@ -6,7 +6,8 @@ using RevelMovies.Infrastructure.Persistence;
 
 namespace RevelMovies.Api.Runtime;
 
-public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage, ILogger<MediaRegistry> logger)
+public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage, ILogger<MediaRegistry> logger,
+    ITvVideoOptimizer optimizer)
 {
     // Bound the lock table; concurrent uploads for an event must agree on its file names.
     private static readonly SemaphoreSlim[] UploadLocks = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
@@ -63,21 +64,21 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         Stream content,
         long maxUploadBytes,
         CancellationToken cancellationToken = default,
-        Guid? replaceMediaId = null)
+        Guid? replaceMediaId = null, bool optimize = false)
     {
         var gate = UploadLocks[(int)((uint)eventId.GetHashCode() % (uint)UploadLocks.Length)];
         await gate.WaitAsync(cancellationToken);
         try
         {
             return await UploadCoreAsync(eventId, fileName, suppliedContentType, requestedName, declaredLength,
-                content, maxUploadBytes, replaceMediaId, cancellationToken);
+                content, maxUploadBytes, replaceMediaId, optimize, cancellationToken);
         }
         finally { gate.Release(); }
     }
 
     private async Task<MediaUploadResult> UploadCoreAsync(Guid eventId, string fileName, string? suppliedContentType,
         string? requestedName, long declaredLength, Stream content, long maxUploadBytes, Guid? replaceMediaId,
-        CancellationToken cancellationToken)
+        bool optimize, CancellationToken cancellationToken)
     {
         if (!await db.Events.AnyAsync(x => x.Id == eventId, cancellationToken))
             return MediaUploadResult.Fail("Event was not found.");
@@ -95,6 +96,9 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
         var extension = Path.GetExtension(safeFileName);
         if (!SupportedFormats.TryGetValue(extension, out var format))
             return MediaUploadResult.Fail("Unsupported media format. Allowed: MP4, JPG, JPEG, PNG, WEBP and GIF.");
+
+        if (optimize && format.Type == MediaType.Video && !optimizer.IsAvailable)
+            return MediaUploadResult.Fail("La optimización automática requiere FFmpeg y FFprobe habilitados en el servidor. Desactivá el switch para subir el original.");
 
         if (!string.IsNullOrWhiteSpace(suppliedContentType) &&
             !string.Equals(suppliedContentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase) &&
@@ -166,9 +170,21 @@ public sealed class MediaRegistry(RevelMoviesDbContext db, IMediaStorage storage
             {
                 // Replacing a generated TV file makes it a new upload, not the previously validated conversion.
                 await db.MediaOptimizationJobs.Where(x => x.ResultMediaId == asset.Id).ExecuteDeleteAsync(cancellationToken);
+                await db.MediaOptimizationJobs.Where(x => x.MediaId == asset.Id && x.ReplaceOriginal).ExecuteDeleteAsync(cancellationToken);
                 var playlistIds = db.PlaylistItems.Where(x => x.MediaAssetId == asset.Id).Select(x => x.PlaylistId);
                 var playlists = await db.Playlists.Where(x => playlistIds.Contains(x.Id)).ToListAsync(cancellationToken);
                 foreach (var playlist in playlists) playlist.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+            if (optimize && format.Type == MediaType.Video)
+            {
+                // Persist the upload and its work together, including when replacing a pending conversion.
+                await db.MediaOptimizationJobs.Where(x => x.MediaId == asset.Id).ExecuteDeleteAsync(cancellationToken);
+                db.MediaOptimizationJobs.Add(new MediaOptimizationJob
+                {
+                    MediaId = asset.Id, EventId = eventId, SourceChecksum = stored.Checksum,
+                    SourceStorageKey = stored.StorageKey, OriginalSize = stored.FileSize,
+                    ReplaceOriginal = true, LeaseId = Guid.NewGuid()
+                });
             }
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);

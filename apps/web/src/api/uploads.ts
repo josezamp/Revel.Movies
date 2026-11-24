@@ -11,7 +11,7 @@ export class DuplicateUploadError extends Error {
 
 /** XHR exposes bytes sent; fetch does not provide upload progress in TV browsers. */
 export function uploadMediaWithProgress(eventId: string, file: File, signal: AbortSignal,
-  onProgress: (loaded: number, total: number | null) => void, replaceMediaId?: string): Promise<MediaAsset> {
+  onProgress: (loaded: number, total: number | null) => void, replaceMediaId?: string, optimize = true): Promise<MediaAsset> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const abort = () => xhr.abort()
@@ -34,6 +34,7 @@ export function uploadMediaWithProgress(eventId: string, file: File, signal: Abo
     signal.addEventListener('abort', abort, { once: true })
     const form = new FormData()
     form.append('file', file)
+    form.append('optimize', String(optimize))
     if (replaceMediaId) form.append('replaceMediaId', replaceMediaId)
     xhr.send(form)
   })
