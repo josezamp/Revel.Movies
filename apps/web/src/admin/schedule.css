@@ -6,6 +6,8 @@
 .schedule-next > time { font-family: Bahnschrift, 'Trebuchet MS', sans-serif; font-size: clamp(2rem, 5vw, 3.8rem); font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
 .schedule-list { margin-top: 32px; }
 .schedule-list > h3 { font-size: .85rem; color: #babac3; font-weight: 500; margin-bottom: 16px; }
+.schedule-history-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.schedule-history-heading h3 { font-size: .85rem; color: #babac3; font-weight: 500; margin: 0; }
 .schedule-entry { display: grid; grid-template-columns: 200px minmax(0, 1fr); border-top: 1px solid var(--workspace-border); padding-block: 24px; gap: 24px; }
 .schedule-when { display: flex; flex-direction: column; gap: 8px; }
 .schedule-when time { font-family: Bahnschrift, 'Trebuchet MS', sans-serif; font-size: 1.9rem; font-variant-numeric: tabular-nums; }

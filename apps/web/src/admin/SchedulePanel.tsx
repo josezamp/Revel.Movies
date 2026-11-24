@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getScenes, type Scene } from '../api/scenes'
-import { cancelSchedule, getSchedule, saveSchedule, type SceneSchedule } from '../api/schedules'
+import { cancelSchedule, clearScheduleHistory, deleteSchedule, getSchedule, saveSchedule, type SceneSchedule } from '../api/schedules'
 import { Dialog } from './Dialog'
 import type { Display, DisplayGroup, MediaAsset, Playlist } from '../api/client'
 import { DisplayName } from './DisplayName'
@@ -12,6 +12,7 @@ import { ScheduleImportDialog } from './ScheduleImportDialog'
 import './schedule.css'
 
 type Props = { eventId: string; displays: Display[]; groups: DisplayGroup[]; media: MediaAsset[]; playlists: Playlist[]; timeZone: string; initialSceneId?: string; onEditorClosed: () => void; onScenes: () => void }
+type Removal = { kind: 'entry'; entry: SceneSchedule } | { kind: 'history'; entries: SceneSchedule[] }
 export function SchedulePanel({ eventId, displays, groups, media, playlists, timeZone, initialSceneId, onEditorClosed, onScenes }: Props) {
   const [entries, setEntries] = useState<SceneSchedule[]>([])
   const [scenes, setScenes] = useState<Scene[]>([])
@@ -22,6 +23,8 @@ export function SchedulePanel({ eventId, displays, groups, media, playlists, tim
   const [busy, setBusy] = useState('')
   const [editor, setEditor] = useState<SceneSchedule | 'new' | undefined>(initialSceneId ? 'new' : undefined)
   const [importDialog, setImportDialog] = useState<'context' | 'import'>()
+  const [removal, setRemoval] = useState<Removal>()
+  const [removalError, setRemovalError] = useState('')
   const revision = useRef(0)
   const displaysById = new Map(displays.map(display => [display.id, display]))
   const refresh = useCallback(async () => {
@@ -47,6 +50,25 @@ export function SchedulePanel({ eventId, displays, groups, media, playlists, tim
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo cancelar.'); await refresh() }
     finally { setBusy('') }
   }
+  function confirmRemoval(value: Removal) { setRemovalError(''); setRemoval(value) }
+  async function remove() {
+    if (!removal || busy) return
+    setBusy('remove'); setRemovalError(''); setError(''); setFeedback('')
+    try {
+      if (removal.kind === 'entry') {
+        await deleteSchedule(eventId, removal.entry)
+        setFeedback(`Entrada de «${removal.entry.sceneName}» eliminada.`)
+      } else {
+        const result = await clearScheduleHistory(eventId, removal.entries)
+        setFeedback(`Historial limpiado: ${result.deletedCount} ${result.deletedCount === 1 ? 'entrada eliminada' : 'entradas eliminadas'}.`)
+      }
+      setRemoval(undefined)
+      await refresh()
+    } catch (cause) {
+      setRemovalError(cause instanceof Error ? cause.message : 'No se pudo completar la eliminación.')
+      await refresh()
+    } finally { setBusy('') }
+  }
   const pending = entries.filter(entry => pendingSchedule(entry.status))
   const history = entries.filter(entry => !pendingSchedule(entry.status)).reverse()
   const next = pending.find(entry => entry.status !== 'activating')
@@ -66,7 +88,11 @@ export function SchedulePanel({ eventId, displays, groups, media, playlists, tim
             <td>{target.status === 'pending' ? entry.status === 'activating' ? 'Esperando confirmación' : 'Pendiente de horario' : target.status === 'missed' ? 'Omitida' : sceneStatus(target.status, 'activate')}
               {target.detail && <small>{target.detail}</small>}{target.reportedAt && <small>Reporte: {new Date(target.reportedAt).toLocaleString('es-AR', { timeZone: entry.timeZone })}</small>}</td></tr>)}</tbody>
         </table></div></details>
-        {editable && <div className="button-row schedule-actions"><button disabled={!!busy || !!loadError} onClick={() => setEditor(entry)}>Editar horario o escena</button><button disabled={!!busy || !!loadError} onClick={() => void cancel(entry)}>{busy === entry.id ? 'Cancelando…' : 'Cancelar entrada'}</button></div>}
+        <div className="button-row schedule-actions">
+          {editable && <><button disabled={!!busy || !!loadError} onClick={() => setEditor(entry)}>Editar horario o escena</button><button disabled={!!busy || !!loadError} onClick={() => void cancel(entry)}>{busy === entry.id ? 'Cancelando…' : 'Cancelar entrada'}</button></>}
+          <button className="danger-button" disabled={!!busy || !!loadError || entry.status === 'activating'} onClick={() => confirmRemoval({ kind: 'entry', entry })}>Eliminar entrada</button>
+        </div>
+        {entry.status === 'activating' && <p className="workspace-help">Podrás eliminar esta entrada cuando termine la confirmación de las pantallas.</p>}
       </div>
     </article>
   }
@@ -81,10 +107,22 @@ export function SchedulePanel({ eventId, displays, groups, media, playlists, tim
     {next && <div className="schedule-next"><div><p className="eyebrow">PRÓXIMO CAMBIO</p><strong>{next.sceneName}</strong><p>{scheduleDate(next.startsAt, next.timeZone)} · {next.timeZone}</p></div><time dateTime={next.startsAt}>{scheduleTime(next.startsAt, next.timeZone)}</time></div>}
     {!loading && !!scenes.length && !pending.length && <div className="workspace-empty"><strong>No hay cambios pendientes.</strong><p>Armá la secuencia de bienvenida, concurso y cierre con fecha y hora para cada momento.</p><button disabled={!!loadError} onClick={() => setEditor('new')}>Programar primera escena</button></div>}
     {pending.length > 0 && <div className="schedule-list"><h3>Agenda · {pending.length} pendientes</h3>{pending.map(row)}</div>}
-    {history.length > 0 && <div className="schedule-list schedule-history"><h3>Historial · {history.length} entradas</h3>{history.map(row)}</div>}
+    {history.length > 0 && <div className="schedule-list schedule-history"><div className="schedule-history-heading"><h3>Historial · {history.length} entradas</h3><button className="danger-button" disabled={!!busy || !!loadError} onClick={() => confirmRemoval({ kind: 'history', entries: history })}>Limpiar historial</button></div>{history.map(row)}</div>}
     <details className="schedule-help"><summary>Qué sucede si algo cambia</summary><p>Una entrada conserva la versión y los destinos que confirmaste. Si editás la escena, sus grupos o su contenido, editá también su programación para confirmar los cambios.</p><p>Si falta preparación al llegar la hora, el servidor reintenta durante un minuto. Las entradas más antiguas se omiten y quedan en el historial. Una acción manual cambia la emisión actual; las próximas entradas siguen programadas hasta que las canceles.</p><p>La confirmación de una web indica que el reproductor asignó la página. La carga del sitio externo depende de su disponibilidad y de que permita mostrarse en la pantalla.</p></details>
     {editor && !loading && <ScheduleEditor key={editor === 'new' ? 'new' : editor.id} eventId={eventId} scenes={scenes} entry={editor === 'new' ? undefined : editor} initialSceneId={initialSceneId} defaultTimeZone={timeZone}
       onClose={closeEditor} onSaved={async () => { closeEditor(); setFeedback('Programación guardada. Podés cerrar el panel; el servidor ejecutará la agenda.'); await refresh() }} />}
+    {removal && <Dialog title={removal.kind === 'entry' ? 'Eliminar entrada de programación' : 'Limpiar historial de programación'} busy={!!busy} onClose={() => setRemoval(undefined)}>
+      {removal.kind === 'entry' ? <>
+        <p>Se eliminará la entrada de <strong>«{removal.entry.sceneName}»</strong> del {scheduleDate(removal.entry.startsAt, removal.entry.timeZone)} a las {scheduleTime(removal.entry.startsAt, removal.entry.timeZone)} ({removal.entry.timeZone}).</p>
+        <p>{pendingSchedule(removal.entry.status) ? 'Este horario dejará de ejecutarse. La escena guardada seguirá disponible.' : 'Se eliminará su registro de la programación. La escena guardada y el contenido que ya está en las pantallas se conservarán.'}</p>
+      </> : <>
+        <p>Se eliminarán <strong>{removal.entries.length} {removal.entries.length === 1 ? 'entrada del historial' : 'entradas del historial'}</strong> de este evento: terminadas, canceladas, omitidas o con errores.</p>
+        <p>La programación pendiente, las escenas guardadas y la emisión actual se conservarán.</p>
+      </>}
+      <p>Esta acción no se puede deshacer.</p>
+      {removalError && <p className="workspace-error" role="alert">{removalError}</p>}
+      <div className="playlist-dialog-footer"><button disabled={!!busy} onClick={() => setRemoval(undefined)}>Cancelar</button><button className="danger-button" disabled={!!busy || !!loadError} onClick={() => void remove()}>{busy ? 'Eliminando…' : removal.kind === 'entry' ? 'Eliminar entrada' : 'Limpiar historial'}</button></div>
+    </Dialog>}
     {importDialog === 'context' && <ScheduleContextDialog eventId={eventId} onClose={() => setImportDialog(undefined)} />}
     {importDialog === 'import' && <ScheduleImportDialog eventId={eventId} displays={displays} groups={groups} media={media} playlists={playlists} onClose={() => setImportDialog(undefined)} onImported={result => {
       setImportDialog(undefined); setError('')

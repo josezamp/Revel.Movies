@@ -9,6 +9,9 @@ namespace RevelMovies.Api.Runtime;
 public sealed record SaveSceneScheduleRequest(Guid SceneId, int SceneVersion, string LocalStartsAt, string TimeZone,
     string Policy = "available", int? Version = null);
 public sealed record CancelSceneScheduleRequest(int Version);
+public sealed record SceneScheduleReference(Guid Id, int Version);
+public sealed record ClearSceneScheduleHistoryRequest(SceneScheduleReference[] Entries);
+public sealed record ClearSceneScheduleHistoryResponse(int DeletedCount);
 public sealed class ScheduleTarget
 {
     public Guid DisplayId { get; set; }
@@ -34,6 +37,7 @@ public sealed class SceneScheduleRegistry(RevelMoviesDbContext db, SceneRegistry
 {
     private static readonly string[] Pending = ["scheduled", "preparing"];
     private static readonly string[] Running = ["scheduled", "preparing", "activating"];
+    private static readonly string[] History = ["completed", "partial", "failed", "missed", "cancelled"];
     private static ScheduleTarget[] Targets(SceneSchedule item) => JsonSerializer.Deserialize<ScheduleTarget[]>(item.TargetsJson, SceneRegistry.Json)!;
     private static void SetTargets(SceneSchedule item, ScheduleTarget[] targets) => item.TargetsJson = JsonSerializer.Serialize(targets, SceneRegistry.Json);
     private static SceneScheduleResponse View(SceneSchedule item) => new(item.Id, item.EventId, item.SceneId,
@@ -105,6 +109,65 @@ public sealed class SceneScheduleRegistry(RevelMoviesDbContext db, SceneRegistry
             return View(item);
         }
         finally { gate.Mutex.Release(); }
+    }
+
+    public async Task Delete(Guid eventId, Guid id, int version, string status, CancellationToken ct)
+    {
+        await gate.Mutex.WaitAsync(ct);
+        try
+        {
+            var item = await Find(eventId, id, ct);
+            if (item.Version != version || (item.Status != status && !(Pending.Contains(item.Status) && Pending.Contains(status))))
+                throw new SceneValidationException("La programación cambió. Cerrá la confirmación y revisá la entrada antes de eliminarla.");
+            if ((!Pending.Contains(item.Status) && !History.Contains(item.Status)) ||
+                (Pending.Contains(item.Status) && await db.SceneSessions.AnyAsync(x => x.Id == id && x.Kind == "activate", ct)))
+                throw new SceneValidationException("La entrada se está ejecutando. Esperá el resultado antes de eliminarla.");
+            await PreserveSupersededTargets(eventId, [item], ct);
+            db.SceneSchedules.Remove(item);
+            // Playback and temporary return sessions have independent lifetimes.
+            await db.SaveChangesAsync(ct);
+        }
+        finally { gate.Mutex.Release(); }
+    }
+
+    public async Task<ClearSceneScheduleHistoryResponse> ClearHistory(Guid eventId, ClearSceneScheduleHistoryRequest request, CancellationToken ct)
+    {
+        if (request.Entries is not { Length: > 0 } || request.Entries.Any(x => x is null) ||
+            request.Entries.Select(x => x.Id).Distinct().Count() != request.Entries.Length)
+            throw new SceneValidationException("Elegí las entradas del historial que querés eliminar.");
+        await gate.Mutex.WaitAsync(ct);
+        try
+        {
+            var expected = request.Entries.ToDictionary(x => x.Id, x => x.Version);
+            var ids = expected.Keys.ToArray();
+            var items = await db.SceneSchedules.Where(x => x.EventId == eventId && ids.Contains(x.Id)).ToArrayAsync(ct);
+            if (items.Length != ids.Length || items.Any(x => x.Version != expected[x.Id] || !History.Contains(x.Status)))
+                throw new SceneValidationException("El historial cambió. Cerrá la confirmación y revisalo antes de limpiarlo.");
+            await PreserveSupersededTargets(eventId, items, ct);
+            db.SceneSchedules.RemoveRange(items);
+            await db.SaveChangesAsync(ct);
+            return new(items.Length);
+        }
+        finally { gate.Mutex.Release(); }
+    }
+
+    private async Task PreserveSupersededTargets(Guid eventId, SceneSchedule[] removed, CancellationToken ct)
+    {
+        // Deleting a newer history row must not allow an older, still-pending occurrence
+        // to catch up and replace its content during the scheduler's one-minute grace period.
+        var now = clock.GetUtcNow();
+        var newer = removed.Where(x => History.Contains(x.Status) && x.Status != "cancelled" && x.StartsAt <= now).ToArray();
+        if (newer.Length == 0) return;
+        var latest = newer.Max(x => x.StartsAt);
+        var older = await db.SceneSchedules.Where(x => x.EventId == eventId && Running.Contains(x.Status) && x.StartsAt < latest).ToArrayAsync(ct);
+        foreach (var item in older)
+        {
+            var superseded = newer.Where(x => x.StartsAt > item.StartsAt).SelectMany(Targets).Select(x => x.DisplayId).ToHashSet();
+            var targets = Targets(item);
+            foreach (var target in targets.Where(x => x.Status == "pending" && superseded.Contains(x.DisplayId)))
+            { target.Status = "superseded"; target.Detail = "Ya corresponde una entrada posterior de la agenda."; }
+            SetTargets(item, targets);
+        }
     }
 
     private async Task<SceneSchedule> Find(Guid eventId, Guid id, CancellationToken ct) =>

@@ -22,6 +22,13 @@ public static class SceneScheduleEndpoints
             Results.Ok(await schedules.Save(eventId, id, request, ct)));
         group.MapPost("/{id:guid}/cancel", async (Guid eventId, Guid id, CancelSceneScheduleRequest request, SceneScheduleRegistry schedules, CancellationToken ct) =>
             Results.Ok(await schedules.Cancel(eventId, id, request.Version, ct)));
+        group.MapDelete("/{id:guid}", async (Guid eventId, Guid id, int version, string status, SceneScheduleRegistry schedules, CancellationToken ct) =>
+        {
+            await schedules.Delete(eventId, id, version, status, ct);
+            return Results.NoContent();
+        });
+        group.MapPost("/clear-history", async (Guid eventId, ClearSceneScheduleHistoryRequest request, SceneScheduleRegistry schedules, CancellationToken ct) =>
+            Results.Ok(await schedules.ClearHistory(eventId, request, ct)));
         group.MapGet("/import-context", async (Guid eventId, SceneScheduleImportService imports, CancellationToken ct) =>
             Results.Ok(await imports.Context(eventId, ct)));
         group.MapPost("/preview-import", async (Guid eventId, HttpRequest request, SceneScheduleImportService imports, CancellationToken ct) =>

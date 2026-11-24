@@ -13,8 +13,8 @@ namespace RevelMovies.Api.Runtime;
 
 public sealed class SceneValidationException(string message) : Exception(message);
 
-public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry playback, PlayerCommandDispatcher dispatcher,
-    MediaMaintenanceGate maintenance)
+public sealed partial class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry playback, PlayerCommandDispatcher dispatcher,
+    MediaMaintenanceGate maintenance, SceneScheduleGate scheduleGate)
 {
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record ResolvedTarget(Guid DisplayId, string Name, SceneAssignment Assignment, JsonElement? MediaPayload,
@@ -59,8 +59,13 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
 
     public async Task Delete(Guid eventId, Guid sceneId, CancellationToken ct)
     {
-        db.Scenes.Remove(await Find(eventId, sceneId, ct));
-        await db.SaveChangesAsync(ct);
+        await scheduleGate.Mutex.WaitAsync(ct);
+        try
+        {
+            db.Scenes.Remove(await Find(eventId, sceneId, ct));
+            await ClearDeletedScenes(eventId, [sceneId], ct);
+        }
+        finally { scheduleGate.Mutex.Release(); }
     }
 
     public async Task<SceneResponse> Duplicate(Guid eventId, Guid sceneId, CancellationToken ct)
@@ -530,6 +535,12 @@ public sealed class SceneRegistry(RevelMoviesDbContext db, PlaybackStateRegistry
     {
         using var activity = maintenance.TryEnter();
         if (activity is null) return;
+        // Repair persisted playback left behind by deletions made before scene cleanup existed.
+        var deleted = await db.SceneSessions.AsNoTracking().Where(x => x.RestoredAt == null &&
+            !db.Scenes.Any(scene => scene.Id == x.SceneId && scene.EventId == x.EventId))
+            .Select(x => new { x.EventId, x.SceneId }).Distinct().ToArrayAsync(ct);
+        foreach (var group in deleted.GroupBy(x => x.EventId))
+            await ClearDeletedScenes(group.Key, group.Select(x => x.SceneId).ToArray(), ct);
         var now = DateTimeOffset.UtcNow;
         var expired = await db.SceneSessions.Where(x => x.Kind == "activate" && x.ExpiresAt <= now && x.RestoredAt == null).Select(x => x.Id).ToArrayAsync(ct);
         foreach (var id in expired) await Restore(id, ct);

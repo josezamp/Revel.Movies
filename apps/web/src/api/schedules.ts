@@ -20,13 +20,19 @@ async function request<T>(path: string, method = 'GET', body?: unknown, rawJson?
     const data = await response.json().catch(() => null)
     throw new Error(data?.error ?? 'No se pudo actualizar la programación.')
   }
-  return response.json()
+  return response.status === 204 ? undefined as T : response.json()
 }
 export const getSchedule = (eventId: string) => request<SceneSchedule[]>(`/events/${eventId}/schedule`)
 export const saveSchedule = (eventId: string, input: ScheduleInput, id?: string) =>
   request<SceneSchedule>(`/events/${eventId}/schedule${id ? `/${id}` : ''}`, id ? 'PUT' : 'POST', input)
 export const cancelSchedule = (eventId: string, entry: SceneSchedule) =>
   request<SceneSchedule>(`/events/${eventId}/schedule/${entry.id}/cancel`, 'POST', { version: entry.version })
+export const deleteSchedule = (eventId: string, entry: SceneSchedule) =>
+  request<void>(`/events/${eventId}/schedule/${entry.id}?version=${entry.version}&status=${encodeURIComponent(entry.status)}`, 'DELETE')
+export const clearScheduleHistory = (eventId: string, entries: SceneSchedule[]) =>
+  request<{ deletedCount: number }>(`/events/${eventId}/schedule/clear-history`, 'POST', {
+    entries: entries.map(({ id, version }) => ({ id, version })),
+  })
 
 export interface ScheduleImportScene {
   key: string; name: string; assignments: SceneAssignment[]; temporaryDurationSeconds: number | null

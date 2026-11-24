@@ -285,7 +285,7 @@ public sealed class RevelMoviesDbContext(DbContextOptions<RevelMoviesDbContext> 
             builder.Property(x => x.Fingerprint).HasMaxLength(64);
             builder.Property(x => x.TargetsJson).IsConcurrencyToken();
             builder.HasIndex(x => new { x.EventId, x.SceneId, x.CreatedAt });
-            // History remains usable for restoration after deleting or editing a scene.
+            // Keep session history after deletion; the scene registry invalidates its playback and returns.
         });
         modelBuilder.Entity<DisplayPlaybackState>(builder =>
         {

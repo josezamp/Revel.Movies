@@ -31,7 +31,9 @@ Una duración de cuenta regresiva se convierte en deadline al **activar**, nunca
 
 ## Temporales y reconexión
 
-La sesión temporal guarda vencimiento y revisión por destino. Un servicio del backend revisa vencimientos cada segundo; la recuperación del Player y las consultas de sesiones también procesan los vencimientos. Sólo restaura destinos cuya sesión/revisión sigue vigente. Cualquier decisión manual posterior prevalece. Las sesiones permanecen aunque se elimine la definición de la escena para permitir restauración y trazabilidad.
+La sesión temporal guarda vencimiento y revisión por destino. Un servicio del backend revisa vencimientos cada segundo; la recuperación del Player y las consultas de sesiones también procesan los vencimientos. Sólo restaura destinos cuya sesión/revisión sigue vigente. Cualquier decisión manual posterior prevalece.
+
+Eliminar una escena cancela su programación pendiente y limpia las pantallas donde todavía está activa: multimedia, página web, anuncios, cortes promocionales y oscurecimiento. Las acciones manuales posteriores y otras escenas vigentes se conservan. Las sesiones permanecen como historial, pero sus retornos quedan invalidados y los snapshots de otras escenas dejan de recuperar contenido de la escena eliminada. La limpieza se guarda antes de avisar a los reproductores; las pantallas desconectadas la reciben al reconectar. El servicio también reconcilia estados huérfanos de escenas eliminadas con versiones anteriores del sistema.
 
 Al volver de una escena que cubría otra temporal, se omiten snapshots temporales ya vencidos. Si la temporal anterior todavía está vigente, conserva su vencimiento. El Player descarta comandos temporales vencidos; al reconectar recupera el estado vigente y debe volver a verificar recursos preparados.
 

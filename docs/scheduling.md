@@ -6,7 +6,13 @@ También podés [armar el cronograma con ChatGPT e importar un JSON](schedule-im
 
 Cada entrada se ejecuta una sola vez. Una escena puede programarse varias veces. Para un cambio después de medianoche, elegí la fecha del día siguiente. La zona inicial es la del evento; podés cambiarla en cada entrada. Las horas ambiguas o inexistentes por cambios de horario se rechazan. El servidor convierte la fecha local a UTC al guardar.
 
-Guardar o editar la agenda no modifica la emisión. Podés editar o cancelar entradas mientras su hora aún no haya llegado. La cancelación queda en el historial. Las entradas terminadas se conservan; para repetirlas, creá otra programación.
+Guardar o editar la agenda no modifica la emisión. Podés editar o cancelar entradas mientras su hora aún no haya llegado. La cancelación queda en el historial. Para repetir una entrada terminada, creá otra programación.
+
+Cada fila tiene **Eliminar entrada**, con confirmación. Si todavía está pendiente, se retira el horario y deja de ejecutarse; si ya terminó, se borra su registro de la agenda. La escena guardada, la emisión actual y los retornos temporales se conservan. Durante **Esperando confirmación**, hay que esperar el resultado antes de eliminarla.
+
+**Limpiar historial** elimina, tras confirmar la cantidad, las entradas terminadas, canceladas, omitidas o con errores del evento. Conserva la agenda pendiente y solo elimina las entradas incluidas en esa confirmación, aunque otra termine mientras el diálogo está abierto. También funciona si ya eliminaste todas las escenas. El borrado no se puede deshacer; si otra operación modificó una entrada, cerrá la confirmación y revisá la lista actualizada.
+
+Eliminar una escena cancela sus entradas pendientes y retira su emisión de las pantallas donde todavía está activa. El historial se conserva. Cancelar solamente una entrada futura no modifica la emisión actual.
 
 ## Ejecución automática
 
@@ -39,6 +45,8 @@ Todas las rutas requieren autenticación de administración y pertenecen al even
 - `POST /api/events/{eventId}/schedule`: crear.
 - `PUT /api/events/{eventId}/schedule/{id}`: editar una entrada futura, con `version` para concurrencia optimista.
 - `POST /api/events/{eventId}/schedule/{id}/cancel`: cancelar, con `{ "version": 1 }`.
+- `DELETE /api/events/{eventId}/schedule/{id}?version=1&status=scheduled`: eliminar la entrada cuya versión y estado se revisaron. Devuelve `204`; rechaza cambios incompatibles o una activación en curso.
+- `POST /api/events/{eventId}/schedule/clear-history`: borrar las entradas de historial confirmadas, con `{ "entries": [{ "id": "...", "version": 1 }] }`. Devuelve `{ "deletedCount": 1 }`; valida toda la selección antes de borrar.
 
 Ejemplo de creación:
 

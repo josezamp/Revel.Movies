@@ -28,6 +28,103 @@ public sealed class SceneTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task Deleting_an_active_scene_clears_its_display_and_reconnect_state(bool offline)
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var playback = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        var scene = await scenes.Save(seed.EventId, null, new("Votación", [Overlay(seed.A) with
+            { Announcement = new("replace", Announcement("¡Votación abierta!")) }], 60), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        var active = await scenes.Activate(seed.EventId, scene.Id, new(scene.Version, PreparationId: prepared.Id), default);
+        if (offline) { (await db.Displays.SingleAsync(x => x.Id == seed.A)).Status = DisplayStatus.Offline; await db.SaveChangesAsync(); }
+
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/events/{seed.EventId}/scenes/{scene.Id}")).StatusCode);
+        using var read = factory.Services.CreateScope();
+        var recovery = (await read.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(seed.A))!;
+        Assert.Null(recovery.Announcement); Assert.Null(recovery.WebPage); Assert.Null(recovery.Payload);
+        Assert.Null(recovery.ContentType); Assert.Null(recovery.SceneSessionId); Assert.Null(recovery.ScenePrevious);
+        Assert.Null(recovery.SceneExpiresAt); Assert.Null(recovery.PromotionPolicy); Assert.Null(recovery.PromotionProgress);
+        Assert.False(recovery.Blackout); Assert.Equal("Stopped", recovery.DesiredState);
+        Assert.True(recovery.Revision > active.Targets.Single().AppliedRevision);
+        await read.ServiceProvider.GetRequiredService<SceneRegistry>().Restore(active.Id, default);
+        Assert.Null((await read.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(seed.A))!.Announcement);
+        Assert.Equal("Playing", (await playback.GetRecoveryAsync(seed.B))!.DesiredState);
+    }
+
+    [Fact]
+    public async Task Deleting_a_scene_preserves_a_later_manual_announcement()
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var scene = await scenes.Save(seed.EventId, null, new("Votación", [Overlay(seed.A)], 60), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        await scenes.Activate(seed.EventId, scene.Id, new(scene.Version, PreparationId: prepared.Id), default);
+        var dispatcher = scope.ServiceProvider.GetRequiredService<PlayerCommandDispatcher>();
+        await dispatcher.SendAsync([seed.A], dispatcher.Create("announcement.show", Announcement("Cierre manual")));
+        await scenes.Delete(seed.EventId, scene.Id, default);
+        Assert.Equal("Cierre manual", (await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>()
+            .GetRecoveryAsync(seed.A))!.Announcement!.Value.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Deleting_a_scene_cancels_its_pending_schedule_and_removes_it_from_later_return_snapshots()
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var playback = scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var scene = await scenes.Save(seed.EventId, null, new("Votación", [Overlay(seed.A)]), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        await scenes.Activate(seed.EventId, scene.Id, new(scene.Version, PreparationId: prepared.Id), default);
+        var schedules = scope.ServiceProvider.GetRequiredService<SceneScheduleRegistry>();
+        await schedules.Save(seed.EventId, null, new(scene.Id, scene.Version,
+            DateTimeOffset.UtcNow.AddHours(1).ToString("yyyy-MM-dd'T'HH:mm:ss"), "UTC"), default);
+        var later = await scenes.Save(seed.EventId, null, new("Entrega", [Overlay(seed.A) with
+            { Announcement = new("replace", Announcement("Premios")) }], 60), default);
+        prepared = await scenes.Prepare(seed.EventId, later.Id, new(later.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        var active = await scenes.Activate(seed.EventId, later.Id, new(later.Version, PreparationId: prepared.Id), default);
+
+        await scenes.Delete(seed.EventId, scene.Id, default);
+        Assert.Equal("cancelled", (await schedules.List(seed.EventId, default)).Single().Status);
+        var recovery = (await playback.GetRecoveryAsync(seed.A))!;
+        Assert.Equal("Premios", recovery.Announcement!.Value.GetProperty("text").GetString());
+        Assert.Null(recovery.ScenePrevious!.Announcement);
+        await scenes.Restore(active.Id, default);
+        recovery = (await playback.GetRecoveryAsync(seed.A))!;
+        Assert.Null(recovery.Announcement); Assert.Null(recovery.Payload); Assert.Null(recovery.SceneSessionId);
+        Assert.Equal("Stopped", recovery.DesiredState);
+    }
+
+    [Fact]
+    public async Task Previously_deleted_scene_state_is_cleaned_by_the_background_reconciliation()
+    {
+        await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);
+        using var scope = factory.Services.CreateScope();
+        var scenes = scope.ServiceProvider.GetRequiredService<SceneRegistry>();
+        var scene = await scenes.Save(seed.EventId, null, new("Votación", [Overlay(seed.A)]), default);
+        var prepared = await scenes.Prepare(seed.EventId, scene.Id, new(scene.Version), default);
+        await Ack(scope, prepared, seed.A, "ready");
+        await scenes.Activate(seed.EventId, scene.Id, new(scene.Version, PreparationId: prepared.Id), default);
+        var db = scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
+        db.Scenes.Remove(await db.Scenes.SingleAsync()); await db.SaveChangesAsync();
+
+        await scenes.Expire(default);
+        var recovery = (await scope.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().GetRecoveryAsync(seed.A))!;
+        Assert.Null(recovery.Announcement); Assert.Null(recovery.SceneSessionId);
+        Assert.Equal("Stopped", recovery.DesiredState);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task Switching_between_webpage_and_media_is_exclusive_and_scene_return_restores_the_previous_selection(bool showPage)
     {
         await using var factory = new Factory(); using var client = factory.CreateClient(); var seed = await Seed(factory);

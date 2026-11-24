@@ -40,11 +40,11 @@ async function send(request: APIRequestContext, displayId: string, type: string,
   expect(response.status(), await response.text()).toBe(202)
 }
 
-async function saveOverlay(request: APIRequestContext, eventId: string, displayId: string, duration: number | null = null) {
+async function saveOverlay(request: APIRequestContext, eventId: string, displayId: string, duration: number | null = null, text = 'Sorteo en el salón') {
   const response = await request.post(`/api/events/${eventId}/scenes`, { data: {
     name: 'Sorteo', temporaryDurationSeconds: duration,
     assignments: [{ displayIds: [displayId], groupIds: [], media: { action: 'keep' }, webPage: { action: 'keep' },
-      announcement: { action: 'replace', payload: { kind: 'message', text: 'Sorteo en el salón', layout: 'banner', theme: 'dark' } }, blackout: 'off', promotions: 'keep' }],
+      announcement: { action: 'replace', payload: { kind: 'message', text, layout: 'banner', theme: 'dark' } }, blackout: 'off', promotions: 'keep' }],
   } })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json()
@@ -63,6 +63,50 @@ async function activate(request: APIRequestContext, eventId: string, scene: { id
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json()
 }
+
+for (const mode of ['live', 'offline', 'pending'] as const) {
+  test(`deleting a ${mode} scene clears the voting message and keeps the display empty after reconnect`, async ({ page, request }) => {
+    const { eventId, displayId } = await setup(page, request)
+    const scene = await saveOverlay(request, eventId, displayId, 30, '¡Votación abierta!')
+    const preparationId = await prepare(request, eventId, scene)
+    const activation = await activate(request, eventId, scene, preparationId)
+    if (mode !== 'pending') await expect(page.getByText('¡Votación abierta!')).toBeVisible()
+    if (mode === 'offline') await page.goto('about:blank')
+
+    expect((await request.delete(`/api/events/${eventId}/scenes/${scene.id}`)).status()).toBe(204)
+    if (mode === 'offline') await page.goto('/player')
+    await expect(page.getByText('¡Votación abierta!')).toHaveCount(0)
+    await expect(page.locator('img.player-media')).toHaveCount(0)
+    await expect.poll(async () => (await displays(request, eventId))[0].actualAnnouncement).toBeNull()
+    await expect.poll(() => Date.now() > Date.parse(activation.createdAt) + 1800).toBeTruthy()
+    const reloadedAt = Date.now()
+    await page.reload()
+    await expect.poll(async () => Date.parse((await displays(request, eventId))[0].lastPlaybackReportAt)).toBeGreaterThanOrEqual(reloadedAt)
+    await expect.poll(async () => (await displays(request, eventId))[0].actualPlaybackState).toBe('Idle')
+    await expect(page.getByText('¡Votación abierta!')).toHaveCount(0)
+    await expect(page.locator('img.player-media')).toHaveCount(0)
+  })
+}
+
+test('deleting a previous scene removes its voting message from the players local temporary return', async ({ page, context, request }) => {
+  const { eventId, displayId } = await setup(page, request)
+  const voting = await saveOverlay(request, eventId, displayId, null, '¡Votación abierta!')
+  await activate(request, eventId, voting, await prepare(request, eventId, voting))
+  await expect(page.getByText('¡Votación abierta!')).toBeVisible()
+  const awards = await saveOverlay(request, eventId, displayId, 6, 'Entrega de premios')
+  const active = await activate(request, eventId, awards, await prepare(request, eventId, awards))
+  await expect(page.getByText('Entrega de premios')).toBeVisible()
+
+  expect((await request.delete(`/api/events/${eventId}/scenes/${voting.id}`)).status()).toBe(204)
+  const updated = await (await request.get(`/api/scene-sessions/${active.id}`)).json()
+  await expect.poll(async () => (await displays(request, eventId))[0].actualCommandId).toBe(updated.targets[0].commandId)
+  await expect(page.getByText('Entrega de premios')).toBeVisible()
+  await context.setOffline(true)
+  await expect(page.getByText('Entrega de premios')).toHaveCount(0, { timeout: 9000 })
+  await expect(page.getByText('¡Votación abierta!')).toHaveCount(0)
+  await expect(page.locator('img.player-media')).toHaveCount(0)
+  await context.setOffline(false)
+})
 
 test('saving and preparing leaves the background intact; correlated overlay apply and restore keep its media element', async ({ page, request }) => {
   const { eventId, displayId, mediaId } = await setup(page, request)

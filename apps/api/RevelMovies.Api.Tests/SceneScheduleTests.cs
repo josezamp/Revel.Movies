@@ -258,6 +258,142 @@ public sealed class SceneScheduleTests
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/events/{seed.EventId}/schedule/{entry.Id}/cancel", new { updated.Version })).StatusCode);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Delete_pending_entry_prevents_execution_even_after_preparation(bool prepare)
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f);
+        var start = f.Clock.Now.AddSeconds(20); var entry = await Save(f, seed, start);
+        if (prepare) { await Tick(f); using var ready = f.Services.CreateScope(); await Ready(ready, entry.Id); }
+        var status = prepare ? "preparing" : "scheduled";
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync(DeleteUrl(seed.EventId, entry, status))).StatusCode);
+        f.Clock.Now = start; await Tick(f);
+        using var read = f.Services.CreateScope();
+        Assert.Empty(await Db(read).SceneSchedules.ToArrayAsync());
+        Assert.False(await Db(read).SceneSessions.AnyAsync(x => x.Kind == "activate"));
+        Assert.True(await Db(read).Scenes.AnyAsync(x => x.Id == seed.SceneId));
+        Assert.Null((await Db(read).DisplayPlaybackStates.SingleAsync()).AnnouncementJson);
+    }
+
+    [Theory]
+    [InlineData("version")]
+    [InlineData("event")]
+    [InlineData("status")]
+    [InlineData("activating")]
+    [InlineData("committed")]
+    public async Task Delete_rejects_changed_or_executing_entries(string scenario)
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f);
+        var entry = await Save(f, seed, f.Clock.Now.AddMinutes(5));
+        using (var edit = f.Services.CreateScope())
+        {
+            var item = await Db(edit).SceneSchedules.SingleAsync();
+            if (scenario == "version") item.Version++;
+            if (scenario == "status") item.Status = "completed";
+            if (scenario == "activating") item.Status = "activating";
+            if (scenario == "committed") Db(edit).SceneSessions.Add(new() { Id = entry.Id, EventId = seed.EventId, SceneId = seed.SceneId, Kind = "activate" });
+            await Db(edit).SaveChangesAsync();
+        }
+        Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync(DeleteUrl(scenario == "event" ? Guid.NewGuid() : seed.EventId,
+            entry, scenario == "activating" ? "activating" : "scheduled"))).StatusCode);
+        using var read = f.Services.CreateScope(); Assert.Single(await Db(read).SceneSchedules.ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_completed_entry_preserves_playback_and_temporary_return()
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f);
+        using (var edit = f.Services.CreateScope()) { (await Db(edit).Scenes.SingleAsync()).TemporaryDurationSeconds = 60; await Db(edit).SaveChangesAsync(); }
+        var start = f.Clock.Now.AddSeconds(20); var entry = await Save(f, seed, start); await Tick(f);
+        using (var ready = f.Services.CreateScope()) await Ready(ready, entry.Id);
+        f.Clock.Now = start; await Tick(f);
+        long revision;
+        using (var report = f.Services.CreateScope())
+        {
+            var state = await Db(report).DisplayPlaybackStates.SingleAsync(); revision = state.Revision;
+            await report.ServiceProvider.GetRequiredService<PlaybackStateRegistry>().ReportAsync(seed.DisplayId,
+                new("Idle", null, null, null, 0, null, state.LastCommandId, state.Revision));
+        }
+        await Tick(f);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync(DeleteUrl(seed.EventId, entry, "completed"))).StatusCode);
+        using var read = f.Services.CreateScope();
+        var playback = read.ServiceProvider.GetRequiredService<PlaybackStateRegistry>();
+        var recovery = (await playback.GetRecoveryAsync(seed.DisplayId))!;
+        Assert.Equal(revision, recovery.Revision); Assert.Equal(entry.Id, recovery.SceneSessionId);
+        Assert.Equal("Bienvenida", recovery.Announcement!.Value.GetProperty("text").GetString());
+        Assert.Empty(await Db(read).SceneSchedules.ToArrayAsync());
+        await read.ServiceProvider.GetRequiredService<SceneRegistry>().Restore(entry.Id, default);
+        Assert.Null((await playback.GetRecoveryAsync(seed.DisplayId))!.Announcement);
+    }
+
+    [Fact]
+    public async Task Clear_history_deletes_only_confirmed_terminal_rows_of_the_event()
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f); var other = await Seed(f);
+        var selected = new List<SceneScheduleReference>();
+        using (var edit = f.Services.CreateScope())
+        {
+            foreach (var status in new[] { "completed", "partial", "failed", "missed", "cancelled" })
+            {
+                var item = new SceneSchedule { EventId = seed.EventId, SceneId = seed.SceneId, Status = status };
+                Db(edit).SceneSchedules.Add(item); selected.Add(new(item.Id, item.Version));
+            }
+            foreach (var status in new[] { "scheduled", "preparing", "activating", "completed" })
+                Db(edit).SceneSchedules.Add(new() { EventId = seed.EventId, SceneId = seed.SceneId, Status = status });
+            Db(edit).SceneSchedules.Add(new() { EventId = other.EventId, SceneId = other.SceneId, Status = "cancelled" });
+            await Db(edit).SaveChangesAsync();
+        }
+        var response = await client.PostAsJsonAsync($"/api/events/{seed.EventId}/schedule/clear-history", new ClearSceneScheduleHistoryRequest(selected.ToArray()));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(5, (await response.Content.ReadFromJsonAsync<ClearSceneScheduleHistoryResponse>())!.DeletedCount);
+        using var read = f.Services.CreateScope();
+        Assert.Equal(4, await Db(read).SceneSchedules.CountAsync(x => x.EventId == seed.EventId));
+        Assert.Single(await Db(read).SceneSchedules.Where(x => x.EventId == other.EventId).ToArrayAsync());
+        Assert.False(await Db(read).SceneSchedules.AnyAsync(x => selected.Select(s => s.Id).Contains(x.Id)));
+    }
+
+    [Theory]
+    [InlineData("pending")]
+    [InlineData("version")]
+    [InlineData("event")]
+    [InlineData("duplicate")]
+    public async Task Clear_history_rejects_invalid_selection_without_partial_deletion(string scenario)
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f); var other = await Seed(f);
+        var valid = new SceneSchedule { EventId = seed.EventId, SceneId = seed.SceneId, Status = "cancelled" };
+        var invalid = new SceneSchedule { EventId = scenario == "event" ? other.EventId : seed.EventId,
+            SceneId = seed.SceneId, Status = scenario == "pending" ? "scheduled" : "completed" };
+        using (var edit = f.Services.CreateScope()) { Db(edit).SceneSchedules.AddRange(valid, invalid); await Db(edit).SaveChangesAsync(); }
+        SceneScheduleReference[] selected = [new(valid.Id, valid.Version), new(scenario == "duplicate" ? valid.Id : invalid.Id, scenario == "version" ? 2 : 1)];
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/events/{seed.EventId}/schedule/clear-history",
+            new ClearSceneScheduleHistoryRequest(selected))).StatusCode);
+        using var read = f.Services.CreateScope(); Assert.Equal(2, await Db(read).SceneSchedules.CountAsync());
+    }
+
+    [Fact]
+    public async Task Clearing_newer_history_does_not_revive_an_older_pending_occurrence()
+    {
+        await using var f = new Factory(); using var client = f.CreateClient(); var seed = await Seed(f);
+        var start = f.Clock.Now.AddSeconds(20);
+        var older = await Save(f, seed, start); var newer = await Save(f, seed, start.AddSeconds(5)); await Tick(f);
+        using (var edit = f.Services.CreateScope())
+        {
+            await Ready(edit, older.Id);
+            (await Db(edit).SceneSchedules.SingleAsync(x => x.Id == newer.Id)).Status = "completed";
+            await Db(edit).SaveChangesAsync();
+        }
+        f.Clock.Now = start.AddSeconds(10);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/events/{seed.EventId}/schedule/clear-history",
+            new ClearSceneScheduleHistoryRequest([new(newer.Id, newer.Version)]))).StatusCode);
+        await Tick(f);
+        using var read = f.Services.CreateScope();
+        Assert.Equal("missed", (await Db(read).SceneSchedules.SingleAsync()).Status);
+        Assert.False(await Db(read).SceneSessions.AnyAsync(x => x.Kind == "activate"));
+    }
+
+    private static string DeleteUrl(Guid eventId, SceneScheduleResponse entry, string status) =>
+        $"/api/events/{eventId}/schedule/{entry.Id}?version={entry.Version}&status={status}";
     private static RevelMoviesDbContext Db(IServiceScope scope) => scope.ServiceProvider.GetRequiredService<RevelMoviesDbContext>();
     private static async Task Tick(Factory factory) { using var scope = factory.Services.CreateScope(); await scope.ServiceProvider.GetRequiredService<SceneScheduleRegistry>().Tick(default); }
     private static SaveSceneScheduleRequest Input(SeedData seed, DateTimeOffset start, string policy = "available") =>
