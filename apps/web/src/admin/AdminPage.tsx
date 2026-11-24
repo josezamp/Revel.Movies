@@ -10,6 +10,7 @@ import { NameDialog } from './NameDialog'
 import { ScenesPanel } from './ScenesPanel'
 import { displayPresence, sortByConnection } from './displayPresence'
 import { ageLabel } from './liveState'
+import { Switch } from '../components/ui/switch'
 import './operations.css'
 
 const EventMapPanel = lazy(() => import('./EventMapPanel').then(module => ({ default: module.EventMapPanel })))
@@ -35,6 +36,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   const [mediaError, setMediaError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<number>()
   const [now, setNow] = useState(Date.now())
+  const [liveOnlineOnly, setLiveOnlineOnly] = useState(false)
   const requestedEventId = searchParams.get('event')
   const selectedEventId = requestedEventId
     ? events.find(item => item.id === requestedEventId)?.id ?? ''
@@ -104,6 +106,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   const eventPlaylists = playlists.filter(item => item.eventId === selectedEventId)
   const eventGroups = groups.filter(item => item.eventId === selectedEventId)
   const onlineCount = visibleDisplays.filter(item => displayPresence(item.status).connected).length
+  const liveDisplays = liveOnlineOnly ? visibleDisplays.filter(item => displayPresence(item.status).connected) : visibleDisplays
   const outdated = !!lastUpdated && now - lastUpdated > 10_000
   const eventName = events.find(item => item.id === selectedEventId)?.name
   const missingEvent = !!lastUpdated && !!requestedEventId && !selectedEventId
@@ -138,11 +141,15 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     <div hidden={section !== 'live'}>
       <section aria-label="Pantallas en vivo"><div className="workspace-heading"><div><p className="eyebrow">EN VIVO</p><h2>Pantallas <span className="count-badge">{onlineCount} de {visibleDisplays.length} conectadas</span></h2></div><div className="button-row"><button onClick={() => setSection('scenes')}>Escenas preparadas →</button><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div></div>
         {!lastUpdated && !error && <p role="status">Cargando pantallas…</p>}
-        <div className="live-view-switch" role="group" aria-label="Vista de pantallas"><button aria-pressed={liveView === 'cards'} onClick={() => updateNavigation('view', 'cards')}>Tarjetas</button><button aria-pressed={liveView === 'map'} onClick={() => updateNavigation('view', 'map')}>Mapa</button></div>
+        <div className="live-view-toolbar">
+          <div className="live-view-switch" role="group" aria-label="Vista de pantallas"><button aria-pressed={liveView === 'cards'} onClick={() => updateNavigation('view', 'cards')}>Tarjetas</button><button aria-pressed={liveView === 'map'} onClick={() => updateNavigation('view', 'map')}>Mapa</button></div>
+          <label className="live-online-filter" htmlFor="live-online-only"><Switch id="live-online-only" checked={liveOnlineOnly} onCheckedChange={setLiveOnlineOnly} />Solo en línea</label>
+        </div>
+        {lastUpdated && liveOnlineOnly && visibleDisplays.length > 0 && !liveDisplays.length && <div className="workspace-empty" role="status"><strong>No hay pantallas en línea.</strong><p>Las pantallas aparecerán cuando se conecten.</p><button onClick={() => setLiveOnlineOnly(false)}>Mostrar todas las pantallas</button></div>}
         {liveView === 'cards' ? <>
           {lastUpdated && visibleDisplays.length === 0 && <div className="workspace-empty"><strong>Tu evento empieza con una pantalla.</strong><p>Abrí el reproductor en la TV y vinculala desde Configuración.</p><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div>}
-          <div className="card-grid display-grid">{visibleDisplays.map(display => <DisplayCard key={display.id} display={display} media={eventMedia} playlists={eventPlaylists} prepared={prepared[display.id] ?? []} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} />)}</div>
-        </> : <Suspense fallback={<p role="status">Cargando mapa…</p>}><EventMapPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} playlists={eventPlaylists} prepared={prepared} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} /></Suspense>}
+          <div className="card-grid display-grid">{liveDisplays.map(display => <DisplayCard key={display.id} display={display} media={eventMedia} playlists={eventPlaylists} prepared={prepared[display.id] ?? []} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} />)}</div>
+        </> : <Suspense fallback={<p role="status">Cargando mapa…</p>}><EventMapPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} onlineOnly={liveOnlineOnly} media={eventMedia} playlists={eventPlaylists} prepared={prepared} now={now} onChanged={refresh} onUpdated={updated => setDisplays(items => items.map(item => item.id === updated.id ? { ...item, ...updated } : item))} /></Suspense>}
       </section>
     </div>
     <div hidden={section !== 'scenes'}><ScenesPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} playlists={eventPlaylists} onChanged={refresh} active={section === 'scenes' || section === 'live'} onPreparedChange={setPrepared} onSchedule={id => { setScheduleSceneId(id); setSection('schedule') }} /></div>

@@ -41,9 +41,10 @@ function readDraft(key: string, eventId: string): EventMap | null {
 type Props = {
   eventId: string; displays: Display[]; media: MediaAsset[]; playlists: Playlist[]; prepared: Record<string, string[]>; now: number
   onChanged: () => Promise<void>; onUpdated: (display: Display) => void
+  onlineOnly?: boolean
 }
 
-export function EventMapPanel({ eventId, displays, media, playlists, prepared, now, onChanged, onUpdated }: Props) {
+export function EventMapPanel({ eventId, displays, onlineOnly = false, media, playlists, prepared, now, onChanged, onUpdated }: Props) {
   const [saved, setSaved] = useState<EventMap>()
   const [draft, setDraft] = useState<EventMap>()
   const [editing, setEditing] = useState(false)
@@ -64,8 +65,10 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
   const nodes = draft?.nodes ?? []
   const dirty = !!draft && !!saved && JSON.stringify(draft.nodes) !== JSON.stringify(saved.nodes)
   const selected = nodes.find(node => node.id === selectedId)
-  const selectedDisplay = displays.find(display => display.id === (selected?.displayId ?? selectedDisplayId))
-  const unplaced = sortByConnection(displays.filter(display => !nodes.some(node => node.displayId === display.id)), display => display.status)
+  // Filtering only affects operation; editing always retains the complete layout.
+  const activeDisplays = onlineOnly && !editing ? displays.filter(display => displayPresence(display.status).connected) : displays
+  const selectedDisplay = activeDisplays.find(display => display.id === (selected?.displayId ?? selectedDisplayId))
+  const unplaced = sortByConnection(activeDisplays.filter(display => !nodes.some(node => node.displayId === display.id)), display => display.status)
     .map(display => ({ display, presence: displayPresence(display.status) }))
   const nodeOptions = sortByConnection(nodes.map((node, index) => ({ node, index, display: displays.find(display => display.id === node.displayId) })), item => item.display?.status)
   const editable = editing && !saving && !loading
@@ -206,6 +209,7 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
       {editing && <div className="button-row"><button disabled={saving || (!dirty && !conflict)} onClick={() => setDiscard(true)}>Descartar cambios</button><button className="workspace-primary" disabled={!dirty || saving || conflict} onClick={() => void save()}>Guardar croquis</button></div>}
     </div>
     {notice && dirty && <p className="map-hint">{notice}</p>}
+    {editing && onlineOnly && <p className="map-hint">Al editar se muestran todas las pantallas. El filtro Solo en línea se aplica al operar.</p>}
     {error && <p role="alert" className="workspace-error">{error}</p>}
     {conflict && <div className="map-conflict" role="alert">Hay una versión más reciente. Tu borrador sigue visible.<button disabled={saving} onClick={() => setDiscard(true)}>Cargar versión guardada</button></div>}
     <div className="map-workspace">
@@ -229,6 +233,7 @@ export function EventMapPanel({ eventId, displays, media, playlists, prepared, n
             {nodes.map(node => {
               const display = displays.find(item => item.id === node.displayId)
               const presence = display ? displayPresence(display.status) : null
+              if (onlineOnly && !editing && node.kind === 'display' && !presence?.connected) return null
               const age = display ? reportAge(display, now) : null
               const stale = age === null || age > REPORT_FRESHNESS_MS
               const label = display?.name ?? (node.kind === 'display' ? `${node.label} · desvinculada` : node.label)
