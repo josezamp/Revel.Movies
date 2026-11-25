@@ -16,7 +16,7 @@ test('configuration saves audio separately for offline screens and shares the se
 
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto(`/admin?event=${eventId}&section=configuration`)
-  const panel = page.getByRole('region', { name: 'Audio de las pantallas', exact: true })
+  const panel = page.getByRole('region', { name: 'Pantallas del evento', exact: true })
   const salon = panel.getByRole('switch', { name: 'Audio de TV Salón', exact: true })
   const patio = panel.getByRole('switch', { name: 'Audio de TV Patio', exact: true })
   await expect(salon).toBeChecked()

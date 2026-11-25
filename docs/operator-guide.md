@@ -22,9 +22,17 @@ Durante la proyección o en pantalla completa, el control se oculta tras 4 segun
 
 La activación requiere un toque o una tecla en ese dispositivo; no se puede iniciar desde el panel remoto ni conservar automáticamente al recargar. Si el navegador no admite esta función, el reproductor lo informa: probá abrirlo en otro navegador del dispositivo.
 
+## Configuración: pantallas y grupos
+
+**Agregar pantalla** muestra la dirección del reproductor para abrir en la TV (podés copiarla). El código de 6 dígitos de la TV aparece en esa misma sección: comprobá que coincida, tocá **Vincular** y ponele un nombre. El panel confirma la vinculación y ofrece **Ver en En vivo**.
+
+**Pantallas del evento** lista cada pantalla con su conexión, sus grupos y su audio. **Identificar** muestra el nombre en la TV para reconocerla; el lápiz la renombra. Orientación, mantenimiento y diagnóstico siguen en **En vivo → Detalles**.
+
+**Grupos de pantallas** junta pantallas para usarlas como un solo destino en Contenido, Escenas, anuncios y páginas web. Marcá o desmarcá los integrantes en cada grupo; el cambio se guarda al instante. **Operar este grupo ahora** reúne reproducir un archivo, oscurecer, restaurar y detener para todo el grupo.
+
 ## Audio de las pantallas
 
-En **Configuración → Audio de las pantallas**, activá o desactivá **Audio** para cada dispositivo. También está en **En vivo → Detalles → Audio**. Se guarda por pantalla, funciona con pantallas desconectadas y se recupera al reconectar o recargar. El audio está activado por defecto, incluidas las pantallas existentes después de actualizar. Silenciar no reinicia el video ni cambia su posición; los videos precargados permanecen en silencio.
+En **Configuración → Pantallas del evento**, usá el interruptor de audio de cada dispositivo. También está en **En vivo → Detalles → Audio**. Se guarda por pantalla, funciona con pantallas desconectadas y se recupera al reconectar o recargar. El audio está activado por defecto, incluidas las pantallas existentes después de actualizar. Silenciar no reinicia el video ni cambia su posición; los videos precargados permanecen en silencio.
 
 Si el navegador necesita permiso local, el video continúa sin sonido y aparece **Activar audio** en el reproductor. Tocá ese botón con el mouse, la pantalla táctil o el control remoto del dispositivo. Activarlo desde el panel remoto no puede sustituir ese permiso; el navegador puede pedirlo otra vez después de una recarga. La opción controla los videos del reproductor; las páginas web externas administran su propio sonido.
 

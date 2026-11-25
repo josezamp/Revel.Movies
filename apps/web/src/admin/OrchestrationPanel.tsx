@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { WebPagePanel } from './WebPagePanel'
 import { AnnouncementsPanel } from './AnnouncementsPanel'
 import { Dialog } from './Dialog'
-import { ConnectionDot, DisplayName, DisplayNames } from './DisplayName'
+import { ConnectionDot, DisplayName } from './DisplayName'
 import { displayPresence, sortByConnection } from './displayPresence'
 import { displayTargets } from './displayTargets'
 import { createDisplayGroup, deleteDisplayGroup, getDisplayGroups, replaceDisplayGroupMembers, sendGroupCommand, type Display, type DisplayGroup, type MediaAsset } from '../api/client'
@@ -73,32 +73,37 @@ export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged, 
       <details id="compose-webpage" className="content-compose"><summary>Proyectar una página web</summary><WebPagePanel key={`web-${eventId}`} eventId={eventId} displays={displays} groups={loadError ? [] : groups} /></details>
     </div>
     <section className="orchestration-section" hidden={section !== 'configuration' && section !== 'all'} aria-labelledby="display-groups-heading">
-      <div className="section-heading"><div><h2 id="display-groups-heading">Grupos de pantallas</h2><p className="muted">Elegí los integrantes y operá sobre destinos concretos.</p></div>
+      <div className="workspace-heading"><div><h2 id="display-groups-heading">Grupos de pantallas</h2><p>Juntá pantallas para mandarles lo mismo de una vez. Cada grupo aparece como destino en Contenido, Escenas, anuncios y páginas web.</p></div>
         <button disabled={!eventId || busy || loading || !!loadError} onClick={() => { setCreating(true); setName(''); setError('') }}>Nuevo grupo</button></div>
       {loading && <p role="status">Cargando grupos…</p>}
       {loadError && <p role="alert" className="workspace-error">{loadError} Los datos pueden estar desactualizados. <button onClick={() => void refresh()}>Reintentar</button></p>}
       {notice && <p role="status" className="workspace-feedback">{notice}</p>}
       {error && <p role="alert" className="workspace-error">{error}</p>}
-      {!loading && !loadError && !groups.length && <p className="muted">Todavía no hay grupos en este evento.</p>}
+      {!loading && !loadError && !groups.length && <p className="muted">Todavía no hay grupos. Por ejemplo, creá «Salón» para manejar juntas todas las pantallas del salón.</p>}
       <div className="card-grid orchestration-grid">{groupTargets.map(target => {
         const group = groups.find(item => item.id === target.id)!
         const members = orderedDisplays.filter(display => group.displayIds.includes(display.id))
         const asset = media.find(item => item.id === groupMedia[group.id])
+        const blocked = busy || !members.length || !!loadError
         return <article className="card group-card" key={group.id}>
           <div className="display-heading"><strong className="display-name"><ConnectionDot connected={target.connected} label={target.statusLabel} /><span>{group.name}</span></strong><span className="count-badge">{target.statusLabel}</span></div>
-          <div className="member-list">{orderedDisplays.map(display => <label key={display.id}><input type="checkbox" aria-label={display.name} aria-description={displayPresence(display.status).label} checked={group.displayIds.includes(display.id)} disabled={busy || !!loadError}
-            onChange={() => toggleGroupMember(group, display.id)} /><DisplayName display={display} /></label>)}{!displays.length && <small className="muted">No hay pantallas vinculadas.</small>}</div>
-          <p className="content-target-names">{members.length ? <>Destino: <DisplayNames displays={members} /></> : 'Agregá integrantes para operar.'}</p>
-          <div className="inline-control"><label className="workspace-field">Contenido para {group.name}<select value={asset?.id ?? ''} disabled={busy || !!loadError}
-            onChange={event => setGroupMedia(current => ({ ...current, [group.id]: event.target.value }))}><option value="">Elegí un archivo</option>{media.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <button disabled={busy || !members.length || !asset || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'media.play', { mediaId: asset!.id }), `Reproducción enviada a ${group.name} · ${members.length} pantallas. Revisá la confirmación en En vivo.`)}>Reproducir en {group.name}</button></div>
+          <fieldset className="member-chips"><legend>Pantallas de {group.name}</legend>{orderedDisplays.map(display => <label key={display.id}><input type="checkbox" aria-label={display.name} aria-description={displayPresence(display.status).label} checked={group.displayIds.includes(display.id)} disabled={busy || !!loadError}
+            onChange={() => toggleGroupMember(group, display.id)} /><DisplayName display={display} /></label>)}{!displays.length && <small className="muted">Vinculá una pantalla para sumarla al grupo.</small>}</fieldset>
+          {!members.length && !!displays.length && <p className="muted group-hint">Marcá las pantallas que forman este grupo.</p>}
           <div className="button-row">
-            <button disabled={busy || !members.length || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'display.identify'), `Identificación enviada a ${group.name}.`)}>Identificar</button>
-            <button disabled={busy || !members.length || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'display.blackout'), `Oscurecimiento enviado a ${group.name}.`)}>Oscurecer pantallas</button>
-            <button disabled={busy || !members.length || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'display.restore'), `Restauración enviada a ${group.name}.`)}>Restaurar imagen</button>
-            <button disabled={busy || !members.length || !!loadError} onClick={() => void run(() => sendGroupCommand(group.id, 'media.stop'), `Detención enviada a ${group.name}.`)}>Detener contenido</button>
+            <button disabled={blocked} onClick={() => void run(() => sendGroupCommand(group.id, 'display.identify'), `Identificación enviada a ${group.name}.`)}>Identificar</button>
             <button className="danger-button" disabled={busy} onClick={() => { setRemoving(group); setError('') }}>Eliminar grupo</button>
           </div>
+          <details className="group-operate"><summary>Operar este grupo ahora</summary>
+            <div className="inline-control"><label className="workspace-field">Contenido para {group.name}<select value={asset?.id ?? ''} disabled={busy || !!loadError}
+              onChange={event => setGroupMedia(current => ({ ...current, [group.id]: event.target.value }))}><option value="">Elegí un archivo</option>{media.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <button disabled={blocked || !asset} onClick={() => void run(() => sendGroupCommand(group.id, 'media.play', { mediaId: asset!.id }), `Reproducción enviada a ${group.name} · ${members.length} ${members.length === 1 ? 'pantalla' : 'pantallas'}. Revisá la confirmación en En vivo.`)}>Reproducir en {group.name}</button></div>
+            <div className="button-row">
+              <button disabled={blocked} onClick={() => void run(() => sendGroupCommand(group.id, 'display.blackout'), `Oscurecimiento enviado a ${group.name}.`)}>Oscurecer pantallas</button>
+              <button disabled={blocked} onClick={() => void run(() => sendGroupCommand(group.id, 'display.restore'), `Restauración enviada a ${group.name}.`)}>Restaurar imagen</button>
+              <button disabled={blocked} onClick={() => void run(() => sendGroupCommand(group.id, 'media.stop'), `Detención enviada a ${group.name}.`)}>Detener contenido</button>
+            </div>
+          </details>
         </article>
       })}</div>
     </section>

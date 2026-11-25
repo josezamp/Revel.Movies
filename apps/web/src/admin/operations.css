@@ -274,3 +274,40 @@ section[aria-label="Pantallas en vivo"] .workspace-heading h2 { margin: 0; }
 .scene-advanced > summary { cursor: pointer; font-size: .8rem; color: #c2c2ce; padding-block: 12px; }
 .scene-advanced[open] > summary { margin-bottom: 8px; }
 .scene-assignment .scene-preview { max-width: 260px; }
+
+/* Configuration: pairing, the event's screens and their groups. */
+.config-section + .config-section, .config-section ~ * .orchestration-section { margin-top: 36px; }
+.config-section .workspace-heading { margin-bottom: 14px; }
+.player-address { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; border: 1px solid #27272a; border-radius: 12px; background: #111113; }
+.player-address code { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; font-size: 1.05rem; color: #fff; }
+.player-address a { font-size: .85rem; }
+.pairing-waiting { margin: 14px 0 0; font-size: .88rem; }
+.pairing-list, .config-displays { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.pairing-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 18px; padding: 12px 14px; border: 1px solid #476078; border-radius: 12px; background: #192430; }
+.pairing-list li span { color: #d5e5ff; font-size: .85rem; }
+.config-paired { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 14px 0 0; padding: 10px 14px; border: 1px solid #2f5a45; border-radius: 12px; background: #12241b; }
+.config-displays li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto; align-items: center; gap: 4px 18px; padding: 6px 14px; border: 1px solid #27272a; border-radius: 12px; background: #111113; }
+.config-display-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.config-display-name strong { min-width: 0; overflow-wrap: anywhere; }
+.config-display-meta { min-width: 0; overflow-wrap: anywhere; color: var(--workspace-muted); font-size: .82rem; }
+.display-audio-compact .display-audio-toggle { gap: 6px; }
+.display-audio-compact label { min-width: 5.5em; font-size: .82rem; color: #d4d4d8; }
+.config-identify { min-height: 44px; min-width: 7.5em; }
+.member-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.member-chips legend { padding: 0; margin-bottom: 8px; color: var(--workspace-muted); font-size: .8rem; }
+.member-chips label { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid #3f3f46; border-radius: 999px; font-size: .85rem; color: #d4d4d8; cursor: pointer; }
+.member-chips label:has(input:checked) { border-color: #c8dcff; background: #1b2433; color: #fff; }
+.member-chips label:has(input:focus-visible) { outline: 2px solid #c8dcff; outline-offset: 2px; }
+.group-hint { margin: 0; font-size: .82rem; }
+.group-operate { border-top: 1px solid #27272a; padding-top: 10px; }
+.group-operate summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: #d4d4d8; font-size: .88rem; }
+.group-operate[open] { display: grid; gap: 12px; }
+.group-operate .inline-control { align-items: end; }
+.group-operate .inline-control .workspace-field { flex: 1 1 200px; min-width: 0; }
+@media (max-width: 720px) {
+  .config-displays li { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 12px; }
+  .config-display-name, .config-display-meta { grid-column: 1 / -1; }
+  .pairing-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .pairing-list li span { grid-column: 1 / -1; grid-row: 2; }
+  .player-address button { flex: 1; }
+}
