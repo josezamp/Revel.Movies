@@ -23,3 +23,17 @@ test('overlapping groups deduplicate identical composition and flag conflicting 
   assert.deepEqual(result.conflicts, ['Patio'])
   assert.deepEqual(sceneDestinations([{ ...assignment, displayIds: ['missing'] }], displays, groups).missing, ['missing'])
 })
+
+test('a scene block is summarised in plain language for its card', async () => {
+  const { assignmentSummary, returnLabel } = await import('../src/admin/sceneView.ts')
+  const base = { displayIds: ['a'], groupIds: [], media: { action: 'keep' }, webPage: { action: 'keep' }, announcement: { action: 'keep' }, blackout: 'keep', promotions: 'keep' }
+  const media = [{ id: 'm1', name: 'menu-cena' }]
+  const playlists = [{ id: 'p1', name: 'Recepción' }]
+  assert.equal(assignmentSummary(base, media, playlists), 'Sin cambios')
+  assert.equal(assignmentSummary({ ...base, media: { action: 'replace', type: 'media', mediaId: 'm1' } }, media, playlists), 'menu-cena')
+  assert.equal(assignmentSummary({ ...base, media: { action: 'replace', type: 'playlist', playlistId: 'p1' }, announcement: { action: 'replace', payload: { kind: 'countdown', text: 'Ya empieza', layout: 'banner', theme: 'dark' } } }, media, playlists), 'Playlist Recepción + Cuenta regresiva: Ya empieza')
+  assert.equal(assignmentSummary({ ...base, webPage: { action: 'replace', payload: { url: 'https://example.com/votar' } }, promotions: 'suspend' }, media, playlists), 'Página example.com + Sin cortes promocionales')
+  assert.equal(assignmentSummary({ ...base, media: { action: 'replace', type: 'media', mediaId: 'gone' } }, media, playlists), 'Archivo no disponible')
+  assert.equal(returnLabel(300), '5 min')
+  assert.equal(returnLabel(45), '45 s')
+})

@@ -68,7 +68,7 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
   return (
     <section id="media-library" className="library-section" ref={libraryRef} tabIndex={-1} aria-labelledby="library-heading">
       <div className="workspace-heading">
-        <div><h2 id="library-heading">Biblioteca</h2><p>Guardá archivos y enlaces, y elegí dónde mostrarlos.</p></div>
+        <div><h2 id="library-heading">Biblioteca</h2><p>Subí archivos, guardá enlaces y mandalos a una pantalla.</p></div>
         <div className="button-row"><button type="button" className="workspace-primary" disabled={busy} onClick={() => setAddingLink(true)}>Agregar enlace</button>
         <button type="button" disabled={!media.some(item => !isMediaLink(item)) && !selecting} aria-pressed={selecting}
           onClick={selecting ? onCancelSelection : onStartSelection}>{selecting ? 'Volver al editor' : 'Seleccionar'}</button>
@@ -77,15 +77,6 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
       <MediaUploadQueue eventId={eventId} media={media} onMediaChanged={onMediaChanged} onAddUploaded={onAddUploaded}
         optimizationAvailable={tv.available}
         playlistsLoading={playlistsLoading} onPreview={file => setPreview({ name: file.name, file, type: /\.(jpe?g|png|webp|gif)$/i.test(file.name) ? 'Image' : 'Video' })} />
-      <div className="library-tools">
-        <label className="workspace-field library-search"><span className="visually-hidden">Buscar contenido</span>
-          <input type="search" placeholder="Buscar por nombre o URL…" aria-label="Buscar contenido" value={search} onChange={event => setSearch(event.target.value)} />
-        </label>
-        <label className="workspace-field"><span className="visually-hidden">Tipo de contenido</span><select aria-label="Tipo de contenido" value={filter} onChange={event => setFilter(event.target.value)}>
-          <option value="all">Todo el contenido</option><option value="Video">Videos</option><option value="Image">Imágenes</option><option value="Link">Enlaces</option>
-        </select></label>
-        <span className="workspace-help">{visible.length} de {items.length} elementos</span>
-      </div>
       {selecting ? <div className="library-selection-bar">
         <div><strong role="status">{selected.length} {selected.length === 1 ? 'seleccionado' : 'seleccionados'}</strong><small>Videos e imágenes, en el orden que los elijas.</small></div>
         <button type="button" className="quiet-button" disabled={!selectable.length} onClick={() => onSelectedIds(current => allVisibleSelected
@@ -103,6 +94,15 @@ export function MediaLibrary({ libraryRef, eventId, media, library, tv, displays
         {media.some(isMediaLink) && <button disabled={!canOperate || busy} onClick={() => void run(() => sendToTarget('webpage.clear'), `Retirada enviada a ${target!.label}. Esperando confirmación.`)}>Retirar página</button>}
         </div></div>
       </div>}
+      <div className="library-tools">
+        <label className="workspace-field library-search"><span className="visually-hidden">Buscar contenido</span>
+          <input type="search" placeholder="Buscar por nombre o URL…" aria-label="Buscar contenido" value={search} onChange={event => setSearch(event.target.value)} />
+        </label>
+        <label className="workspace-field"><span className="visually-hidden">Tipo de contenido</span><select aria-label="Tipo de contenido" value={filter} onChange={event => setFilter(event.target.value)}>
+          <option value="all">Todo el contenido</option><option value="Video">Videos</option><option value="Image">Imágenes</option><option value="Link">Enlaces</option>
+        </select></label>
+        <span className="workspace-help">{visible.length} de {items.length} elementos</span>
+      </div>
       {(feedback || notice) && <p className="workspace-feedback" role="status">{notice || feedback}</p>}
       {error && <p className="workspace-error" role="alert">{error}</p>}
       {tv.error && <p className="workspace-error" role="alert">{tv.error}</p>}

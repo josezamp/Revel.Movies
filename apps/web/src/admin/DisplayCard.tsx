@@ -23,11 +23,11 @@ export function DisplayCard({ display, media, playlists, prepared, now, onChange
   }
   const blackout = display.blackout ?? display.desiredPlaybackState === 'Blackout'
   return <article className={`card display-card connection-${presence.kind}`}>
-    <div className="display-heading"><h3 title={display.name}>{display.name}</h3><span className="display-presence"><span className="status-dot" aria-hidden="true" />{presence.label}</span></div>
+    <div className="display-heading"><h3 title={display.name}>{display.name}</h3><button className="display-rename" aria-label="Renombrar" title="Renombrar pantalla" onClick={() => setRename(true)}><span aria-hidden="true">✎</span></button><span className="display-presence"><span className="status-dot" aria-hidden="true" />{presence.label}</span></div>
     <DisplayLiveState display={display} media={media} playlists={playlists} now={now} />
     {prepared.length > 0 && <div className="prepared-summary"><small>PREPARADO · SIN MODIFICAR LA EMISIÓN</small>{prepared.map(label => <p key={label}>{label}</p>)}</div>}
     <DisplayPlaybackControls display={display} media={media} playlists={playlists} onChanged={onChanged} />
-    <div className="button-row display-quick-actions"><button disabled={!!busy || !presence.connected} onClick={() => void act('blackout', () => sendCommand(display.id, blackout ? 'display.restore' : 'display.blackout'))}>{blackout ? 'Restaurar imagen' : 'Oscurecer pantalla'}</button><button disabled={!!busy || !presence.connected} onClick={() => void act('identify', () => sendCommand(display.id, 'display.identify'))}>{busy === 'identify' ? 'Enviando…' : 'Identificar'}</button><button onClick={() => setRename(true)}>Renombrar</button></div>
+    <div className="button-row display-quick-actions"><button disabled={!!busy || !presence.connected} onClick={() => void act('blackout', () => sendCommand(display.id, blackout ? 'display.restore' : 'display.blackout'))}>{blackout ? 'Restaurar imagen' : 'Oscurecer pantalla'}</button><button disabled={!!busy || !presence.connected} onClick={() => void act('identify', () => sendCommand(display.id, 'display.identify'))}>{busy === 'identify' ? 'Enviando…' : 'Identificar'}</button></div>
     {feedback && <small role="status">{feedback}</small>}{error && <p role="alert" className="workspace-error">{error}</p>}
     <details className="display-details"><summary>Detalles · orientación, imagen, audio y diagnóstico</summary>
       <div className="display-orientation"><div className="display-orientation-heading"><span>Orientación física</span>{busy === 'rotation' && <small role="status">Guardando…</small>}</div><div className="display-settings-row">

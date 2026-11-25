@@ -46,9 +46,10 @@ function ContentCover({ entry, compact = false }: { entry: Entry; compact?: bool
   </span>
 }
 
-export function DisplayMediaPicker({ displayName, media, playlists, selected, assigned, disabled, onSelect }: {
+export function DisplayMediaPicker({ displayName, media, playlists, selected, assigned, disabled, onSelect, pendingLabel = 'Listo para enviar', resetLabel = 'Descartar selección', footerHint = 'Elegí el contenido y confirmá el envío desde la tarjeta de la pantalla.' }: {
   displayName: string; media: MediaAsset[]; playlists: Playlist[]; selected: DisplayContentSelection | null
   assigned: DisplayContentSelection | null; disabled: boolean; onSelect: (selection: DisplayContentSelection | null) => void
+  pendingLabel?: string; resetLabel?: string; footerHint?: string
 }) {
   const [open, setOpen] = useState(false)
   const entries = useMemo<Entry[]>(() => {
@@ -65,21 +66,21 @@ export function DisplayMediaPicker({ displayName, media, playlists, selected, as
   const current = entries.find(entry => sameSelection(selected ?? assigned, entry.selection))
 
   return <div className="display-media-picker">
-    <div className="content-picker-label"><span>Contenido</span>{selected && <span className="content-picker-pending">Listo para enviar</span>}</div>
+    <div className="content-picker-label"><span>Contenido</span>{selected && pendingLabel && <span className="content-picker-pending">{pendingLabel}</span>}</div>
     <button type="button" className="content-picker-trigger" aria-label={`Contenido para ${displayName}`}
       aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => setOpen(true)}>
       {current ? <ContentCover key={`${current.selection.kind}:${current.selection.id}`} entry={current} compact /> : <span className="content-picker-empty-icon" aria-hidden="true">▤</span>}
       <span className="content-picker-trigger-text"><strong>{current?.name ?? (assigned ? 'Contenido asignado' : 'Seleccionar contenido')}</strong><small>{current ? `${typeLabels[current.category]} · Cambiar` : 'Playlists, videos, imágenes y enlaces'}</small></span>
       <span className="content-picker-chevron" aria-hidden="true">›</span>
     </button>
-    {selected && <button type="button" className="content-picker-reset" disabled={disabled} onClick={() => onSelect(null)}>Descartar selección</button>}
-    {open && <ContentBrowser displayName={displayName} entries={entries} selected={selected} assigned={assigned} disabled={disabled}
+    {selected && <button type="button" className="content-picker-reset" disabled={disabled} onClick={() => onSelect(null)}>{resetLabel}</button>}
+    {open && <ContentBrowser footerHint={footerHint} displayName={displayName} entries={entries} selected={selected} assigned={assigned} disabled={disabled}
       onClose={() => setOpen(false)} onSelect={selection => { onSelect(selection); setOpen(false) }} />}
   </div>
 }
 
-function ContentBrowser({ displayName, entries, selected, assigned, disabled, onClose, onSelect }: {
-  displayName: string; entries: Entry[]; selected: DisplayContentSelection | null; assigned: DisplayContentSelection | null
+function ContentBrowser({ displayName, entries, selected, assigned, disabled, onClose, onSelect, footerHint }: {
+  footerHint: string; displayName: string; entries: Entry[]; selected: DisplayContentSelection | null; assigned: DisplayContentSelection | null
   disabled: boolean; onClose: () => void; onSelect: (selection: DisplayContentSelection) => void
 }) {
   const [query, setQuery] = useState('')
@@ -131,6 +132,6 @@ function ContentBrowser({ displayName, entries, selected, assigned, disabled, on
       })}
       {filtered.length > visible.length && <button type="button" className="content-picker-more" onClick={() => setLimit(value => value + 24)}>Mostrar más ({filtered.length - visible.length} restantes)</button>}
     </div>
-    <div className="playlist-dialog-footer content-picker-footer"><p>Elegí el contenido y confirmá el envío desde la tarjeta de la pantalla.</p><button type="button" onClick={onClose}>Cancelar</button></div>
+    <div className="playlist-dialog-footer content-picker-footer"><p>{footerHint}</p><button type="button" onClick={onClose}>Cancelar</button></div>
   </Dialog>
 }

@@ -10,7 +10,10 @@ export function Dialog({ title, busy = false, onClose, children, initialFocusRef
     const previous = document.activeElement as HTMLElement | null
     const overflow = document.body.style.overflow
     dialog.showModal()
-    initialFocusRef?.current?.focus()
+    // showModal() focuses the first focusable element (the close button) and ignores React's autoFocus.
+    // Typing must land in the first field, or Enter would close the dialog without saving.
+    const firstField = dialog.querySelector<HTMLElement>('input:not([type="checkbox"]):not([type="radio"]):not(:disabled), textarea:not(:disabled), select:not(:disabled)')
+    ;(initialFocusRef?.current ?? firstField)?.focus()
     document.body.style.overflow = 'hidden'
     return () => {
       dialog.close()

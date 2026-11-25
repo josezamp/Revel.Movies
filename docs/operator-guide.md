@@ -46,6 +46,10 @@ Las acciones de reproducción quedan esperando confirmación. La aceptación HTT
 - **Renombrar:** conserva la identidad, vinculación, evento, grupos, referencias y reproducción; funciona con la TV desconectada.
 - **Identificar:** muestra nombre e identificador breve durante unos segundos, con la orientación física de la pantalla.
 
+Cada tarjeta es compacta: miniatura, contenido al aire, selector de contenido y controles. El lápiz junto al nombre renombra la pantalla. En celulares, las cinco secciones quedan en una barra fija inferior.
+
+**Publicar anuncio** y **Página web**, arriba de las tarjetas, abren esos paneles debajo de las pantallas sin salir de En vivo.
+
 En **Detalles** se encuentran orientación, ajuste de imagen, diagnóstico, recarga y desvinculación. La recarga interrumpe brevemente el reproductor; desvincular requiere confirmación y una nueva vinculación para volver a usarlo.
 
 En **Ajuste de imagen**, elegí **Mostrar completo** para ver toda la foto o el video, con franjas negras si su formato no coincide con la TV, o **Rellenar con recorte** para llenar la pantalla sin deformar. El recorte es centrado: por ejemplo, un video horizontal 4:3 o 16:9 en una TV vertical 9:16 pierde parte de los laterales. La miniatura refleja el ajuste seleccionado. Se guarda por pantalla, se aplica sin reiniciar el contenido y se recupera al reconectarse. No modifica anuncios ni páginas web. Las pantallas existentes conservan **Mostrar completo** hasta que lo cambies.
@@ -63,13 +67,16 @@ En **En vivo**, alterná entre **Tarjetas** y **Mapa**. Cada evento tiene su pro
 
 Si otra sesión guardó cambios, el panel rechaza la escritura antigua y conserva tu borrador visible. **Cargar versión guardada** pide confirmar el descarte del borrador antes de traer la última versión. Un error de red conserva los cambios pendientes y permite reintentar. El límite es de 300 elementos por evento.
 
-## Escenas: guardar, preparar y activar
+## Escenas: armar y activar
 
-1. Crear una escena y agregar asignaciones. Cada asignación puede apuntar a pantallas o grupos. El editor muestra los destinos concretos y detecta composiciones incompatibles por grupos superpuestos.
-2. Para multimedia, página y anuncio, elegir **Mantener**, **Reemplazar** o **Retirar**. Pantalla negra tiene su política independiente. Los cortes promocionales pueden mantenerse o suspenderse: la suspensión evita próximos cortes y deja terminar uno ya iniciado.
-3. **Guardar borrador** persiste una versión sin tocar las pantallas. Se puede guardar sin asignaciones y completarlo después. Editar, duplicar y renombrar son operaciones de configuración.
-4. **Preparar recursos** verifica los medios mientras continúa la emisión. El resultado se muestra por pantalla: lista en caché, disponible por red, parcial, error, sin conexión o vencida. No se publican porcentajes estimados.
-5. Elegir entre esperar todas las pantallas o activar solo las disponibles, dejando visibles las excluidas. **Activar [nombre] en N pantallas** aplica una versión concreta. Cada destino pasa de pendiente a aplicado únicamente con telemetría correlacionada.
+Cada tarjeta muestra qué contenido lleva a cada pantalla y un botón **Activar [nombre] en N pantallas**.
+
+1. **Crear escena**: poné un nombre y completá el bloque **Dónde y qué mostrar**: elegí las pantallas o grupos, después el contenido (archivo, playlist o enlace guardado) con el mismo selector visual de En vivo y, si querés, un anuncio o cuenta regresiva encima. **+ Otro contenido para otras pantallas** agrega un bloque distinto. El editor detecta una misma pantalla en bloques incompatibles.
+2. **Volver a lo anterior automáticamente** define si la escena es temporal y cuánto dura.
+3. **Opciones avanzadas** conserva el control por capa: para multimedia, página y anuncio, **Mantener**, **Reemplazar** o **Retirar**; pantalla negra y cortes promocionales tienen su política propia. La suspensión de cortes evita los próximos y deja terminar uno ya iniciado. Una URL escrita a mano se carga ahí.
+4. **Guardar borrador** persiste una versión sin tocar las pantallas. Se puede guardar sin pantallas y completarla después. Editar, duplicar y renombrar son operaciones de configuración; duplicar, renombrar, eliminar y el historial están en **Más**.
+5. **Activar** verifica primero los medios en cada pantalla y activa apenas responden; el botón muestra *Preparando pantallas…* y *Activando…*. Si alguna pantalla no está disponible, el panel lo informa y ofrece **Activar solo en las listas**. Cada destino pasa de pendiente a aplicado únicamente con telemetría correlacionada.
+6. **Preparar recursos** es opcional: adelanta esa verificación mientras continúa la emisión, para que la activación sea inmediata. El resultado se muestra por pantalla: lista en caché, disponible por red, parcial, error, sin conexión o vencida. No se publican porcentajes estimados.
 
 Cambiar la escena, los recursos de una playlist o los integrantes de un grupo invalida la preparación. Una reconexión exige verificar de nuevo. La preparación vence a los 15 minutos. La caché depende del soporte del navegador y de un contexto seguro (HTTPS o localhost); en HTTP de una LAN puede ser necesario reproducir por red. El límite de caché por archivo es 256 MiB. No se promete disponibilidad offline de webs, archivos fuera del límite ni recursos que no se pudieron almacenar.
 
@@ -83,7 +90,7 @@ Para armar escenas y horarios desde un chat, usá **Copiar contexto para ChatGPT
 
 En **Programación → Programar escena**, elegí una escena guardada, fecha, hora, zona horaria y la política para pantallas no disponibles. También podés programar desde cada tarjeta de Escenas. Las entradas se preparan automáticamente dos minutos antes y se activan desde el servidor aunque cierres el panel. El servidor y las pantallas deben permanecer encendidos y conectados.
 
-La agenda muestra el próximo cambio y permite editar o cancelar entradas futuras. El historial detalla la preparación y la confirmación por pantalla. Para después de medianoche elegí la fecha del día siguiente. Si no se puede ejecutar dentro del minuto posterior al horario, la entrada se omite o falla y queda registrada. Los cambios manuales no cancelan las próximas entradas.
+La agenda agrupa las entradas por día, indica cuánto falta para cada una y qué contenido muestra su escena. El diálogo de programación ofrece atajos (**En 5 min**, **En 15 min**, **En 30 min**, **En 1 hora**). Muestra el próximo cambio y permite editar o cancelar entradas futuras; **Cancelar entrada** la deja registrada en el historial y **Eliminar entrada** la quita sin registro. Si la escena cambió después de programarla, la entrada lo avisa. El historial detalla la preparación y la confirmación por pantalla. Para después de medianoche elegí la fecha del día siguiente. Si no se puede ejecutar dentro del minuto posterior al horario, la entrada se omite o falla y queda registrada. Los cambios manuales no cancelan las próximas entradas.
 
 La versión y los destinos se confirman al guardar: si cambiás una escena, sus grupos o sus recursos, actualizá su programación. Ver [programación, recuperación y configuración de IIS](scheduling.md).
 

@@ -85,3 +85,28 @@
 @media (min-width: 651px) and (max-width: 1050px) {
   .schedule-import-entry { align-items: stretch; flex-direction: column; gap: 16px; }
 }
+
+/* ── Compact run-of-show: the agenda starts on the first screen and reads by day. ── */
+.schedule-next { margin-block: 14px; padding: 12px 18px; }
+.schedule-next strong { font-size: 1.15rem; }
+.schedule-next p:last-child { margin-top: 4px; }
+.schedule-next > time { font-size: clamp(1.6rem, 3.5vw, 2.2rem); }
+.schedule-list { margin-top: 20px; }
+.schedule-list > h3 { margin-bottom: 4px; }
+.schedule-day { margin: 16px 0 0; padding-bottom: 8px; font-size: .82rem; font-weight: 650; color: #e3e3e8; }
+.schedule-entry { grid-template-columns: 104px minmax(0, 1fr) auto; align-items: start; gap: 16px; padding-block: 12px; }
+.schedule-when { gap: 2px; }
+.schedule-when time { font-size: 1.35rem; }
+.schedule-when span { font-size: .72rem; color: var(--workspace-muted); }
+.schedule-entry h4 { font-size: 1rem; }
+.schedule-content > p { margin: 4px 0 0; }
+.schedule-content details { margin-top: 6px; }
+.schedule-actions { margin-top: 0; gap: 6px; justify-content: flex-end; }
+.schedule-quick { gap: 6px; margin-top: -8px; }
+.schedule-quick button { font-size: .75rem; }
+@media (max-width: 900px) {
+  .schedule-entry { grid-template-columns: 88px minmax(0, 1fr); gap: 8px 12px; }
+  .schedule-when { flex-flow: column nowrap; align-items: flex-start; gap: 2px; }
+  .schedule-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .schedule-next { padding: 12px 14px; }
+}

@@ -156,8 +156,7 @@ export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded
       onDragOver={event => { event.preventDefault(); setDragging(true) }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false) }}
       onDrop={event => { event.preventDefault(); setDragging(false); enqueue(Array.from(event.dataTransfer.files)) }}>
-      <div className="upload-dropzone-copy"><span className="upload-eyebrow">ARCHIVOS DEL EVENTO</span><strong>Arrastrá tus archivos acá</strong>
-        <p>Podés cargar más de 50 archivos en una sola tanda. Revisá la cola y comenzá cuando quieras.</p></div>
+      <div className="upload-dropzone-copy"><strong>Arrastrá tus archivos acá</strong></div>
       <label className="upload-picker">Elegir archivos<input className="visually-hidden" type="file" multiple aria-label="Agregar archivos a la cola"
         accept=".mp4,.jpg,.jpeg,.png,.webp,.gif" disabled={!eventId} onChange={event => { enqueue(Array.from(event.target.files ?? [])); event.target.value = '' }} /></label>
       <small>MP4, JPG, PNG, WEBP o GIF · Hasta 1 GB por archivo · Se conserva el orden de selección</small>
@@ -169,10 +168,9 @@ export function MediaUploadQueue({ eventId, media, onMediaChanged, onAddUploaded
           try { localStorage.setItem('revel.optimize-uploads.v1', String(checked)) } catch { /* This session still remembers the choice. */ }
         }} aria-describedby="upload-optimization-help" />Optimizar videos al subir</label>
       <p id="upload-optimization-help">{optimize
-        ? 'El servidor reduce tamaño, resolución y FPS, conserva el audio y reemplaza el video cuando está listo. Hasta 1080p y 30 FPS. Las imágenes no se modifican.'
+        ? 'Reduce los videos hasta 1080p y 30 FPS conservando el audio; las imágenes no cambian. Si falla o no ahorra espacio, queda el archivo subido.'
         : 'Se guardan los archivos originales, sin procesamiento automático.'}</p>
       {optimize && optimizationAvailable === false && <p className="workspace-error" role="status">La optimización no está disponible en el servidor. Habilitá FFmpeg y FFprobe o desactivá el switch para subir videos originales.</p>}
-      {optimize && <small>El progreso aparece en la biblioteca. Si falla o no hay ahorro, se conserva el archivo subido.</small>}
     </div>
     {uploads.length > 0 && <div className="upload-queue">
       <div className="workspace-heading"><div><strong role="status">{completed.length} de {uploads.length} archivos subidos</strong>

@@ -126,3 +126,40 @@
 .upload-optimization-toggle { display: flex; align-items: center; gap: .7rem; min-height: 44px; font-weight: 600; cursor: pointer; }
 .upload-optimization p { margin: 0; font-size: .9rem; }
 .upload-optimization small { color: var(--workspace-muted, #a1a1aa); }
+
+/* ── Library: the destination stays in view while browsing; upload and cleanup step back. ── */
+.library-section .library-play-target { position:sticky; top:64px; z-index:4; margin:14px 0; padding:10px 12px; background:#141416f5; backdrop-filter:blur(10px); }
+.destination-heading { margin-bottom:6px; }
+.destination-heading h3 { font-size:.8rem; font-weight:600; color:var(--workspace-muted); }
+.destination-heading p { display:none; }
+.destination-cards { gap:8px; padding:2px 2px 8px; }
+.destination-card { flex:0 0 auto; flex-direction:row; align-items:center; gap:10px; min-height:44px; max-width:240px; padding:8px 12px; }
+.destination-card-top { order:3; }
+.destination-card-top svg { display:none; }
+.destination-controls { padding-top:8px; }
+.destination-controls .content-target-names { font-size:.78rem; }
+.library-tools { margin:12px 0; }
+.upload-dropzone { padding:12px 16px; gap:8px 16px; }
+.upload-dropzone-copy { gap:0; }
+.upload-dropzone-copy strong { font-size:.95rem; }
+.upload-dropzone > small { font-size:.75rem; }
+.upload-picker { padding:.6rem 1rem; }
+.upload-optimization { display:flex; flex-wrap:wrap; align-items:center; gap:2px 16px; margin:4px 0 0; padding:4px 16px; border:0; }
+.upload-optimization p { flex:1 1 320px; font-size:.78rem; color:var(--workspace-muted); line-height:1.5; }
+.media-cleanup { margin-top:2.5rem; padding:12px 16px; border-color:#39393f; gap:1rem; }
+.media-cleanup h3 { margin:0 0 .25rem; font-size:.9rem; }
+.media-cleanup p { font-size:.8rem; color:var(--workspace-muted); }
+.destination-picker { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+.destination-heading { display:contents; }
+.destination-cards { order:2; flex:1 1 260px; min-width:0; padding:2px; }
+.destination-filter { order:3; }
+.destination-empty, .destination-picker > .workspace-help { order:4; flex-basis:100%; margin:0; }
+.destination-controls { margin-top:8px; }
+@media(max-width:720px) {
+  .library-section .library-play-target { top:8px; padding:8px 10px; }
+  .destination-heading h3 { font-size:.75rem; }
+  .destination-heading > div { flex:1; }
+  .destination-filter { order:1; }
+  .destination-cards { flex-basis:100%; }
+  .destination-controls .content-target-names { flex-basis:100%; }
+}

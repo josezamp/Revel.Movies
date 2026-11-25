@@ -66,6 +66,7 @@ test('destinations require a choice and removing a screen never selects another'
   expect((await request.delete(`/api/displays/${first}`)).ok()).toBeTruthy()
   await expect(destination.getByRole('radio', { checked: true })).toHaveCount(0)
   await expect(destination.getByRole('radio', { name: /Barra.*Sin conexión/ })).toHaveCount(1)
+  await page.getByRole('button', { name: 'En vivo', exact: true }).click()
   await page.getByText('Publicar un anuncio o una cuenta regresiva', { exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Enviar a', exact: true })).toHaveValue('')
   await expect(page.getByRole('button', { name: 'Mostrar anuncio · elegí destino' })).toBeDisabled()

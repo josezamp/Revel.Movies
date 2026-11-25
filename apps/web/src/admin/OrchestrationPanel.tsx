@@ -10,7 +10,7 @@ import './content.css'
 
 type Props = {
   eventId: string; displays: Display[]; media: MediaAsset[]; onGroupsChanged: (groups: DisplayGroup[]) => void
-  section?: 'content' | 'configuration' | 'all'
+  section?: 'live' | 'content' | 'configuration' | 'all'
 }
 
 export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged, section = 'all' }: Props) {
@@ -67,12 +67,12 @@ export function OrchestrationPanel({ eventId, displays, media, onGroupsChanged, 
   }
 
   return <>
-    <div className="orchestration-section" hidden={section === 'configuration'}>
+    <div className="orchestration-section" hidden={section !== 'live' && section !== 'all'}>
       {loadError && <p className="workspace-error" role="alert">{loadError} Los grupos no están disponibles hasta actualizar. <button onClick={() => void refresh()}>Reintentar</button></p>}
-      <details className="content-compose"><summary>Publicar un anuncio o una cuenta regresiva</summary><AnnouncementsPanel key={`announcements-${eventId}`} eventId={eventId} displays={displays} groups={loadError ? [] : groups} /></details>
-      <details className="content-compose"><summary>Proyectar una página web</summary><WebPagePanel key={`web-${eventId}`} eventId={eventId} displays={displays} groups={loadError ? [] : groups} /></details>
+      <details id="compose-announcement" className="content-compose"><summary>Publicar un anuncio o una cuenta regresiva</summary><AnnouncementsPanel key={`announcements-${eventId}`} eventId={eventId} displays={displays} groups={loadError ? [] : groups} /></details>
+      <details id="compose-webpage" className="content-compose"><summary>Proyectar una página web</summary><WebPagePanel key={`web-${eventId}`} eventId={eventId} displays={displays} groups={loadError ? [] : groups} /></details>
     </div>
-    <section className="orchestration-section" hidden={section === 'content'} aria-labelledby="display-groups-heading">
+    <section className="orchestration-section" hidden={section !== 'configuration' && section !== 'all'} aria-labelledby="display-groups-heading">
       <div className="section-heading"><div><h2 id="display-groups-heading">Grupos de pantallas</h2><p className="muted">Elegí los integrantes y operá sobre destinos concretos.</p></div>
         <button disabled={!eventId || busy || loading || !!loadError} onClick={() => { setCreating(true); setName(''); setError('') }}>Nuevo grupo</button></div>
       {loading && <p role="status">Cargando grupos…</p>}

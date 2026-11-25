@@ -17,7 +17,16 @@ const EventMapPanel = lazy(() => import('./EventMapPanel').then(module => ({ def
 const SchedulePanel = lazy(() => import('./SchedulePanel').then(module => ({ default: module.SchedulePanel })))
 
 type Section = 'live' | 'scenes' | 'schedule' | 'content' | 'configuration'
-const sections = [['live', 'En vivo'], ['scenes', 'Escenas'], ['schedule', 'Programación'], ['content', 'Contenido'], ['configuration', 'Configuración']] as const
+const sections = [['live', 'En vivo', 'En vivo'], ['scenes', 'Escenas', 'Escenas'], ['schedule', 'Programación', 'Program.'], ['content', 'Contenido', 'Contenido'], ['configuration', 'Configuración', 'Config.']] as const
+
+// Live shortcuts to the announcement and web page composers rendered below the screens.
+function openCompose(id: string) {
+  const panel = document.getElementById(id) as HTMLDetailsElement | null
+  if (!panel) return
+  panel.open = true
+  panel.scrollIntoView({ block: 'start' })
+  panel.querySelector('summary')?.focus({ preventScroll: true })
+}
 
 export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   username: string; onLogout: () => Promise<void>; loggingOut: boolean; sessionError: string
@@ -119,13 +128,13 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
   return <main className="admin-shell operation-shell">
     <a className="skip-link" href="#event-workspace">Ir al contenido del evento</a>
     <header className="operation-header">
-      <div className="operation-identity"><Link className="operation-brand eyebrow" to="/">REVEL MOVIES <span> / CONTROL DE EVENTO</span></Link><h1>{eventName ?? 'Tus eventos'}</h1><p className="muted">Prepará cada momento. Controlá lo que está en pantalla.</p></div>
+      <div className="operation-identity"><Link className="operation-brand eyebrow" to="/">REVEL MOVIES <span> / CONTROL DE EVENTO</span></Link><h1>{eventName ?? 'Tus eventos'}</h1></div>
       <div className="admin-toolbar"><label>Evento activo<select value={selectedEventId} onChange={event => setSelectedEventId(event.target.value)}>
         {!selectedEventId && <option value="" disabled>{missingEvent ? 'Elegí un evento disponible' : lastUpdated ? 'Sin eventos' : 'Cargando eventos…'}</option>}{events.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select></label><button onClick={() => setDialog('event')}>Nuevo evento</button><div className="admin-session"><span>{username}</span><button disabled={loggingOut} onClick={() => void onLogout()}>{loggingOut ? 'Cerrando…' : 'Cerrar sesión'}</button></div></div>
     </header>
     {sessionError && <p role="alert" className="workspace-error">{sessionError}</p>}
-    {selectedEventId && <nav className="operation-nav" aria-label="Tareas del evento"><div className="nav-context"><span className="nav-event">{eventName}</span><span className={`panel-connection${error || outdated ? ' is-stale' : ''}`}><span aria-hidden="true" />{error || outdated ? 'Sin actualización' : 'Panel conectado'}</span></div><div className="operation-tabs">{sections.map(([key, label]) => <button key={key} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); if (key === 'live' || key === 'scenes') void refreshMedia() }}>{label}</button>)}</div></nav>}
+    {selectedEventId && <nav className="operation-nav" aria-label="Tareas del evento"><div className="operation-tabs">{sections.map(([key, label, short]) => <button key={key} aria-label={label} aria-current={section === key ? 'page' : undefined} onClick={() => { setSection(key); if (key === 'live' || key === 'scenes') void refreshMedia() }}><span className="tab-full">{label}</span><span className="tab-short" aria-hidden="true">{short}</span></button>)}</div><span className={`panel-connection${error || outdated ? ' is-stale' : ''}`}><span aria-hidden="true" />{error || outdated ? 'Sin actualización' : 'Panel conectado'}</span></nav>}
     <div id="event-workspace" tabIndex={-1} className="event-workspace">
     {(error || outdated) && <div className="server-alert" role="alert"><strong>Sin actualización del servidor.</strong> <span aria-live="off">{lastUpdated ? `Última actualización: ${ageLabel(now - lastUpdated).toLowerCase()}.` : 'Todavía no se recibieron datos.'}</span> Reintentando… <button onClick={() => void refresh()}>Reintentar ahora</button>{error && <small>{error}</small>}</div>}
     {missingEvent && <div className="server-alert" role="alert"><strong>Este evento no está disponible.</strong> Elegí un evento desde el selector de arriba para continuar. No se seleccionó otro automáticamente.</div>}
@@ -137,9 +146,9 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
     </section>}
     {selectedEventId && <>
     {mediaError && <p className="workspace-error" role="alert">Contenido desactualizado: {mediaError} <button onClick={() => void refreshMedia()}>Reintentar</button></p>}
-    {pending.length > 0 && <aside className="pairing-notice"><span>{pending.length} {pending.length === 1 ? 'pantalla espera vinculación' : 'pantallas esperan vinculación'}</span><button onClick={() => setSection('configuration')}>Vincular pantallas</button></aside>}
+    {pending.length > 0 && section !== 'configuration' && <aside className="pairing-notice"><span>{pending.length} {pending.length === 1 ? 'pantalla espera vinculación' : 'pantallas esperan vinculación'}</span><button onClick={() => setSection('configuration')}>Vincular pantallas</button></aside>}
     <div hidden={section !== 'live'}>
-      <section aria-label="Pantallas en vivo"><div className="workspace-heading"><div><p className="eyebrow">EN VIVO</p><h2>Pantallas <span className="count-badge">{onlineCount} de {visibleDisplays.length} conectadas</span></h2></div><div className="button-row"><button onClick={() => setSection('scenes')}>Escenas preparadas →</button><button onClick={() => setSection('configuration')}>Agregar pantalla</button></div></div>
+      <section aria-label="Pantallas en vivo"><div className="workspace-heading"><div><h2>Pantallas <span className="count-badge">{onlineCount} de {visibleDisplays.length} conectadas</span></h2></div><div className="button-row"><button onClick={() => openCompose('compose-announcement')}>Publicar anuncio</button><button onClick={() => openCompose('compose-webpage')}>Página web</button></div></div>
         {!lastUpdated && !error && <p role="status">Cargando pantallas…</p>}
         <div className="live-view-toolbar">
           <div className="live-view-switch" role="group" aria-label="Vista de pantallas"><button aria-pressed={liveView === 'cards'} onClick={() => updateNavigation('view', 'cards')}>Tarjetas</button><button aria-pressed={liveView === 'map'} onClick={() => updateNavigation('view', 'map')}>Mapa</button></div>
@@ -164,7 +173,7 @@ export function AdminPage({ username, onLogout, loggingOut, sessionError }: {
       </article>)}</div>}
     </section></div>
     <div hidden={section !== 'content'}><MediaWorkspace key={selectedEventId + '-media'} eventId={selectedEventId} displays={visibleDisplays} groups={eventGroups} media={eventMedia} onMediaChanged={refreshMedia} /></div>
-    <div hidden={section !== 'content' && section !== 'configuration'}><OrchestrationPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} onGroupsChanged={setGroups} section={section === 'configuration' ? 'configuration' : 'content'} /></div>
+    <div hidden={section !== 'live' && section !== 'configuration'}><OrchestrationPanel key={selectedEventId} eventId={selectedEventId} displays={visibleDisplays} media={eventMedia} onGroupsChanged={setGroups} section={section === 'configuration' ? 'configuration' : section === 'live' ? 'live' : 'content'} /></div>
     </>}
     </div>
     {dialog && <NameDialog title={dialog === 'event' ? 'Nuevo evento' : 'Vincular pantalla'} initialName="" label={dialog === 'event' ? 'Nombre del evento' : 'Nombre de la pantalla'} submitLabel={dialog === 'event' ? 'Crear evento' : 'Vincular'} onClose={() => setDialog(undefined)} onSave={async name => {

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Display, DisplayGroup, MediaAsset, Playlist } from '../api/client'
-import { activateScene, captureScene, deleteScene, duplicateScene, getScenes, getSceneSessions, prepareScene, restoreScene, saveScene, type Scene, type SceneSession } from '../api/scenes'
+import { activateScene, captureScene, deleteScene, duplicateScene, getScenes, getSceneSessions, prepareScene, restoreScene, saveScene, type Scene, type SceneAssignment, type SceneSession } from '../api/scenes'
 import { Dialog } from './Dialog'
 import { NameDialog } from './NameDialog'
 import { SceneEditor } from './SceneEditor'
 import { ScenePreview } from './ScenePreview'
-import { sceneDestinations, sceneStatus } from './sceneView'
+import { assignmentSummary, returnLabel, sceneDestinations, sceneStatus } from './sceneView'
 import { DisplayName, DisplayNames } from './DisplayName'
 import { displayPresence, sortByConnection } from './displayPresence'
 
@@ -25,7 +25,8 @@ export function ScenesPanel({ eventId, displays, groups, media, playlists, onCha
   const [snapshotName, setSnapshotName] = useState('')
   const [snapshotIds, setSnapshotIds] = useState<string[]>([])
   const [preview, setPreview] = useState<Scene>()
-  const [policies, setPolicies] = useState<Record<string, 'all' | 'available'>>({})
+  const [phase, setPhase] = useState('')
+  const [offer, setOffer] = useState<{ sceneId: string; preparationId: string; ready: number; missing: string[] }>()
   const orderedDisplays = sortByConnection(displays, display => display.status)
   const requestRevision = useRef(0)
   async function refresh() {
@@ -59,9 +60,39 @@ export function ScenesPanel({ eventId, displays, groups, media, playlists, onCha
     catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo completar la acción.') }
     finally { setBusy('') }
   }
+  const readyTargets = (session: SceneSession) => session.targets.filter(target => ['ready', 'network'].includes(target.status))
+  // One button for the operator: the server needs a current preparation, so verify the screens first and activate as soon as they answer.
+  async function activateNow(scene: Scene, reusable: SceneSession | undefined, total: number) {
+    if (busy) return
+    setBusy(`activate:${scene.id}`); setError(''); setFeedback(''); setOffer(undefined)
+    try {
+      let preparation = reusable && readyTargets(reusable).length === total ? reusable : undefined
+      if (!preparation) {
+        setPhase('Preparando pantallas…')
+        const started = await prepareScene(eventId, scene)
+        preparation = started
+        const deadline = Date.now() + 20000
+        while (preparation.targets.some(target => target.status === 'pending') && Date.now() < deadline) {
+          await new Promise(resolve => window.setTimeout(resolve, 600))
+          preparation = (await getSceneSessions(eventId)).find(item => item.id === started.id) ?? preparation
+        }
+      }
+      const ready = readyTargets(preparation)
+      if (!ready.length) throw new Error('Ninguna pantalla quedó lista para esta escena. Revisá que estén conectadas y volvé a intentar.')
+      if (ready.length < preparation.targets.length) {
+        setOffer({ sceneId: scene.id, preparationId: preparation.id, ready: ready.length, missing: preparation.targets.filter(target => !ready.includes(target)).map(target => target.displayName) })
+      } else {
+        setPhase('Activando…')
+        await activateScene(eventId, scene, 'all', preparation.id)
+        setFeedback(`«${scene.name}» activada. Confirmá el resultado de cada pantalla en su tarjeta.`)
+      }
+      await refresh(); await onChanged()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo activar la escena.'); await refresh() }
+    finally { setBusy(''); setPhase('') }
+  }
   const latest = (scene: Scene, kind: SceneSession['kind']) => sessions.filter(item => item.sceneId === scene.id && item.kind === kind).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
   return <section className="scenes-panel">
-    <div className="workspace-heading"><div><p className="eyebrow">PREPARÁ EL SIGUIENTE MOMENTO</p><h2>Escenas</h2><p>Guardá una configuración, prepará sus recursos y activala con destinos claros.</p></div><div className="button-row"><button disabled={!eventId || displays.length === 0} onClick={() => setSnapshot(true)}>Guardar configuración actual</button><button className="workspace-primary" disabled={!eventId} onClick={() => setEditor('new')}>Crear escena</button></div></div>
+    <div className="workspace-heading"><div><h2>Escenas</h2><p>Cada escena es un momento del evento: qué se ve y en qué pantallas. Activala con un botón.</p></div><div className="button-row"><button disabled={!eventId || displays.length === 0} onClick={() => setSnapshot(true)}>Guardar configuración actual</button><button className="workspace-primary" disabled={!eventId} onClick={() => setEditor('new')}>Crear escena</button></div></div>
     {loading && <p role="status">Cargando escenas…</p>}{loadError && <p className="workspace-error" role="alert">Escenas desactualizadas: {loadError} <button onClick={() => void refresh()}>Reintentar</button></p>}{error && <p className="workspace-error" role="alert">{error}</p>}{feedback && <p className="workspace-feedback" role="status">{feedback}</p>}
     {!loading && !loadError && scenes.length === 0 && <div className="workspace-empty playlist-empty"><span aria-hidden="true">▧</span><strong>Un momento, varias pantallas.</strong><p>Prepará la bienvenida, el sorteo o el cierre del evento con un contenido distinto para cada destino.</p><button disabled={!eventId} onClick={() => setEditor('new')}>Crear primera escena</button></div>}
     <div className="scene-grid">{scenes.map(scene => {
@@ -70,46 +101,56 @@ export function ScenesPanel({ eventId, displays, groups, media, playlists, onCha
       const activation = latest(scene, 'activate')
       const previousActivations = sessions.filter(item => item.sceneId === scene.id && item.kind === 'activate' && item.id !== activation?.id)
       const currentPreparation = preparation?.version === scene.version ? preparation : undefined
-      const policy = policies[scene.id] ?? 'all'
       const valid = resolved.destinations.length > 0 && resolved.conflicts.length === 0 && resolved.missing.length === 0
       const readyCount = currentPreparation?.targets.filter(target => target.status === 'ready').length ?? 0
       const networkCount = currentPreparation?.targets.filter(target => target.status === 'network').length ?? 0
       const availableIds = new Set(currentPreparation?.targets.filter(target => ['ready', 'network'].includes(target.status)).map(target => target.displayId))
-      const activationCount = policy === 'available' ? resolved.destinations.filter(item => availableIds.has(item.display.id)).length : resolved.destinations.length
-      const excludedDisplays = policy === 'available' ? resolved.destinations.filter(item => !availableIds.has(item.display.id)).map(item => item.display) : []
-      const canActivate = valid && (policy === 'all' ? resolved.destinations.every(item => availableIds.has(item.display.id)) : resolved.destinations.some(item => availableIds.has(item.display.id)))
+      const total = resolved.destinations.length
       const failed = activation?.targets.filter(target => ['error', 'timeout', 'offline', 'skipped'].includes(target.status)).map(target => target.displayId) ?? []
-      const status = activation?.version === scene.version && activation.status === 'active' ? 'Activa' : currentPreparation ? sceneStatus(currentPreparation.status) : preparation ? 'Cambios pendientes de preparar' : 'Guardada'
+      // Activating consumes the preparation: the server marks its targets as superseded.
+      // Show the activation result instead of presenting that as a failed preparation.
+      const consumed = !!currentPreparation && activation?.version === scene.version && Date.parse(activation.createdAt) >= Date.parse(currentPreparation.createdAt)
+      // Another scene or a manual action took over every screen: this one is simply no longer on air.
+      const replaced = !!activation && activation.targets.length > 0 && activation.targets.every(target => target.status === 'superseded')
+      const status = activation?.version === scene.version && activation.status === 'active' ? 'Activa' : replaced ? 'Guardada' : consumed ? sceneStatus(activation!.status) : currentPreparation ? sceneStatus(currentPreparation.status) : preparation ? 'Cambios pendientes de preparar' : 'Guardada'
+      const blocks = new Map<SceneAssignment, Display[]>()
+      for (const item of resolved.destinations) blocks.set(item.assignment, [...(blocks.get(item.assignment) ?? []), item.display])
+      const activating = busy === `activate:${scene.id}`
+      const sceneOffer = offer?.sceneId === scene.id ? offer : undefined
       return <article className="card scene-card" key={scene.id}>
-        <div className="display-heading"><h3>{scene.name}</h3><span className="state-tag">{status}</span></div>
-        <p className="muted">Versión {scene.version} · {resolved.destinations.length} {resolved.destinations.length === 1 ? 'pantalla' : 'pantallas'}{scene.temporaryDurationSeconds ? ` · Retorno en ${scene.temporaryDurationSeconds} s` : ''}</p>
-        <p className="scene-destinations">{resolved.destinations.length ? <DisplayNames displays={resolved.destinations.map(item => item.display)} /> : 'Borrador sin destinos'}</p>
-        <button disabled={!valid || !!loadError} onClick={() => onSchedule(scene.id)}>Programar por fecha y hora</button>
+        <div className="scene-card-top">
+          {resolved.destinations[0] && <div className="scene-card-thumb" aria-hidden="true"><ScenePreview compact assignment={resolved.destinations[0].assignment} media={media} playlists={playlists} /></div>}
+          <div className="scene-card-info">
+            <div className="display-heading"><h3>{scene.name}</h3><span className="state-tag">{status}</span></div>
+            {blocks.size ? <ul className="scene-summary">{[...blocks].map(([assignment, blockDisplays], index) => <li key={index}><DisplayNames displays={blockDisplays} /><span>{assignmentSummary(assignment, media, playlists)}</span></li>)}</ul>
+              : <p className="muted">Borrador sin pantallas. Editala para elegir dónde y qué mostrar.</p>}
+            {!!scene.temporaryDurationSeconds && <small className="muted">Vuelve sola a lo anterior a los {returnLabel(scene.temporaryDurationSeconds)}.</small>}
+          </div>
+        </div>
         {!!resolved.conflicts.length && <p className="workspace-error">Destinos con asignaciones incompatibles: {resolved.conflicts.join(', ')}</p>}{!!resolved.missing.length && <p className="workspace-error">Hay destinos que ya no existen. Editá la escena.</p>}
-        <div className="button-row"><button disabled={!!busy} onClick={() => setEditor(scene)}>Editar</button><button onClick={() => setPreview(scene)}>Previsualizar por destino</button><button disabled={!!busy} onClick={() => setRename(scene)}>Renombrar</button><button disabled={!!busy} onClick={() => void action(`duplicate:${scene.id}`, () => duplicateScene(eventId, scene.id), 'Copia guardada. Las pantallas siguen igual.')}>Duplicar</button><button className="danger-button" disabled={!!busy} onClick={() => setRemove(scene)}>Eliminar</button></div>
-        <div className="scene-stage"><div className="section-heading"><strong>1. Preparar</strong><button disabled={!!busy || !valid || !!loadError} onClick={() => void action(`prepare:${scene.id}`, () => prepareScene(eventId, scene), 'Preparación enviada. Esperando resultados por pantalla.')}>{busy === `prepare:${scene.id}` ? 'Enviando…' : 'Preparar recursos'}</button></div><p className="workspace-help">Continúa la emisión actual. La preparación no activa anuncios ni inicia cuentas regresivas.</p>
-          {currentPreparation && <><p>{readyCount} de {currentPreparation.targets.length} {currentPreparation.targets.length === 1 ? 'lista' : 'listas'} en caché{networkCount > 0 ? ` · ${networkCount} ${networkCount === 1 ? 'disponible' : 'disponibles'} por red` : ''}</p><SessionResults session={currentPreparation} displays={displays} /></>}
-        </div>
-        <div className="scene-stage"><strong>2. Activar</strong><label className="workspace-field">Si falta alguna pantalla<select value={policy} onChange={event => setPolicies(current => ({ ...current, [scene.id]: event.target.value as 'all' | 'available' }))}><option value="all">Esperar a que estén todas disponibles</option><option value="available">Activar solo las disponibles y listar las excluidas</option></select></label>
-          <p className="workspace-help">{scene.assignments.some(item => item.media.state || item.media.resumePositionSeconds) ? 'La configuración capturada conserva su posición y estado de pausa.' : 'El contenido reemplazado comienza desde el inicio.'} La web requiere red. Inicio coordinado, sin garantía cuadro a cuadro.</p>
-          {!canActivate && valid && <small className="muted">{currentPreparation ? 'Faltan destinos disponibles para la política elegida. Prepará de nuevo o elegí activar solo las disponibles.' : 'Prepará esta versión para habilitar la activación.'}</small>}
-          {excludedDisplays.length > 0 && <p className="workspace-help">Quedan fuera de esta activación: <DisplayNames displays={excludedDisplays} />.</p>}
-          <button className="workspace-primary scene-activate" disabled={!!busy || !canActivate || !!loadError} onClick={() => void action(`activate:${scene.id}`, () => activateScene(eventId, scene, policy, currentPreparation?.id), 'Activación enviada. Confirmá el resultado de cada pantalla abajo.')}>{busy === `activate:${scene.id}` ? 'Activando…' : `Activar ${scene.name} en ${activationCount} ${activationCount === 1 ? 'pantalla' : 'pantallas'}`}</button>
-          {activation && <>
-            <p>Versión {activation.version} · {sceneStatus(activation.status)}</p>
-            <SessionResults session={activation} displays={displays} />
-            {activation.expiresAt && <small>Retorno previsto: {new Date(activation.expiresAt).toLocaleTimeString()}</small>}
-            <div className="button-row">
-              {failed.length > 0 && <>
-                <button disabled={!!busy || !valid || !!loadError || activation.version !== scene.version} onClick={() => void action(`prepare-failed:${scene.id}`, () => prepareScene(eventId, scene, failed), 'Verificando nuevamente los destinos pendientes.')}>Preparar pantallas pendientes</button>
-                <button disabled={!!busy || !valid || !!loadError || activation.version !== scene.version || !currentPreparation || (policy === 'all' ? failed.some(id => !availableIds.has(id)) : !failed.some(id => availableIds.has(id)))} onClick={() => void action(`retry:${scene.id}`, () => activateScene(eventId, scene, policy, currentPreparation?.id, failed), 'Reintento enviado únicamente a las pantallas indicadas.')}>Reintentar {failed.length} pantallas pendientes</button>
-              </>}
-              {activation.targets.some(target => ['applied', 'pending', 'timeout', 'error'].includes(target.status)) && <button disabled={!!busy} onClick={() => void action(`restore:${scene.id}`, () => restoreScene(activation.id), 'Retorno solicitado. Las acciones posteriores del operador tienen prioridad.')}>Volver a la configuración anterior</button>}
-            </div>
-          </>}
-        </div>
-        {previousActivations.length > 0 && <details><summary>Activaciones anteriores y retornos ({previousActivations.length})</summary>{previousActivations.map(session => <div className="scene-stage" key={session.id}><p>Versión {session.version} · {new Date(session.createdAt).toLocaleTimeString()} · {sceneStatus(session.status)}</p><SessionResults session={session} displays={displays} />{session.targets.some(target => ['applied', 'pending', 'timeout', 'error'].includes(target.status)) && <button disabled={!!busy} onClick={() => void action(`restore:${session.id}`, () => restoreScene(session.id), 'Retorno solicitado para los destinos de esa activación.')}>Restaurar destinos de esta activación</button>}</div>)}</details>}
-        <details><summary>Cómo funciona el retorno</summary><p className="workspace-help">Los anuncios permiten que el fondo siga reproduciéndose. Una página web reemplaza la multimedia y la detiene. Al volver de la escena, el contenido anterior se restaura desde su posición guardada; si estaba pausado, continúa pausado. El retorno solo afecta a las pantallas de esta activación y respeta decisiones manuales posteriores.</p></details>
+        <button className="workspace-primary scene-activate" disabled={!!busy || !valid || !!loadError} onClick={() => void activateNow(scene, consumed ? undefined : currentPreparation, total)}>{activating ? phase || 'Activando…' : `Activar ${scene.name} en ${total} ${total === 1 ? 'pantalla' : 'pantallas'}`}</button>
+        {sceneOffer && <div className="scene-offer" role="alert"><p><strong>{sceneOffer.ready} de {total} pantallas están listas.</strong> No están disponibles: {sceneOffer.missing.join(', ')}.</p><div className="button-row"><button className="workspace-primary" disabled={!!busy} onClick={() => void action(`activate:${scene.id}`, async () => { await activateScene(eventId, scene, 'available', sceneOffer.preparationId); setOffer(undefined) }, 'Activación enviada a las pantallas listas.')}>Activar solo en {sceneOffer.ready === 1 ? 'la pantalla lista' : `las ${sceneOffer.ready} listas`}</button><button disabled={!!busy} onClick={() => setOffer(undefined)}>Cancelar</button></div></div>}
+        {activation && replaced && <p className="scene-stage-title">Última activación · {new Date(activation.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · después se mostró otro contenido en sus pantallas.</p>}
+        {activation && !replaced && <div className="scene-stage">
+          <p className="scene-stage-title">Última activación · {new Date(activation.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {sceneStatus(activation.status)}{activation.version !== scene.version ? ` · versión ${activation.version}` : ''}</p>
+          <SessionResults session={activation} displays={displays} />
+          {activation.expiresAt && <small>Retorno previsto: {new Date(activation.expiresAt).toLocaleTimeString()}</small>}
+          <div className="button-row">
+            {failed.length > 0 && <>
+              <button disabled={!!busy || !valid || !!loadError || activation.version !== scene.version} onClick={() => void action(`prepare-failed:${scene.id}`, () => prepareScene(eventId, scene, failed), 'Verificando nuevamente los destinos pendientes.')}>Preparar pantallas pendientes</button>
+              <button disabled={!!busy || !valid || !!loadError || activation.version !== scene.version || !currentPreparation || consumed || !failed.some(id => availableIds.has(id))} onClick={() => void action(`retry:${scene.id}`, () => activateScene(eventId, scene, 'available', currentPreparation?.id, failed), 'Reintento enviado únicamente a las pantallas indicadas.')}>Reintentar {failed.length === 1 ? 'la pantalla pendiente' : `las ${failed.length} pantallas pendientes`}</button>
+            </>}
+            {activation.targets.some(target => ['applied', 'pending', 'timeout', 'error'].includes(target.status)) && <button disabled={!!busy} onClick={() => void action(`restore:${scene.id}`, () => restoreScene(activation.id), 'Retorno solicitado. Las acciones posteriores del operador tienen prioridad.')}>Volver a la configuración anterior</button>}
+          </div>
+        </div>}
+        <div className="button-row scene-secondary"><button disabled={!!busy} onClick={() => setEditor(scene)}>Editar</button><button disabled={!valid || !!loadError} onClick={() => onSchedule(scene.id)}>Programar por fecha y hora</button><button onClick={() => setPreview(scene)}>Previsualizar por destino</button><button disabled={!!busy || !valid || !!loadError} title="Opcional: descarga el contenido en las pantallas antes del momento, sin cambiar lo que muestran." onClick={() => void action(`prepare:${scene.id}`, () => prepareScene(eventId, scene), 'Preparación enviada. Esperando resultados por pantalla.')}>{busy === `prepare:${scene.id}` ? 'Enviando…' : 'Preparar recursos'}</button></div>
+        {currentPreparation && !consumed && <div className="scene-stage"><p className="scene-stage-title">Preparación · {readyCount} de {currentPreparation.targets.length} {currentPreparation.targets.length === 1 ? 'lista' : 'listas'} en caché{networkCount > 0 ? ` · ${networkCount} ${networkCount === 1 ? 'disponible' : 'disponibles'} por red` : ''}</p><SessionResults session={currentPreparation} displays={displays} /></div>}
+        <details className="scene-more"><summary>Más · duplicar, renombrar, eliminar e historial</summary>
+          <div className="button-row"><button disabled={!!busy} onClick={() => void action(`duplicate:${scene.id}`, () => duplicateScene(eventId, scene.id), 'Copia guardada. Las pantallas siguen igual.')}>Duplicar</button><button disabled={!!busy} onClick={() => setRename(scene)}>Renombrar</button><button className="danger-button" disabled={!!busy} onClick={() => setRemove(scene)}>Eliminar</button></div>
+          {previousActivations.length > 0 && <><p className="scene-stage-title">Activaciones anteriores y retornos ({previousActivations.length})</p>{previousActivations.map(session => <div className="scene-stage" key={session.id}><p>Versión {session.version} · {new Date(session.createdAt).toLocaleTimeString()} · {sceneStatus(session.status)}</p><SessionResults session={session} displays={displays} />{session.targets.some(target => ['applied', 'pending', 'timeout', 'error'].includes(target.status)) && <button disabled={!!busy} onClick={() => void action(`restore:${session.id}`, () => restoreScene(session.id), 'Retorno solicitado para los destinos de esa activación.')}>Restaurar destinos de esta activación</button>}</div>)}</>}
+          <p className="workspace-help">Activar verifica primero que las pantallas tengan el contenido y lo muestra de forma coordinada, sin garantía cuadro a cuadro. «Preparar recursos» permite adelantar esa verificación; vence a los 15 minutos. {scene.assignments.some(item => item.media.state || item.media.resumePositionSeconds) ? 'La configuración capturada conserva su posición y estado de pausa.' : 'El contenido reemplazado comienza desde el inicio.'} Versión {scene.version}.</p>
+          <p className="workspace-help">Al volver de la escena, el contenido anterior se restaura desde su posición guardada; si estaba pausado, continúa pausado. Los anuncios dejan seguir el fondo; una página web detiene la multimedia. El retorno solo afecta a las pantallas de esta activación y respeta decisiones manuales posteriores.</p>
+        </details>
       </article>
     })}</div>
     {editor && <SceneEditor eventId={eventId} scene={editor === 'new' ? undefined : editor} displays={displays} groups={groups} media={media} playlists={playlists} onClose={() => setEditor(undefined)} onSaved={scene => { setEditor(undefined); setScenes(items => [...items.filter(item => item.id !== scene.id), scene]); setFeedback(`«${scene.name}» guardada, versión ${scene.version}. La emisión no cambió.`); void refresh() }} />}
